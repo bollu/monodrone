@@ -35,7 +35,7 @@ fn cargo_add_leanc_Libpath() {
 
 fn cago_add_leanc_libnames() {
     // Add additional library search path
-    println!("cargo:rustc-link-search=native=/Users/bollu/.elan/toolchains/leanprover--lean4---nightly/lib/lean");
+    // println!("cargo:rustc-link-search=native=/Users/bollu/.elan/toolchains/leanprover--lean4---nightly/lib/lean");
 
     // Link against the specified libraries
     println!("cargo:rustc-link-lib=static=leancpp");
