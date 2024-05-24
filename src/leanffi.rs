@@ -12,3 +12,15 @@ pub fn lean_box (val : usize) -> *mut boxed {
         std::mem::transmute(out)
     }
 }
+
+extern {
+    // see https://leanprover.github.io/lean4/doc/dev/ffi.html#initialization
+    // extern void lean_initialize_runtime_module();
+    pub fn lean_initialize_runtime_module ();
+
+    // extern void lean_initialize();
+    pub fn lean_initialize ();
+
+    // extern void lean_io_mark_end_initialization();
+    pub fn lean_io_mark_end_initialization ();
+}

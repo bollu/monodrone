@@ -12,15 +12,15 @@ use tracing::{event, Level};
 
 mod monodroneffi;
 mod leanffi;
-// 
+//
 // #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 // enum NoteEvent {
 //     Rest, // a rest, play nothing
 //     Continue, // continue playing the previous note, and end if it is followed by a rest, and continue if it is followed by a continue,
 //     Trigger, // trigger a new note.
 // }
-// 
-// 
+//
+//
 // // deriving eq, partialeq, hash, and clone for the Pitch struct.
 // #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 // struct Pitch {
@@ -59,17 +59,17 @@ mod leanffi;
 //     }
 // }
 // const MAX_SEQUENCER_LENGTH : usize = 1024;
-// 
-// 
+//
+//
 // // a point is a pair of a pitch and an index into the sequencer at that pitch.
 // type Point = (Pitch, usize);
-// 
+//
 // #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 // struct Cursor {
 //     mark : Point, // location that user marked when starting to drag.
 //     cur : Point // location that user is dragging around
 // }
-// 
+//
 // impl Cursor {
 //     fn point (p : Point) -> Cursor {
 //         Cursor {
@@ -78,9 +78,9 @@ mod leanffi;
 //         }
 //     }
 // }
-// 
+//
 // type Cursors = Vec<Cursor>;
-// 
+//
 // // logical state of the sequencer.
 // struct SequencerLogic {
 //     pitch2ix2event : HashMap<Pitch, [NoteEvent; MAX_SEQUENCER_LENGTH]>,
@@ -88,12 +88,12 @@ mod leanffi;
 //     breaks : HashSet<usize>, // locations of breaks in the sequencer.
 //     cursors : Cursors,
 // }
-// 
+//
 // impl SequencerLogic {
 //     fn new() -> SequencerLogic {
 //         let mut pitches = HashMap::new();
 //         pitches.insert(Pitch::middleC(), [NoteEvent::Rest; MAX_SEQUENCER_LENGTH]);
-// 
+//
 //         // we always start with middle C
 //         SequencerLogic {
 //             pitch2ix2event : pitches,
@@ -102,7 +102,7 @@ mod leanffi;
 //             cursors : vec!(Cursor::point((Pitch::middleC(), 0)))
 //         }
 //     }
-//     
+//
 //     fn add_event(&mut self, pitch: Pitch, ix: usize, event: NoteEvent) {
 //         if ix >= MAX_SEQUENCER_LENGTH {
 //             panic!("Sequencer length exceeded");
@@ -126,7 +126,7 @@ mod leanffi;
 //         // if pitch exists, then return the event, otherwise return a rest.
 //         self.pitch2ix2event.get(&pitch).map_or(NoteEvent::Rest, |events| events[ix])
 //     }
-// 
+//
 // }
 
 // struct SequencerRender {
@@ -161,7 +161,7 @@ mod material {
 
 fn main() -> Result<(), eframe::Error> {
 
-    // tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt().init();
     let _ = tracing::subscriber::set_global_default(
         tracing_subscriber::registry()
         .with(tracing_tracy::TracyLayer::default()));
@@ -171,19 +171,26 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
+    event!(Level::INFO, "initializing lean runtime module");
+
+    unsafe { leanffi::lean_initialize_runtime_module() };
+
     event!(Level::INFO, "initializing monodrone");
-    
+
     monodroneffi::initialize();
+
+    event!(Level::INFO, "done with Lean initialization. Marking end of initialization.");
+    unsafe { leanffi::lean_io_mark_end_initialization(); }
 
     event!(Level::INFO, "creating context");
 
-    let ctx = unsafe { monodroneffi::new_context() }; 
+    let ctx = unsafe { monodroneffi::new_context() };
     // let app_state : AppState = AppState {
     //     sequencerLogic : SequencerLogic::new(),
     //     sequencerRender : SequencerRender::new(),
     // };
-    
-    event!(Level::INFO, "num intervals {}", 
+
+    event!(Level::INFO, "num intervals {}",
         unsafe { monodroneffi::monodrone_context_num_pitches(ctx) });
 
     event!(Level::INFO, "Starting up");

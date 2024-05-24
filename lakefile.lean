@@ -2,7 +2,6 @@ import Lake
 import Lake.Build.Library
 open Lake DSL
 
-
 partial def Lake.LeanLib.collectAllModulesForFatlib (self : LeanLib) : FetchM (Array Module) := do
   let mut mods := #[]
   let mut modSet := ModuleSet.empty
@@ -29,7 +28,7 @@ where
 @[specialize] protected def LeanLib.buildFatStatic
 (self : LeanLib) : FetchM (BuildJob FilePath) := do
   withRegisterJob s!"{self.name}:fatStatic" do
-  let mods := (← self.collectAllModulesForFatlib) ++ (← self.modules.fetch)
+  let mods := (← self.collectAllModulesForFatlib)
   -- trace s!"{self.name}:static{suffix} modules: {mods.map (·.name)}"
   let oJobs ← mods.concatMapM fun mod =>
     mod.nativeFacets (shouldExport := true) |>.mapM fun facet => fetch <| mod.facet facet.name
@@ -41,9 +40,7 @@ where
 library_facet fatStatic (lib : LeanLib) : FilePath :=
   LeanLib.buildFatStatic lib
 
-
 package «Monodrone» where
-  -- add package configuration options here
 
 @[default_target]
 lean_lib «Monodrone» where

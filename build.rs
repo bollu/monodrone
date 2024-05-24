@@ -50,7 +50,9 @@ fn cago_add_leanc_libnames() {
 fn main() {
     
     // Use the `cc` crate to build a C file and statically link it.
-    println!("cargo::rerun-if-changed=libmonodrone/");
+    println!("cargo::rerun-if-changed=lakefile.lean");
+    println!("cargo::rerun-if-changed=Monodrone/");
+    println!("cargo::rerun-if-changed=Monodrone.lean");
 
     cargo_add_leanc_Libpath();
     cago_add_leanc_libnames();
