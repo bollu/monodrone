@@ -11,6 +11,7 @@ use tracing::{event, Level};
 
 
 mod monodroneffi;
+mod leanffi;
 // 
 // #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 // enum NoteEvent {

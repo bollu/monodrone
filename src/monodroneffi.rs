@@ -1,3 +1,5 @@
+use crate::leanffi;
+
 #[repr(C)]
 pub struct MonodroneContext {
     _data: [u8; 0],
@@ -7,5 +9,9 @@ pub struct MonodroneContext {
 
 #[link(name = "Monodrone")]
 extern {
-    pub fn new_context() -> *mut MonodroneContext;
+    fn monodrone_new_context(val : *mut leanffi::boxed) -> *mut MonodroneContext;
+}
+
+pub fn new_context() -> *mut MonodroneContext {
+    unsafe { monodrone_new_context(leanffi::lean_box(0)) }
 }
