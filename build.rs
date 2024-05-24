@@ -56,15 +56,15 @@ fn main() {
     cago_add_leanc_libnames();
 
     let monodrone_dir = "./";
-    let lib_path = format!("{}/.lake/build/lib/libMonodrone.a", monodrone_dir);
     let status = Command::new("lake")
         .arg("build")
+        .arg("Monodrone:fatStatic")
         .current_dir(monodrone_dir)
         .status()
-         .expect("Failed to execute lake build");
+        .expect("Failed to execute lake build");
     // Link against the library
     println!("cargo:rustc-link-search=native={}/.lake/build/lib", monodrone_dir);
-    println!("cargo:rustc-link-lib=static=Monodrone");
+    println!("cargo:rustc-link-lib=static=MonodroneFat");
     
 }
 

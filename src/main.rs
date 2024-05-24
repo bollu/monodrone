@@ -160,12 +160,6 @@ mod material {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    let _monodrone_ctx = unsafe { monodroneffi::new_context(); }; 
-    // let app_state : AppState = AppState {
-    //     sequencerLogic : SequencerLogic::new(),
-    //     sequencerRender : SequencerRender::new(),
-    // };
-
 
     // tracing_subscriber::fmt().init();
     let _ = tracing::subscriber::set_global_default(
@@ -176,7 +170,22 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
         ..Default::default()
     };
+
+    event!(Level::INFO, "initializing monodrone");
     
+    monodroneffi::initialize();
+
+    event!(Level::INFO, "creating context");
+
+    let ctx = unsafe { monodroneffi::new_context() }; 
+    // let app_state : AppState = AppState {
+    //     sequencerLogic : SequencerLogic::new(),
+    //     sequencerRender : SequencerRender::new(),
+    // };
+    
+    event!(Level::INFO, "num intervals {}", 
+        unsafe { monodroneffi::monodrone_context_num_pitches(ctx) });
+
     event!(Level::INFO, "Starting up");
 
     // Our application state:
