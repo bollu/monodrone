@@ -7,4 +7,3 @@ package «Monodrone» where
 @[default_target]
 lean_lib «Monodrone» where
   defaultFacets := #[LeanLib.staticFacet]
-
