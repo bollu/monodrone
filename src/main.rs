@@ -2,13 +2,13 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::{egui};
-use egui::{ahash::{HashSet, HashSetExt}, Pos2, Rect};
+use egui::{ahash::{HashSetExt}};
 
 
-use debug_panic::debug_panic;
+
 use tracing_subscriber::layer::SubscriberExt;
 use tracing::{event, Level};
-use std::collections::HashMap;
+
 
 mod monodroneffi;
 // 
@@ -159,7 +159,7 @@ mod material {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    let mut monodrone_ctx = unsafe { monodroneffi::new_context(); }; 
+    let _monodrone_ctx = unsafe { monodroneffi::new_context(); }; 
     // let app_state : AppState = AppState {
     //     sequencerLogic : SequencerLogic::new(),
     //     sequencerRender : SequencerRender::new(),
