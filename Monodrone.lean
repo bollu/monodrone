@@ -2,104 +2,118 @@ import Lean
 import Mathlib.Order.Interval.Basic
 -- import Mathlib.Order.Disjoint
 import Batteries.Data.RBMap
+import Mathlib.Data.List.Sort
 open Lean
+open Batteries
 
-def foo : Interval Nat := ⊥
+/-
+Step: The smallest unit of time in a sequencer. Each step can be assigned a sound.
+Pattern: A sequence of steps forming a repeating musical phrase or loop.
+Track: A sequence lane dedicated to a specific drum sound or instrument.
+-/
 
-/-! A pitch is represented by the MIDI sequence. -/
-abbrev Pitch : Type := Nat
+/-- A pitch represented by the MIDI pitch value. -/
+structure Pitch where
+  pitch : UInt32
+deriving Inhabited, DecidableEq, Repr
 
-/-! A note is a pitch and a duration.
-  Note that these intervals maybe empty -/
-structure I where
+def Pitch.middleC : Pitch := { pitch := 60 }
+def Pitch.raiseSemitone (p : Pitch) : Pitch := { pitch := p.pitch + 1 }
+def Pitch.lowerSemitone (p : Pitch) : Pitch := { pitch := p.pitch - 1 }
+def Pitch.raiseWhole (p : Pitch) : Pitch := { pitch := p.pitch + 2 }
+def Pitch.lowerWhole (p : Pitch) : Pitch := { pitch := p.pitch - 2 }
+
+
+/-- A Note with a location. -/
+structure Note where
+  pitch : Pitch
+  /-- The step at which the note starts. -/
   start : Nat
-  length : Nat
+  /-- The duration of the note in steps. -/
+  nsteps : Nat
+  /-- a Note is played for at least one step -/
+  hnsteps : nsteps > 0
+deriving DecidableEq, Repr
 
-def I.compare (i j : I) : Ordering :=
-  if i.start < j.start then Ordering.lt
-  else if i.start > j.start then Ordering.gt
-  else if i.length < j.length then Ordering.lt
-  else if i.length > j.length then Ordering.gt
-  else Ordering.eq
+instance : Inhabited Note where
+  default := { pitch := Pitch.middleC, start := 0, nsteps := 1, hnsteps := by decide }
 
-def I.isDisjoint (i j : I) : Prop :=
-  i.start + i.length < j.start -- I ends before J starts
-  || j.start + j.length < i.start -- J ends before I starts
+/-- The step when the note plays last. -/
+def Note.end (n : Note) : Nat := n.start + n.nsteps - 1
 
--- TODO: this will not work, each I needs its own sequence number. Cannot directly reuse mathlib.
-/-! A sequence for a pitcj, which consists of intervals when notes are being played. -/
-structure PitchSequence where
-  intervals : List I
-deriving Inhabited
+def Note.overlaps (n1 n2 : Note) : Prop := n1.start < n2.end && n2.start < n1.end
 
-/-- Invariants for a `PitchSequence` that ought to hold. -/
-structure IsGoodTrack (r : PitchSequence) : Prop where
-  /-- at least one interval must not be bottom -/
-  nontrvial : ∃ (i : I), i ∈ r.intervals ∧ i.length > 0
-  /-- all intervals in a track must be pairwise disjoint. -/
-  intervalsDisjoint : ∀ (i j : I), i ∈ r.intervals → j ∈ r.intervals → i ≠ j →
-     i.isDisjoint j
+def Note.disjoint (n1 n2 : Note) : Prop := n1.end < n2.start || n2.end < n1.start
 
-abbrev Track := { r : PitchSequence // IsGoodTrack r }
+def Note.compare (n1 n2 : Note) : Ordering :=
+  if n1.start < n2.start then Ordering.lt
+  else if n1.start = n2.start then
+    if n1.end < n2.end then Ordering.lt
+    else if n2.end < n1.end then Ordering.gt
+    else Ordering.eq
+  else
+    Ordering.gt
 
-def PitchSequence.new : PitchSequence := { intervals := [I.mk 0 1] : PitchSequence }
+instance : LT Note where
+  lt n1 n2 := Note.compare n1 n2 = Ordering.lt
 
-theorem PitchSequence.new.invariants : IsGoodTrack PitchSequence.new := {
-  nontrvial := by
-    simp [PitchSequence.new]
-  intervalsDisjoint := by
-    simp [PitchSequence.new]
-}
+/-- A track is a list of located notes, with all notes disjoint. -/
+structure Track where
+  notes : List Note
+  /-- The notes are disjoint. -/
+  hdisjoint : notes.Pairwise Note.disjoint
+  /-- The notes are sorted -/
+  hsorted : notes.Sorted (· < ·)
 
-def Track.new : Track := ⟨PitchSequence.new, PitchSequence.new.invariants⟩
+deriving DecidableEq, Repr
 
-def PitchSequence.length (t : PitchSequence) : Nat :=
-  Nat.max 1 (t.intervals.map I.length |>.foldl Nat.max 1)
+def Track.empty : Track := { notes := [], hdisjoint := by simp, hsorted := by simp }
+
+instance : Inhabited Track where
+  default := Track.empty
 
 structure RawContext where
-  sequencer : RBMap Pitch PitchSequence Nat.instLinearOrder.compare
+  tracks : Track
 
-structure GoodContext (r : RawContext) : Prop where
-  atLeastOnePitchTrack : r.sequencer.size > 0
+structure LawfulRawContext extends RawContext where
 
-def RawContext.getSequenceForPitch (c : RawContext) (n : Nat) : Pitch × PitchSequence :=
-  (c.sequencer.toList.get! n) -- TODO: write this differently.
-
-def RawContext.new : RawContext := {
-    sequencer := RBMap.empty.insert 0 Track.new.val
+def RawContext.empty : RawContext := {
+    tracks := Track.empty
 }
-theorem RawContext.new.invariants : GoodContext RawContext.new := {
-  atLeastOnePitchTrack := by decide
+
+def LawfulRawContext.empty : LawfulRawContext := {
+    tracks := Track.empty
 }
+
+namespace ffi
+/-!
+
+#### C FFI
+
+We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__object_8h.html) naming conventions:
+
+- `monodrone_` prefix
+- `object_<type>_length` to count the number of elements in an object of type <type>
+- `object_get_<type>` to get an element of type <type>
+-/
 
 @[export monodrone_new_context]
-def newContext (_ : Unit) : RawContext := RawContext.new
+def newContext (_ : Unit) : LawfulRawContext := LawfulRawContext.empty
 
--- number of tracks in the context.
-@[export monodrone_context_num_pitches]
-def context_num_pitches (c : @&RawContext) : UInt32 :=
-  c.sequencer.size.toUInt32
+@[export monodrone_track_length]
+def trackLength (ctx : @&RawContext) : Nat := ctx.tracks.notes.length
 
--- get the value of a pitch in the context.
-def context_pitch_get (c : RawContext) (pitchix : UInt32) : UInt32 :=
-  let pitch := c.getSequenceForPitch pitchix.toNat |>.fst
-  pitch.toUInt32
+@[export monodrone_track_get_note]
+def trackGetNote (ctx : @&RawContext) (ix : UInt32) : Note :=
+  ctx.tracks.notes.get! ix.toNat
 
--- number of intervals for a given pitch
-def context_pitch_get_num_intervals (c : RawContext) (pitchix : UInt32) : UInt32 :=
-  let seq := c.getSequenceForPitch pitchix.toNat |>.snd
-  seq.intervals.length.toUInt32
+@[export monodrone_note_get_pitch]
+def noteGetPitch (n : @&Note) : UInt32 := n.pitch.pitch
 
--- get the start of an interval for a pitch.
-def context_pitch_get_interval_start (c : RawContext) (pitchix : UInt32) (intervalix : UInt32): UInt32  :=
-  let seq := c.getSequenceForPitch pitchix.toNat |>.snd
-  0
-  -- let i : I := seq.intervals.get! intervalix.toNat
-  -- i.fst.toUInt32
+@[export monodrone_note_get_start]
+def noteGetStart (n : @&Note) : UInt32 := n.start.toUInt32
 
--- get the end (inclusive) of an interval for a pitch.
-def context_pitch_get_interval_end (c : RawContext) (pitchix : UInt32) (intervalix : UInt32): UInt32  :=
-  let seq := c.getSequenceForPitch pitchix.toNat |>.snd
-  0
-  -- let i : I := seq.intervals.get! intervalix.toNat
-  -- i.snd.toUInt32
+@[export monodrone_note_get_nsteps]
+def noteGetNsteps (n : @&Note) : UInt32 := n.nsteps.toUInt32
+
+end ffi
