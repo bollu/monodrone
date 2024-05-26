@@ -21,4 +21,13 @@ extern {
     // extern void lean_io_mark_end_initialization();
     pub fn lean_io_mark_end_initialization ();
 
+    // extern "C" LEAN_EXPORT void lean_inc_ref_cold(lean_object * o) {
+    pub fn lean_inc_ref_cold (ptr: *mut boxed);
+}
+
+impl boxed {
+    pub fn inc(ptr : *mut boxed) -> *mut Self{
+        unsafe { lean_inc_ref_cold(ptr) }
+        ptr
+    }
 }

@@ -14,7 +14,8 @@ Track: A sequence lane dedicated to a specific drum sound or instrument.
 
 /-- A pitch represented by the MIDI pitch value. -/
 structure Pitch where
-  pitch : UInt32
+  pitch : UInt64
+  junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr
 
 def Pitch.middleC : Pitch := { pitch := 60 }
@@ -64,6 +65,7 @@ structure Track where
   hdisjoint : notes.Pairwise Note.disjoint
   /-- The notes are sorted -/
   hsorted : notes.Sorted (· < ·)
+  junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
 
 deriving DecidableEq, Repr
 
@@ -73,16 +75,18 @@ instance : Inhabited Track where
   default := Track.empty
 
 structure RawContext where
-  tracks : Track
+  track : Track
+  junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
+deriving Inhabited, DecidableEq, Repr
 
 structure LawfulRawContext extends RawContext where
 
 def RawContext.empty : RawContext := {
-    tracks := Track.empty
+    track := Track.empty
 }
 
 def LawfulRawContext.empty : LawfulRawContext := {
-    tracks := Track.empty
+    track := Track.empty
 }
 
 namespace ffi
@@ -101,19 +105,19 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 def newContext (_ : Unit) : LawfulRawContext := LawfulRawContext.empty
 
 @[export monodrone_track_length]
-def trackLength (ctx : @&RawContext) : Nat := ctx.tracks.notes.length
+def trackLength (ctx : LawfulRawContext) : UInt64 := ctx.track.notes.length.toUInt64
 
 @[export monodrone_track_get_note]
-def trackGetNote (ctx : @&RawContext) (ix : UInt32) : Note :=
-  ctx.tracks.notes.get! ix.toNat
+def trackGetNote (ctx : LawfulRawContext) (ix : UInt64) : Note :=
+  ctx.track.notes.get! ix.toNat
 
 @[export monodrone_note_get_pitch]
-def noteGetPitch (n : @&Note) : UInt32 := n.pitch.pitch
+def noteGetPitch (n : Note) : UInt64 := n.pitch.pitch
 
 @[export monodrone_note_get_start]
-def noteGetStart (n : @&Note) : UInt32 := n.start.toUInt32
+def noteGetStart (n : Note) : UInt64 := n.start.toUInt64
 
 @[export monodrone_note_get_nsteps]
-def noteGetNsteps (n : @&Note) : UInt32 := n.nsteps.toUInt32
+def noteGetNsteps (n : Note) : UInt64 := n.nsteps.toUInt64
 
 end ffi
