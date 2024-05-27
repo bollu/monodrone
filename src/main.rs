@@ -32,25 +32,25 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    event!(Level::INFO, "initializing lean runtime module");
+    unsafe {
+        event!(Level::INFO, "initializing lean runtime module");
+        leanffi::lean_initialize_runtime_module();
 
-    unsafe { leanffi::lean_initialize_runtime_module() };
+        event!(Level::INFO, "initializing monodrone");
+        monodroneffi::initialize();
 
-    event!(Level::INFO, "initializing monodrone");
-
-    monodroneffi::initialize();
-
-    event!(Level::INFO, "done with Lean initialization. Marking end of initialization.");
-    unsafe { leanffi::lean_io_mark_end_initialization(); }
+        event!(Level::INFO, "done with Lean initialization. Marking end of initialization.");
+        leanffi::lean_io_mark_end_initialization();
+    }
 
     event!(Level::INFO, "creating context");
-
-    let monodrone_ctx = unsafe { monodroneffi::new_context() };
+    let monodrone_ctx = monodroneffi::new_context();
+    event!(Level::INFO, "ctx: {:p}", monodrone_ctx);
+    let track = monodroneffi::get_track(monodrone_ctx);
 
     event!(Level::INFO, "Starting up");
 
     eframe::run_simple_native("Monodrone", options, move |ctx, _frame| {
-        let track = monodroneffi::get_track(monodrone_ctx);
 ;        egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 for i in 0..32 {
@@ -62,8 +62,8 @@ fn main() -> Result<(), eframe::Error> {
                             _ => material::RED,
                         };
                         ui.painter().rect_filled(egui::Rect::from_min_size(
-                            egui::Pos2::new((i * (60 + 5)) as f32, 60 as f32), 
-                            egui::vec2(60.0, (60 / 2) as f32 )), 
+                            egui::Pos2::new((i * (60 + 5)) as f32, 60 as f32),
+                            egui::vec2(60.0, (60 / 2) as f32 )),
                             6.0, color);
                     });
                 }

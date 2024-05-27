@@ -65,34 +65,35 @@ structure Track where
   hdisjoint : notes.Pairwise Note.disjoint
   /-- The notes are sorted -/
   hsorted : notes.Sorted (· < ·)
-  junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
+  junk : Unit  -- workaround for https://github.com/leanprover/lean4/issues/4278
 
 deriving DecidableEq, Repr
 
-def Track.empty : Track := { notes := [], hdisjoint := by simp, hsorted := by simp }
+def emptyXX : List Nat := []
+
+def emptyNotes : List Note := []
+
+def Track.empty : Track := { notes := emptyNotes, hdisjoint := by simp [emptyNotes], hsorted := by simp [emptyNotes], junk := () }
 
 instance : Inhabited Track where
   default := Track.empty
 
 structure RawContext where
   track : Track
-  junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
+  junk : Unit -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr
 
-structure LawfulRawContext extends RawContext where
-
 def RawContext.empty : RawContext := {
-    track := Track.empty
-}
-
-def LawfulRawContext.empty : LawfulRawContext := {
-    track := Track.empty
+    track := Track.empty,
+    junk := ()
 }
 
 namespace ffi
 /-!
 
 #### C FFI
+
+₂
 
 We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__object_8h.html) naming conventions:
 
@@ -102,13 +103,19 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 -/
 
 @[export monodrone_new_context]
-def newContext (_ : Unit) : LawfulRawContext := LawfulRawContext.empty
+def newContext (_ : Unit) : RawContext := RawContext.empty
+
+@[export monodrone_dummy]
+def throwContext (x : RawContext) : UInt64 :=
+  match x.track.notes with
+  | [] => 0
+  | _ => 1
 
 @[export monodrone_track_length]
-def trackLength (ctx : LawfulRawContext) : UInt64 := ctx.track.notes.length.toUInt64
+def trackLength (ctx : @&RawContext) : UInt64 := ctx.track.notes.length.toUInt64
 
 @[export monodrone_track_get_note]
-def trackGetNote (ctx : LawfulRawContext) (ix : UInt64) : Note :=
+def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
   ctx.track.notes.get! ix.toNat
 
 @[export monodrone_note_get_pitch]

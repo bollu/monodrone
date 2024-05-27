@@ -1,12 +1,5 @@
-#[repr(C)]
-pub struct boxed {
-    _data: [u8; 0],
-    _marker:
-        core::marker::PhantomData<(*mut u8, core::marker::PhantomPinned)>,
-}
-
 // static inline lean_object * lean_box(size_t n) { return (lean_object*)(((size_t)(n) << 1) | 1); }
-pub fn lean_box (val : usize) -> *mut boxed {
+pub fn lean_box (val : usize) -> *mut i8 {
     let out : usize = (val << 1) | 1;
     unsafe {
         std::mem::transmute(out)
@@ -22,12 +15,5 @@ extern {
     pub fn lean_io_mark_end_initialization ();
 
     // extern "C" LEAN_EXPORT void lean_inc_ref_cold(lean_object * o) {
-    pub fn lean_inc_ref_cold (ptr: *mut boxed);
-}
-
-impl boxed {
-    pub fn inc(ptr : *mut boxed) -> *mut Self{
-        unsafe { lean_inc_ref_cold(ptr) }
-        ptr
-    }
+    pub fn lean_inc_ref_cold (ptr: *mut i8);
 }
