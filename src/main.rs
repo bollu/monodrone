@@ -47,6 +47,7 @@ fn main() -> Result<(), eframe::Error> {
     let monodrone_ctx = monodroneffi::new_context();
     event!(Level::INFO, "ctx: {:p}", monodrone_ctx);
     let track = monodroneffi::get_track(monodrone_ctx);
+    event!(Level::INFO, "track: {:?}", track);
 
     event!(Level::INFO, "Starting up");
 

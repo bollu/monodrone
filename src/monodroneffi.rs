@@ -18,12 +18,14 @@ pub fn new_context() -> *mut i8 {
     unsafe { monodrone_new_context(leanffi::lean_box(0)) }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Note {
     pitch: u64,
     start: u64,
     nsteps: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Track {
     notes: Vec<Note>,
 }
@@ -46,5 +48,6 @@ pub fn get_track (ctx : *mut i8) -> Track {
         let nsteps = unsafe { monodrone_note_get_nsteps(note) };
         notes.push(Note { pitch, start, nsteps });
     }
+
     Track { notes }
 }

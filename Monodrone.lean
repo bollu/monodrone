@@ -58,22 +58,26 @@ def Note.compare (n1 n2 : Note) : Ordering :=
 instance : LT Note where
   lt n1 n2 := Note.compare n1 n2 = Ordering.lt
 
+instance : LE Note where
+  le n1 n2 := n1 < n2 ∨ n1 = n2
+
 /-- A track is a list of located notes, with all notes disjoint. -/
 structure Track where
   notes : List Note
   /-- The notes are disjoint. -/
   hdisjoint : notes.Pairwise Note.disjoint
   /-- The notes are sorted -/
-  hsorted : notes.Sorted (· < ·)
+  hsorted : notes.Sorted (· ≤ ·)
   junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
 
 deriving DecidableEq, Repr
 
-def emptyXX : List Nat := []
+def Track.empty : Track := { notes := [], hdisjoint := by simp [], hsorted := by simp [] }
 
-def emptyNotes : List Note := []
-
-def Track.empty : Track := { notes := emptyNotes, hdisjoint := by simp [emptyNotes], hsorted := by simp [emptyNotes] }
+def Track.default : Track where
+  notes := [ { pitch := Pitch.middleC, start := 0, nsteps := 1, hnsteps := by decide } ]
+  hdisjoint := by simp [Note.disjoint]
+  hsorted := by simp [Note.compare]
 
 instance : Inhabited Track where
   default := Track.empty
@@ -85,6 +89,10 @@ deriving Inhabited, DecidableEq, Repr
 
 def RawContext.empty : RawContext := {
     track := Track.empty,
+}
+
+def RawContext.default : RawContext := {
+    track := Track.default,
 }
 
 namespace ffi
@@ -102,7 +110,7 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 -/
 
 @[export monodrone_new_context]
-def newContext (_ : Unit) : RawContext := RawContext.empty
+def newContext (_ : Unit) : RawContext := RawContext.default
 
 @[export monodrone_track_length]
 def trackLength (ctx : @&RawContext) : UInt64 := ctx.track.notes.length.toUInt64
