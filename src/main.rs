@@ -2,7 +2,7 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use eframe::{egui};
-use egui::{ahash::{HashSetExt}};
+use egui::{ahash::HashSetExt, scroll_area::ScrollBarVisibility};
 
 
 const GOLDEN_RATIO: f32 = 1.61803398875;
@@ -27,7 +27,7 @@ fn main() -> Result<(), eframe::Error> {
         .with(tracing_tracy::TracyLayer::default()));
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        // viewport: egui::ViewportBuilder::default().with_maximized(true),
         // .with_fullscreen(true),
         ..Default::default()
     };
@@ -52,8 +52,8 @@ fn main() -> Result<(), eframe::Error> {
     event!(Level::INFO, "Starting up");
 
     eframe::run_simple_native("Monodrone", options, move |ctx, _frame| {
-;        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::horizontal().show(ui, |ui| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::both().scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible).show(ui, |ui| {
                 for i in 0..32 {
                     ui.horizontal_top(|ui| {
                         let color = match i % 3 {
@@ -62,37 +62,13 @@ fn main() -> Result<(), eframe::Error> {
                             2 => material::GREEN,
                             _ => material::RED,
                         };
+
                         ui.painter().rect_filled(egui::Rect::from_min_size(
-                            egui::Pos2::new((i * (60 + 5)) as f32, 60 as f32),
-                            egui::vec2(60.0, (60 / 2) as f32 )),
+                            egui::Pos2::new(60 as f32, (i * (60 + 5)) as f32),
+                            egui::vec2(120 as f32, (60 - 10) as f32)),
                             6.0, color);
                     });
                 }
-                // ui.horizontal(|ui| {
-                //     let name_label = ui.label("Your name: ");
-                //     ui.text_edit_singleline(&mut name)
-                //         .labelled_by(name_label.id);
-                // });
-
-                // for (i, event) in app_state.sequencerLogic.pitch2ix2event.iter() {
-                //     event!(Level::INFO, "Drawing pitch {:?}", i);
-                //     ui.horizontal(|ui| {
-                //         ui.label(format!("{:?}", i));
-                //         for (j, e) in event.iter().enumerate() {
-                //             let color = match e {
-                //                 NoteEvent::Rest => material::RED,
-                //                 NoteEvent::Continue => material::BLUE,
-                //                 NoteEvent::Trigger => material::GREEN,
-                //             };
-                //             ui.painter().rect_filled(Rect::from_min_size(Pos2::new(i.midi as f32 * SequencerRender::CELL_WIDTH, j as f32 * SequencerRender::CELL_HEIGHT), egui::vec2(SequencerRender::CELL_WIDTH, SequencerRender::CELL_HEIGHT)), 0.0, color);
-                //         }
-                //     });
-                // }
-
-                // ui.add(egui::Slider::new(&mut age, 0..=120).text("age"));
-                // if ui.button("Increment").clicked() {
-                //     age += 1;
-                // }
             });
         });
     })
