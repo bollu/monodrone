@@ -73,9 +73,8 @@ fn main() {
             let y = note.start as i32;
             let h = note.nsteps as i32;
             let pitch = note.pitch as i32;
-            // d.draw_rectangle_rounded(Rectangle::new(10.0, y as f32, 100.0, 40.0 * h as f32), 4.0, 10, Color::BLUE);
-            d.draw_rectangle(4, y, 100, 40 * h, Color::new(87, 123, 141, 255));
-            d.draw_text(&format!(" {}", pitch), 10, 12, 20, Color::BLANCHEDALMOND);
+            d.draw_rectangle(4, y, 8, 40 * h, Color::new(255, 166, 47, 255));
+            d.draw_text(&format!(" {}", pitch), 10, 12, 22, Color::new(202, 244, 255, 255));
         }
     }
 }

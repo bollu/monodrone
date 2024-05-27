@@ -1,5 +1,6 @@
 import Lean
 import Mathlib.Order.Interval.Basic
+import Mathlib.Data.List.Basic
 -- import Mathlib.Order.Disjoint
 import Batteries.Data.RBMap
 import Mathlib.Data.List.Sort
@@ -82,17 +83,34 @@ def Track.default : Track where
 instance : Inhabited Track where
   default := Track.empty
 
+
+def Track.maxLength : Nat := 9999
+
+structure Multicursor  where
+  cursor : Fin Track.maxLength -- main cursor position.
+  cursors : List (Fin Track.maxLength) -- stack of cursors. Main cursor is the first one in the list.
+  junk : Unit := () -- workaround for
+deriving DecidableEq, Repr
+
+def Multicursor.atbegin : Multicursor := { cursor :=  ⟨0, by simp[Track.maxLength]⟩, cursors := [] }
+
+instance : Inhabited Multicursor where
+  default := .atbegin
+
 structure RawContext where
   track : Track
+  cursors : Multicursor
   junk : Unit := ()-- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr
 
 def RawContext.empty : RawContext := {
     track := Track.empty,
+    cursors := Multicursor.atbegin
 }
 
 def RawContext.default : RawContext := {
     track := Track.default,
+    cursors := Multicursor.atbegin
 }
 
 namespace ffi
