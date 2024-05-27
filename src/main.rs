@@ -56,21 +56,27 @@ fn main() {
 
     while !rl.window_should_close() {
         let track = monodroneffi::get_track(monodrone_ctx);
-
         event!(Level::INFO, "track: {:?}", track);
-
         let mut d = rl.begin_drawing(&thread);
 
-        d.clear_background(Color::BLACK);
+        d.clear_background(Color::new(50, 50, 60, 255));
+
+        // draw tracker.
+        for y in 0..100 {
+            let h = 1;
+            d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
+            // d.draw_rectangle_lines(10, 40 * y, 100, 40 * h, Color::DARKGRAY);
+        }
+
 
         for note in track.notes.iter() {
             let y = note.start as i32;
             let h = note.nsteps as i32;
             let pitch = note.pitch as i32;
-            d.draw_rectangle(10, y, 100, 40 * h, Color::GRAY);
+            // d.draw_rectangle_rounded(Rectangle::new(10.0, y as f32, 100.0, 40.0 * h as f32), 4.0, 10, Color::BLUE);
+            d.draw_rectangle(4, y, 100, 40 * h, Color::new(87, 123, 141, 255));
             d.draw_text(&format!(" {}", pitch), 10, 12, 20, Color::BLANCHEDALMOND);
         }
-
     }
 }
 
