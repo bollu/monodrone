@@ -65,7 +65,7 @@ structure Track where
   hdisjoint : notes.Pairwise Note.disjoint
   /-- The notes are sorted -/
   hsorted : notes.Sorted (· < ·)
-  junk : Unit  -- workaround for https://github.com/leanprover/lean4/issues/4278
+  junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
 
 deriving DecidableEq, Repr
 
@@ -73,19 +73,18 @@ def emptyXX : List Nat := []
 
 def emptyNotes : List Note := []
 
-def Track.empty : Track := { notes := emptyNotes, hdisjoint := by simp [emptyNotes], hsorted := by simp [emptyNotes], junk := () }
+def Track.empty : Track := { notes := emptyNotes, hdisjoint := by simp [emptyNotes], hsorted := by simp [emptyNotes] }
 
 instance : Inhabited Track where
   default := Track.empty
 
 structure RawContext where
   track : Track
-  junk : Unit -- workaround for https://github.com/leanprover/lean4/issues/4278
+  junk : Unit := ()-- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr
 
 def RawContext.empty : RawContext := {
     track := Track.empty,
-    junk := ()
 }
 
 namespace ffi
@@ -104,12 +103,6 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 
 @[export monodrone_new_context]
 def newContext (_ : Unit) : RawContext := RawContext.empty
-
-@[export monodrone_dummy]
-def throwContext (x : RawContext) : UInt64 :=
-  match x.track.notes with
-  | [] => 0
-  | _ => 1
 
 @[export monodrone_track_length]
 def trackLength (ctx : @&RawContext) : UInt64 := ctx.track.notes.length.toUInt64

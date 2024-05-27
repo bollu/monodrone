@@ -17,3 +17,9 @@ extern {
     // extern "C" LEAN_EXPORT void lean_inc_ref_cold(lean_object * o) {
     pub fn lean_inc_ref_cold (ptr: *mut i8);
 }
+
+fn inc (ptr : *mut i8) {
+    unsafe {
+        lean_inc_ref_cold(ptr);
+    }
+}
