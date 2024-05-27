@@ -20,14 +20,14 @@ pub fn new_context() -> *mut i8 {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Note {
-    pitch: u64,
-    start: u64,
-    nsteps: u64,
+    pub pitch: u64,
+    pub start: u64,
+    pub nsteps: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Track {
-    notes: Vec<Note>,
+    pub notes: Vec<Note>,
 }
 
 
