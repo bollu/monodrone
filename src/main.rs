@@ -4,6 +4,7 @@
 use std::{fs::File, sync::Arc};
 
 use midi::Message::Start;
+use monodroneffi::Note;
 use raylib::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
 use tinyaudio::prelude::*;
@@ -15,6 +16,133 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing::{event, Level};
 mod monodroneffi;
 mod leanffi;
+
+use std::cmp;
+
+// TODO: read midi 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteEvent {
+    NoteOn { pitch : u8, instant : u64 },  
+    NoteOff { pitch : u8, instant : u64 },  
+} 
+
+impl NoteEvent {
+    fn instant(&self) -> u64 {
+        match self {
+            NoteEvent::NoteOn { instant, .. } => *instant,
+            NoteEvent::NoteOff { instant, .. } => *instant,
+        }
+    }
+
+    fn pitch(&self) -> u8 {
+        match self {
+            NoteEvent::NoteOn { pitch, .. } => *pitch,
+            NoteEvent::NoteOff { pitch, .. } => *pitch,
+        }
+    }
+        
+}
+
+// order note events by instant
+impl PartialOrd for NoteEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        // compare tuple of (instant, pitch)
+        Some((self.instant(), self.pitch()).cmp(&(other.instant(), other.pitch())))
+    }
+}
+
+impl Ord for NoteEvent {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // compare tuple of (instant, pitch)
+        (self.instant(), self.pitch()).cmp(&(other.instant(), other.pitch()))
+    }
+}
+
+/// Get the note events at a given time instant.
+fn track_get_note_events_at_time (track : &monodroneffi::Track, instant : u64) -> Vec<NoteEvent> {
+    let mut note_events = Vec::new();
+    for note in track.notes.iter() {
+        if note.start == instant {
+            note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant });
+        }
+        if note.start + note.nsteps + 1 == instant {
+            note_events.push(NoteEvent::NoteOff { pitch : note.pitch as u8, instant });
+        }
+    }
+    note_events
+}
+
+pub struct MidiSequencer {
+    synthesizer: Synthesizer,
+    track : monodroneffi::Track,
+    playing : bool,
+    block_wrote: usize,
+    cur_instant : u64, // current instant of time, as we last heard.
+    last_rendered_instant : u64, // instant of time we last rendered.
+}
+
+impl MidiSequencer {
+    /// Initializes a new instance of the sequencer.
+    ///
+    /// # Arguments
+    ///
+    /// * `synthesizer` - The synthesizer to be handled by the sequencer.
+    /// * `track` - The track to be played for this sequencer.
+    pub fn new(synthesizer: Synthesizer, track : monodroneffi::Track) -> Self {
+        Self {
+            synthesizer,
+            track,
+            playing: false,
+            block_wrote: 0,
+            cur_instant: 0,
+            last_rendered_instant: 0,
+        }
+    }
+
+    /// Stops playing. Keep current location.
+    pub fn stop(&mut self) {
+        self.synthesizer.reset();
+        self.playing = false;
+    }
+
+    fn process_and_render(&mut self, new_instant : u64, left: &mut [f32], right: &mut [f32]) {
+
+        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({})", 
+            self.cur_instant, new_instant, self.last_rendered_instant);
+        assert!(self.last_rendered_instant <= self.cur_instant);
+        assert!(self.cur_instant <= new_instant);
+        self.cur_instant = new_instant;
+        
+        assert!(left.len() == right.len());
+        assert!(left.len() >= self.synthesizer.get_block_size()); // we have enough space to render at least one block.
+
+        let mut nwritten : usize = 0;
+        while(self.last_rendered_instant < new_instant && 
+            // we have space enough for another block.
+            self.synthesizer.get_block_size() + nwritten < left.len()) {
+
+            let note_events = track_get_note_events_at_time(&self.track, self.last_rendered_instant);
+            for note_event in note_events.iter() {
+                event!(Level::INFO, "note_event: {:?}", note_event);
+                match note_event {
+                    NoteEvent::NoteOn { pitch, .. } => {
+                        self.synthesizer.note_on(0, *pitch as i32, 100);
+                    },
+                    NoteEvent::NoteOff { pitch, .. } => {
+                        self.synthesizer.note_off(0, *pitch as i32);
+                    },
+                }
+            }
+            assert!(self.synthesizer.get_block_size() + nwritten < left.len());
+            // synthesizer writes in block_size.
+            self.synthesizer.render(&mut left[nwritten..], &mut right[nwritten..]);
+            nwritten += self.synthesizer.get_block_size();
+            self.last_rendered_instant += 1; // we have rendered this instant.
+        }
+    }
+
+}
 
 // mod material {
 //     pub const RED : egui::Color32 = egui::Color32::from_rgb(231, 111, 81);      // Red 500
@@ -68,22 +196,31 @@ fn main() {
     // Create the MIDI file sequencer.
     let settings = SynthesizerSettings::new(params.sample_rate as i32);
     let mut synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
+
+    let mut builder = monodroneffi::TrackBuilder::new();
+    builder.note1(60).note1(62).note1(63).rest(3).note8(63);
+    let track : monodroneffi::Track = builder.build(); // TODO: ask theo how to get this to work
+
+    // let track = monodroneffi::get_track(monodrone_ctx);
+    let mut sequencer = MidiSequencer::new(synthesizer, track);
+
     // Play some notes (middle C, E, G).
-    synthesizer.note_on(0, 60, 100);
-    synthesizer.note_on(0, 64, 100);
-    synthesizer.note_on(0, 67, 100);
+    // // synthesizer.note_on(0, 60, 100);
+    // // synthesizer.note_on(0, 64, 100);
+    // // synthesizer.note_on(0, 67, 100);
 
 
-    // The output buffer (3 seconds).
+    // // The output buffer (3 seconds).
     let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
     let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
 
-
-    // Start the audio output.
+    // // Start the audio output.
+    let mut t = 0;
     let _device = run_output_device(params, {
         move |data| {
             // Render the waveform.
-            synthesizer.render(&mut left[..], &mut right[..]);
+            t += 1;
+            sequencer.process_and_render(t, &mut left[..], &mut right[..]);
             for i in 0..data.len() {
                 if i % 2 == 0 {
                     data[i] = left[i / 2];
@@ -95,8 +232,15 @@ fn main() {
     })
     .unwrap();
 
-    // Wait for 10 seconds.
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    // this is multi-threaded, so run_output_device will return immediately.
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    return;
+
+    // // Wait for 10 seconds.
+    // for i in 0..10 {
+    //     std::thread::sleep(std::time::Duration::from_millis(100));
+    //     synthesizer.note_on(0, 67, 100);   
+    // }
 
     event!(Level::INFO, "Starting up");
     let (mut rl, thread) = raylib::init()

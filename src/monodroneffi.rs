@@ -25,12 +25,57 @@ pub struct Note {
     pub nsteps: u64,
 }
 
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Track {
-    pub notes: Vec<Note>,
+    pub notes: Vec<Note>, // sorted by start
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackBuilder {
+    notes: Vec<Note>,
+    time : u64,
+}
+impl TrackBuilder {
+    pub fn new() -> TrackBuilder {
+        TrackBuilder { notes: Vec::new(), time: 0 }
+    }
+
+    /// Add a note to the track that is held for `nsteps` steps.
+    pub fn note_held(&mut self, pitch: u64, nsteps: u64) -> &mut Self {
+        self.notes.push(Note { pitch, start: self.time, nsteps });
+        self.time += nsteps;
+        self
+    }
+    
+    /// Add a note to the track that is held for 1 step.
+    pub fn note1(&mut self, pitch: u64) -> &mut Self {
+        self.note_held(pitch, 1)
+    }
+
+    /// Add a note to the track that is held for 1 step.
+    pub fn note8(&mut self, pitch: u64) -> &mut Self {
+        self.note_held(pitch, 8)
+    }
+    
+    
+    /// Add a rest to the track of `nsteps` steps.
+    pub fn rest(&mut self, nsteps: u64) -> &mut Self {
+        self.time += nsteps;
+        self
+    }
+
+    pub fn build(&self) -> Track {
+        Track { notes: self.notes.clone() }
+    }
 }
 
 
+impl From<TrackBuilder> for Track {
+    fn from(builder: TrackBuilder) -> Self {
+        Track { notes: builder.notes }
+    }
+}
 
 pub fn get_track (ctx : *mut i8) -> Track {
     let len: u64 = unsafe {

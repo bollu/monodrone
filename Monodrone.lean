@@ -146,4 +146,25 @@ def noteGetStart (n : Note) : UInt64 := n.start.toUInt64
 @[export monodrone_note_get_nsteps]
 def noteGetNsteps (n : Note) : UInt64 := n.nsteps.toUInt64
 
+inductive Action
+| moveDownOne
+| moveUpOne
+| moveDownHalfPage
+| moveUpHalfPage
+| toggleNote
+| moveNoteUpSemitone
+| moveNoteDownSemitone
+
+def RawContext.moveDownOne (ctx : RawContext) : RawContext := sorry
+def RawContext.moveUpOne (ctx : RawContext) : RawContext := sorry
+def RawContext.moveDownHalfPage (ctx : RawContext) : RawContext := sorry
+def RawContext.moveUpHalfPage (ctx : RawContext) : RawContext := sorry
+
+def RawContext.toggleNote (ctx : RawContext) : RawContext := sorry
+def RawContext.moveNoteUpSemitone (ctx : RawContext) : RawContext := sorry
+def RawContext.moveNoteDownSemitone (ctx : RawContext) : RawContext := sorry
+
+def RawContext.undo (ctx : RawContext) : RawContext := sorry
+def RawContext.redo (ctx : RawContext) : RawContext := sorry
+
 end ffi
