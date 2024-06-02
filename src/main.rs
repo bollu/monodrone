@@ -78,7 +78,6 @@ pub struct MidiSequencer {
     synthesizer: Synthesizer,
     track : monodroneffi::Track,
     playing : bool,
-    block_wrote: usize,
     cur_instant : u64, // current instant of time, as we last heard.
     last_rendered_instant : u64, // instant of time we last rendered.
 }
@@ -95,10 +94,13 @@ impl MidiSequencer {
             synthesizer,
             track,
             playing: false,
-            block_wrote: 0,
             cur_instant: 0,
             last_rendered_instant: 0,
         }
+    }
+
+    pub fn toggle_is_playing(&mut self) {
+        self.playing = !self.playing;
     }
 
     /// Stops playing. Keep current location.
@@ -109,8 +111,15 @@ impl MidiSequencer {
 
     fn process_and_render(&mut self, new_instant : u64, left: &mut [f32], right: &mut [f32]) {
 
-        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({})", 
-            self.cur_instant, new_instant, self.last_rendered_instant);
+        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})", 
+        self.cur_instant, new_instant, self.last_rendered_instant, self.playing);
+
+        if (!self.playing) {
+            left.fill(0f32);
+            right.fill(0f32);
+            return;
+        }
+
         assert!(self.last_rendered_instant <= self.cur_instant);
         assert!(self.cur_instant <= new_instant);
         self.cur_instant = new_instant;
@@ -144,13 +153,6 @@ impl MidiSequencer {
     }
 
 }
-
-// mod material {
-//     pub const RED : egui::Color32 = egui::Color32::from_rgb(231, 111, 81);      // Red 500
-//     pub const BLUE : egui::Color32 = egui::Color32::from_rgb(42, 157, 143);    // Blue 500
-//     pub const GREEN : egui::Color32 = egui::Color32::from_rgb(233, 196, 106);    // Green 500
-// }
-
 
 fn main() {
     tracing_subscriber::fmt().init();
@@ -196,14 +198,15 @@ fn main() {
 
     // Create the MIDI file sequencer.
     let settings = SynthesizerSettings::new(params.sample_rate as i32);
-    let mut synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
+    let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
 
     let mut builder = monodroneffi::TrackBuilder::new();
-    builder.note1(60).note1(62).note1(63).rest(3).note8(63);
+    builder.note1(60).note1(62).note1(63).rest(3).note8(63).note1(60).note1(62).note1(63).rest(3).note8(63);
     let track : monodroneffi::Track = builder.build(); // TODO: ask theo how to get this to work
 
     // let track = monodroneffi::get_track(monodrone_ctx);
-    let mut sequencer = MidiSequencer::new(synthesizer, track);
+    let sequencer : Arc<Mutex<MidiSequencer>> = 
+        Arc::new(Mutex::new(MidiSequencer::new(synthesizer, track)));
 
     // Play some notes (middle C, E, G).
     // // synthesizer.note_on(0, 60, 100);
@@ -217,17 +220,14 @@ fn main() {
 
     // // Start the audio output.
     let mut t = 0;
-    let play : Arc<Mutex<bool>> = Arc::new(Mutex::new(true));
 
     let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
-        let play = play.clone();
+        let sequencer = sequencer.clone();
         move |data| {
-            data.fill(0f32);
             // Render the waveform.
             t += 1;
-            sequencer.process_and_render(t, &mut left[..], &mut right[..]);
+            sequencer.lock().as_mut().unwrap().process_and_render(t, &mut left[..], &mut right[..]);
 
-            if (! *play.lock().unwrap()) { return; }
             for i in 0..data.len() {
                 if i % 2 == 0 {
                     data[i] = left[i / 2];
@@ -238,11 +238,17 @@ fn main() {
         }
     })
     .unwrap();
-    // this is multi-threaded, so run_output_device will return immediately.
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    // how to pause device?
-    *play.lock().unwrap() = false;
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    for i in 0..10 {
+        sequencer.lock().as_mut().unwrap().toggle_is_playing();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    // sequencer.lock().as_mut().unwrap().toggle_is_playing();
+    // // this is multi-threaded, so run_output_device will return immediately.
+    // std::thread::sleep(std::time::Duration::from_millis(500));
+    // sequencer.lock().as_mut().unwrap().toggle_is_playing();
+    // // how to pause device?
+    // std::thread::sleep(std::time::Duration::from_millis(1000));
     return;
 
     // // Wait for 10 seconds.
