@@ -31,6 +31,13 @@ pub struct Track {
     pub notes: Vec<Note>, // sorted by start
 }
 
+impl Track {
+    pub fn new() -> Track {
+        Track { notes: Vec::new() }
+    }
+    
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackBuilder {
     notes: Vec<Note>,

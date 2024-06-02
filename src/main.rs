@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 
@@ -78,8 +79,11 @@ pub struct MidiSequencer {
     synthesizer: Synthesizer,
     track : monodroneffi::Track,
     playing : bool,
+    // start_instant : u64, // instant of time we started playing.
+    // end_instant : u64, 
     cur_instant : u64, // current instant of time, as we last heard.
     last_rendered_instant : u64, // instant of time we last rendered.
+    // looping : bool,
 }
 
 impl MidiSequencer {
@@ -89,14 +93,22 @@ impl MidiSequencer {
     ///
     /// * `synthesizer` - The synthesizer to be handled by the sequencer.
     /// * `track` - The track to be played for this sequencer.
-    pub fn new(synthesizer: Synthesizer, track : monodroneffi::Track) -> Self {
+    pub fn new(synthesizer: Synthesizer) -> Self {
         Self {
             synthesizer,
-            track,
+            track : monodroneffi::Track::new(),
             playing: false,
             cur_instant: 0,
             last_rendered_instant: 0,
+            // looping : false,
+            // start_instant : 0,
+            // end_instant : 0
         }
+    }
+
+    pub fn set_track(&mut self, track : monodroneffi::Track) {
+        assert! (!self.playing); // we cannot change the track while playing.
+        self.track = track;
     }
 
     pub fn toggle_is_playing(&mut self) {
@@ -117,6 +129,7 @@ impl MidiSequencer {
         if (!self.playing) {
             left.fill(0f32);
             right.fill(0f32);
+            event!(Level::INFO, "-> done [!playing]");
             return;
         }
 
@@ -149,7 +162,68 @@ impl MidiSequencer {
             self.synthesizer.render(&mut left[nwritten..], &mut right[nwritten..]);
             nwritten += self.synthesizer.get_block_size();
             self.last_rendered_instant += 1; // we have rendered this instant.
+            event!(Level::INFO, "-> done [playing]");
+
         }
+    }
+
+}
+
+/// Module that performs the IO for the midi sequencer inside it.
+/// Furthermore, it allows the track for the MIDI sequencer to be changed,
+/// as well as changing playback settings (e.g. part of sequencer to loop).
+struct MidiSequencerIO {
+    sequencer : Arc<Mutex<MidiSequencer>>,
+    params : OutputDeviceParameters,
+    device : Box <dyn BaseAudioOutputDevice>
+}
+
+impl MidiSequencerIO {
+    fn new(sequencer : MidiSequencer, params : OutputDeviceParameters) -> Self {
+        let sequencer = Arc::new(Mutex::new(sequencer));
+        // The output buffer (3 seconds).
+        let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
+        let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
+        let mut t = 0;
+        let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
+            let sequencer = sequencer.clone();
+            move |data| {
+                event!(Level::INFO, "running audio device");
+                // Render the waveform.
+                t += 1;
+                sequencer.lock().as_mut().unwrap().process_and_render(t, &mut left[..], &mut right[..]);
+
+                for i in 0..data.len() {
+                    if i % 2 == 0 {
+                        data[i] = left[i / 2];
+                    } else {
+                        data[i] = right[i / 2];
+                    }
+                }
+            }
+        })
+        .unwrap();
+        MidiSequencerIO {
+            sequencer : sequencer.clone(),
+            params :  params,
+            device : device
+        }
+    }
+
+    fn toggle_is_playing(&mut self) {
+        self.sequencer.lock().as_mut().unwrap().toggle_is_playing();
+    }
+
+    fn stop(&mut self) {
+        self.sequencer.lock().as_mut().unwrap().stop();
+    }
+
+    fn start(&mut self) {
+        self.sequencer.lock().as_mut().unwrap().playing = true;
+    }
+
+    fn set_track(&mut self, track : monodroneffi::Track) {
+        self.sequencer.lock().as_mut().unwrap().track = track;
     }
 
 }
@@ -199,57 +273,63 @@ fn main() {
     // Create the MIDI file sequencer.
     let settings = SynthesizerSettings::new(params.sample_rate as i32);
     let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
+    let mut sequencer_io : MidiSequencerIO = MidiSequencerIO::new(MidiSequencer::new(synthesizer), params);
 
     let mut builder = monodroneffi::TrackBuilder::new();
     builder.note1(60).note1(62).note1(63).rest(3).note8(63).note1(60).note1(62).note1(63).rest(3).note8(63);
     let track : monodroneffi::Track = builder.build(); // TODO: ask theo how to get this to work
 
+    sequencer_io.set_track(track);
+    sequencer_io.start();
+    println!("sleeping");
+    std::thread::sleep(std::time::Duration::from_millis(5000));
+    println!("done");
+    return;
+
     // let track = monodroneffi::get_track(monodrone_ctx);
-    let sequencer : Arc<Mutex<MidiSequencer>> = 
-        Arc::new(Mutex::new(MidiSequencer::new(synthesizer, track)));
+    // let sequencer : Arc<Mutex<MidiSequencer>> = 
+    //     Arc::new(Mutex::new(MidiSequencer::new(synthesizer, track)));
 
-    // Play some notes (middle C, E, G).
-    // // synthesizer.note_on(0, 60, 100);
-    // // synthesizer.note_on(0, 64, 100);
-    // // synthesizer.note_on(0, 67, 100);
+    // // Play some notes (middle C, E, G).
+    // // // synthesizer.note_on(0, 60, 100);
+    // // // synthesizer.note_on(0, 64, 100);
+    // // // synthesizer.note_on(0, 67, 100);
 
 
-    // // The output buffer (3 seconds).
-    let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
-    let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
+    // // // The output buffer (3 seconds).
+    // let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
+    // let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
 
-    // // Start the audio output.
-    let mut t = 0;
+    // // // Start the audio output.
+    // let mut t = 0;
 
-    let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
-        let sequencer = sequencer.clone();
-        move |data| {
-            // Render the waveform.
-            t += 1;
-            sequencer.lock().as_mut().unwrap().process_and_render(t, &mut left[..], &mut right[..]);
+    // let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
+    //     let sequencer = sequencer.clone();
+    //     move |data| {
+    //         // Render the waveform.
+    //         t += 1;
+    //         sequencer.lock().as_mut().unwrap().process_and_render(t, &mut left[..], &mut right[..]);
 
-            for i in 0..data.len() {
-                if i % 2 == 0 {
-                    data[i] = left[i / 2];
-                } else {
-                    data[i] = right[i / 2];
-                }
-            }
-        }
-    })
-    .unwrap();
+    //         for i in 0..data.len() {
+    //             if i % 2 == 0 {
+    //                 data[i] = left[i / 2];
+    //             } else {
+    //                 data[i] = right[i / 2];
+    //             }
+    //         }
+    //     }
+    // })
+    // .unwrap();
 
-    for i in 0..10 {
-        sequencer.lock().as_mut().unwrap().toggle_is_playing();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
+    // for i in 0..10 {
+    //     sequencer.lock().as_mut().unwrap().toggle_is_playing();
+    //     std::thread::sleep(std::time::Duration::from_millis(500));
+    // }
     // sequencer.lock().as_mut().unwrap().toggle_is_playing();
     // // this is multi-threaded, so run_output_device will return immediately.
     // std::thread::sleep(std::time::Duration::from_millis(500));
     // sequencer.lock().as_mut().unwrap().toggle_is_playing();
     // // how to pause device?
-    // std::thread::sleep(std::time::Duration::from_millis(1000));
-    return;
 
     // // Wait for 10 seconds.
     // for i in 0..10 {
