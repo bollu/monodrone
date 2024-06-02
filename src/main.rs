@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 
 use midi::Message::Start;
@@ -216,11 +217,17 @@ fn main() {
 
     // // Start the audio output.
     let mut t = 0;
-    let _device = run_output_device(params, {
+    let play : Arc<Mutex<bool>> = Arc::new(Mutex::new(true));
+
+    let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
+        let play = play.clone();
         move |data| {
+            data.fill(0f32);
             // Render the waveform.
             t += 1;
             sequencer.process_and_render(t, &mut left[..], &mut right[..]);
+
+            if (! *play.lock().unwrap()) { return; }
             for i in 0..data.len() {
                 if i % 2 == 0 {
                     data[i] = left[i / 2];
@@ -231,9 +238,11 @@ fn main() {
         }
     })
     .unwrap();
-
     // this is multi-threaded, so run_output_device will return immediately.
-    std::thread::sleep(std::time::Duration::from_millis(3000));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    // how to pause device?
+    *play.lock().unwrap() = false;
+    std::thread::sleep(std::time::Duration::from_millis(1000));
     return;
 
     // // Wait for 10 seconds.
