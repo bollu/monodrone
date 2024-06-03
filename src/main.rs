@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::borrow::BorrowMut;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
@@ -121,8 +122,8 @@ impl MidiSequencer {
         self.playing = false;
     }
 
-    fn process_and_render(&mut self, new_instant : u64, left: &mut [f32], right: &mut [f32]) {
-
+    fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let new_instant = self.cur_instant + 1; 
         event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})", 
         self.cur_instant, new_instant, self.last_rendered_instant, self.playing);
 
@@ -189,9 +190,7 @@ impl MidiSequencerIO {
             let sequencer = sequencer.clone();
             move |data| {
                 event!(Level::INFO, "running audio device");
-                // Render the waveform.
-                t += 1;
-                sequencer.lock().as_mut().unwrap().process_and_render(t, &mut left[..], &mut right[..]);
+                sequencer.lock().as_mut().unwrap().process_and_render(&mut left[..], &mut right[..]);
 
                 for i in 0..data.len() {
                     if i % 2 == 0 {
@@ -214,12 +213,12 @@ impl MidiSequencerIO {
         self.sequencer.lock().as_mut().unwrap().toggle_is_playing();
     }
 
-    fn stop(&mut self) {
-        self.sequencer.lock().as_mut().unwrap().stop();
-    }
-
-    fn start(&mut self) {
-        self.sequencer.lock().as_mut().unwrap().playing = true;
+    fn restart(&mut self) {
+        event!(Level::INFO, "### restarting ###");
+        let mut seq_changer = self.sequencer.lock().unwrap();
+        seq_changer.playing = true;
+        seq_changer.cur_instant = 0;
+        seq_changer.last_rendered_instant = 0;
     }
 
     fn set_track(&mut self, track : monodroneffi::Track) {
@@ -275,16 +274,14 @@ fn main() {
     let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
     let mut sequencer_io : MidiSequencerIO = MidiSequencerIO::new(MidiSequencer::new(synthesizer), params);
 
-    let mut builder = monodroneffi::TrackBuilder::new();
-    builder.note1(60).note1(62).note1(63).rest(3).note8(63).note1(60).note1(62).note1(63).rest(3).note8(63);
-    let track : monodroneffi::Track = builder.build(); // TODO: ask theo how to get this to work
-
-    sequencer_io.set_track(track);
-    sequencer_io.start();
-    println!("sleeping");
-    std::thread::sleep(std::time::Duration::from_millis(5000));
-    println!("done");
-    return;
+    // let mut builder = monodroneffi::TrackBuilder::new();
+    // builder.note1(60).note1(62).note1(63).rest(3).note8(63).note1(60).note1(62).note1(63).rest(3).note8(63);
+    // sequencer_io.set_track(builder.build());
+    // sequencer_io.restart();
+    // println!("sleeping");
+    // std::thread::sleep(std::time::Duration::from_millis(5000));
+    // println!("done");
+    // return;
 
     // let track = monodroneffi::get_track(monodrone_ctx);
     // let sequencer : Arc<Mutex<MidiSequencer>> = 
@@ -346,18 +343,23 @@ fn main() {
 
     while !rl.window_should_close() {
         let track = monodroneffi::get_track(monodrone_ctx);
-        event!(Level::INFO, "track: {:?}", track);
+        // event!(Level::INFO, "track: {:?}", track);
+
+        if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+            sequencer_io.set_track(track.clone());
+            sequencer_io.restart();
+        }
+
         let mut d = rl.begin_drawing(&thread);
 
         d.clear_background(Color::new(50, 50, 60, 255));
+        
 
         // draw tracker.
         for y in 0..100 {
             let h = 1;
             d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
-            // d.draw_rectangle_lines(10, 40 * y, 100, 40 * h, Color::DARKGRAY);
         }
-
 
         for note in track.notes.iter() {
             let y = note.start as i32;
