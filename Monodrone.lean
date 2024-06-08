@@ -1,6 +1,7 @@
 import Lean
 import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Basic
+import Mathlib.Algebra.AddTorsor
 -- import Mathlib.Order.Disjoint
 import Batteries.Data.RBMap
 import Mathlib.Data.List.Sort
@@ -70,7 +71,6 @@ structure Track where
   /-- The notes are sorted -/
   hsorted : notes.Sorted (· ≤ ·)
   junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
-
 deriving DecidableEq, Repr
 
 def Track.empty : Track := { notes := [], hdisjoint := by simp [], hsorted := by simp [] }
@@ -86,31 +86,195 @@ instance : Inhabited Track where
 
 def Track.maxLength : Nat := 9999
 
-structure Multicursor  where
-  cursor : Fin Track.maxLength -- main cursor position.
-  cursors : List (Fin Track.maxLength) -- stack of cursors. Main cursor is the first one in the list.
-  junk : Unit := () -- workaround for
-deriving DecidableEq, Repr
+structure Cursor where
+  a : Fin Track.maxLength
+  b : Fin Track.maxLength
+deriving DecidableEq, Repr, DecidableEq
 
-def Multicursor.atbegin : Multicursor := { cursor :=  ⟨0, by simp[Track.maxLength]⟩, cursors := [] }
+def Cursor.atbegin : Cursor :=
+  { a := ⟨0, by simp [Track.maxLength]⟩,
+    b := ⟨0, by simp [Track.maxLength]⟩
+  }
 
-instance : Inhabited Multicursor where
+instance : Inhabited Cursor where
   default := .atbegin
+
+inductive CursorMoveAction
+| up (d : Nat)
+| down (d : Nat)
+
+def CursorMoveAction.act (c : Cursor)
+    (act : CursorMoveAction) : Cursor :=
+  match act with
+  | .up d => { c with b := ⟨c.b.val - d, by omega⟩ }
+  | .down d => { c with b :=
+    ⟨Nat.min (c.b.val + d) (Track.maxLength - 1),
+      Nat.lt_of_le_of_lt (Nat.min_le_right ..) (by simp [Track.maxLength])⟩
+  }
+
+/-- Todo: show that moveDown / moveUp are a galois connection. -/
+
+def Cursor.moveDownOne (c : Cursor) : Cursor := (CursorMoveAction.down 1).act c
+def Cursor.moveUpOne (c : Cursor) : Cursor := (CursorMoveAction.up 1).act c
+
+def Cursor.moveDownHalfPage (c : Cursor) : Cursor := (CursorMoveAction.down 10).act c
+def Cursor.moveUpHalfPage (c : Cursor) : Cursor := (CursorMoveAction.up 10).act c
+
+inductive NoteAction
+| toggleNote
+| moveNoteUpSemitone
+| moveNoteDownSemitone
+deriving Inhabited, DecidableEq, Repr
+
+class Diffable (α : Type) (δ : outParam Type) extends VAdd δ α, VSub δ α where
+  /-- Given the diff `f -δ→ g` and `f`, compute `g -(f @⁻¹ δ)→ f`.
+  Note that the diff can be inverted sensibly only at the element it was
+  applied to. -/
+  reverse : α → δ → δ
+
+
+@[inherit_doc] infixr:73 " @⁻¹ " => Diffable.reverse
+
+/-- apply the patch  `a -d→ ` to get `(apply2 a d).snd`,
+and simultaneously make the patch `(apply2 a d).snd -(apply2 a d).snd→ a`. -/
+def Diffable.apply2 [Diffable α δ] (a : α) (d : δ) : α × δ :=
+  (d +ᵥ a, Diffable.reverse a d)
+
+@[simp]
+theorem Diffable.fst_apply2 [Diffable α δ] (a : α) (d : δ) : (Diffable.apply2 a d).fst = d +ᵥ a := by
+  simp [Diffable.apply2]
+
+@[simp]
+theorem Diffable.snd_apply2 [Diffable α δ] (a : α) (d : δ) : (Diffable.apply2 a d).snd = Diffable.reverse a d := by
+  simp [Diffable.apply2]
+
+class LawfulDiffable (α : Type) (δ : outParam Type) extends Diffable α δ where
+  vsub_vadd {a b : α} : (b -ᵥ a) +ᵥ a = b
+  reverse_vadd_vadd {a : α} {d : δ} : (a @⁻¹ d) +ᵥ (d +ᵥ a) = a
+  vadd_reverse_reverse {a : α} {d : δ} : (d +ᵥ a) @⁻¹ a @⁻¹ d = d
+  reverse_vsub {a b : α} : b @⁻¹ (a -ᵥ b) = b -ᵥ a
+
+attribute [simp] LawfulDiffable.reverse_vadd_vadd
+attribute [simp] LawfulDiffable.vadd_reverse_reverse
+attribute [simp] LawfulDiffable.vsub_vadd
+attribute [simp] LawfulDiffable.reverse_vsub
+
+structure NaiveDiff (α : Type) where
+  new : α
+
+instance diffableNaiveDiff : Diffable α (NaiveDiff α) where
+  vadd d _ := d.new
+  vsub new _cur := { new := new }
+  reverse cur _cur2new := { new := cur }
+
+instance : LawfulDiffable α (NaiveDiff α) where
+  vsub_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
+  reverse_vadd_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
+  vadd_reverse_reverse := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
+  reverse_vsub := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
+
+/-- A data structure which maintains the history of a given type. -/
+structure HistoryStack (α : Type) [Diffable α δ] where
+  historyPrev : List δ  -- upon being applied, gives previous element.
+  cur : α
+  historyNext: List δ -- upon being applied, gives next element
+deriving Inhabited, Repr
+
+instance [DecidableEq α] : DecidableEq (HistoryStack α) := fun a b => by
+  -- rintros ⟨prev, cur, next⟩ := a
+  sorry
+
+/--  past₂ ←p  past₁ ←p cur  -n→ c₁ -n→ c₂ ... -/
+def HistoryStack.init {α : Type} [Diffable α δ] (a : α) : HistoryStack α where
+  historyPrev := []
+  cur := a
+  historyNext := []
+
+/--
+Given a state as follows:
+ past₂ ←p-  past₁ ←p- cur  -n→ c₁ -n→ c₂ ... -/
+--/
+def HistoryStack.prev [Diffable α δ] (h : HistoryStack α) : HistoryStack α :=
+  match h.historyPrev with
+  | [] => h
+  | p :: ps =>
+    let (next, patch) := Diffable.apply2 h.cur p
+    { h with
+      cur := next,
+      historyPrev := ps,
+      historyNext := patch :: h.historyNext
+    }
+
+def HistoryStack.next [Diffable α δ] (h : HistoryStack α) : HistoryStack α :=
+  match h.historyNext with
+  | [] => h
+  | a :: as =>
+    let (next, patch) := Diffable.apply2 h.cur a
+    {
+      cur := next,
+      historyPrev := patch :: h.historyPrev,
+      historyNext := as
+    }
+
+
+/-- Todo: show that prev / next are a galois connection. -/
+
+theorem HistoryStack.prev_next_eq_self_of_next_ne
+    (h : HistoryStack α) (hprev : h.historyNext ≠ []) :
+    (HistoryStack.prev (HistoryStack.next h)) = h := by
+  rcases h with ⟨prev, cur, next⟩
+  simp [HistoryStack.prev, HistoryStack.next]
+  cases next <;> cases prev <;> simp_all
+
+theorem HistoryStack.next_prev_eq_self_of_prev_ne
+    (h : HistoryStack α)
+    (hprev : h.historyPrev ≠ []) :
+    (HistoryStack.next (HistoryStack.prev h)) = h := by
+  rcases h with ⟨prev, cur, next⟩
+  simp [HistoryStack.prev, HistoryStack.next]
+  cases next <;> cases prev <;> simp_all
+
+/-- Wipe away history next, making the actions as 'cur', and keeping history prev. -/
+def HistoryStack.setForgettingFuture [DecidableEq α]
+    (newcur : α) (h : HistoryStack α) : HistoryStack α where
+  cur := newcur
+  historyPrev :=
+    if h.cur = newcur then h.historyPrev
+    else (h.cur -ᵥ newcur) :: h.historyPrev
+  historyNext := []
+
+/-- If we actually pushed a new state, then undo will take us back to the old state. -/
+theorem HistoryStack.cur_prev_setForgettingFuture_eq_cur [DecidableEq α]
+    (h : HistoryStack α) (newcur : α) (hnewcur : h.cur ≠ newcur):
+    (HistoryStack.setForgettingFuture newcur h).prev.cur = h.cur := by
+  simp [HistoryStack.setForgettingFuture, prev, hnewcur]
+
+/--  undo followed by a redo will keep us at the current state. -/
+theorem HistoryStack.cur_next_prev_setForgettingFuture_eq_cur [DecidableEq α]
+    (h : HistoryStack α) (newcur : α) (hnewcur : h.cur ≠ newcur):
+    (HistoryStack.setForgettingFuture newcur h).prev.next.cur = newcur := by
+  simp [HistoryStack.setForgettingFuture, prev, next, hnewcur]
+
+/-- Wipe away history next, making the actions as 'cur', and keeping history prev. -/
+def HistoryStack.modifyForgettingFuture [DecidableEq α]
+    (f : α → α) (h : HistoryStack α) : HistoryStack α :=
+  HistoryStack.setForgettingFuture (f h.cur) h
+
 
 structure RawContext where
   track : Track
-  cursors : Multicursor
-  junk : Unit := ()-- workaround for https://github.com/leanprover/lean4/issues/4278
-deriving Inhabited, DecidableEq, Repr
+  cursor : HistoryStack Cursor
+  junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
+deriving Inhabited, DecidableEq
 
 def RawContext.empty : RawContext := {
     track := Track.empty,
-    cursors := Multicursor.atbegin
+    cursor := HistoryStack.init .atbegin,
 }
 
 def RawContext.default : RawContext := {
     track := Track.default,
-    cursors := Multicursor.atbegin
+    cursor := HistoryStack.init .atbegin,
 }
 
 namespace ffi
@@ -146,19 +310,25 @@ def noteGetStart (n : Note) : UInt64 := n.start.toUInt64
 @[export monodrone_note_get_nsteps]
 def noteGetNsteps (n : Note) : UInt64 := n.nsteps.toUInt64
 
-inductive Action
-| moveDownOne
-| moveUpOne
-| moveDownHalfPage
-| moveUpHalfPage
-| toggleNote
-| moveNoteUpSemitone
-| moveNoteDownSemitone
+@[export monodrone_ctx_cursor_a]
+def cursorGetA (ctx : @&RawContext): UInt64 :=
+  ctx.cursor.cur.a.val.toUInt64
 
-def RawContext.moveDownOne (ctx : RawContext) : RawContext := sorry
-def RawContext.moveUpOne (ctx : RawContext) : RawContext := sorry
-def RawContext.moveDownHalfPage (ctx : RawContext) : RawContext := sorry
-def RawContext.moveUpHalfPage (ctx : RawContext) : RawContext := sorry
+@[export monodrone_ctx_cursor_b]
+def cursorGetB (ctx : @&RawContext): UInt64 :=
+  ctx.cursor.cur.b.val.toUInt64
+
+def RawContext.moveDownOne (ctx : RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownOne }
+
+def RawContext.moveUpOne (ctx : RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpOne }
+
+def RawContext.moveDownHalfPage (ctx : RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownHalfPage }
+
+def RawContext.moveUpHalfPage (ctx : RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpHalfPage }
 
 def RawContext.toggleNote (ctx : RawContext) : RawContext := sorry
 def RawContext.moveNoteUpSemitone (ctx : RawContext) : RawContext := sorry

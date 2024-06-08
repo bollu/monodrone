@@ -10,6 +10,9 @@ extern {
     pub fn monodrone_note_get_pitch(n : *mut i8) -> u64;
     pub fn monodrone_note_get_start(n : *mut i8) -> u64;
     pub fn monodrone_note_get_nsteps(n : *mut i8) -> u64;
+    // https://www.sublimetext.com/docs/api_reference.html#sublime.Region
+    pub fn monodrone_ctx_cursor_a(ctx : *mut i8) -> u64;
+    pub fn monodrone_ctx_cursor_b(ctx : *mut i8) -> u64;
 }
 pub fn initialize() -> () {
     unsafe { initialize_Monodrone(1, leanffi::lean_box(0)) };
@@ -83,6 +86,21 @@ impl From<TrackBuilder> for Track {
         Track { notes: builder.notes }
     }
 }
+
+pub fn get_cursor_a (ctx : *mut i8) -> u64 {
+    unsafe {
+        lean_inc_ref_cold(ctx);
+        monodrone_ctx_cursor_a(ctx)
+    }
+}
+
+pub fn get_cursor_b (ctx : *mut i8) -> u64 {
+    unsafe {
+        lean_inc_ref_cold(ctx);
+        monodrone_ctx_cursor_b(ctx)
+    }
+}
+
 
 pub fn get_track (ctx : *mut i8) -> Track {
     let len: u64 = unsafe {
