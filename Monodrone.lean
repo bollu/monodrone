@@ -5,6 +5,7 @@ import Mathlib.Algebra.AddTorsor
 -- import Mathlib.Order.Disjoint
 import Batteries.Data.RBMap
 import Mathlib.Data.List.Sort
+import Mathlib.Order.GaloisConnection
 open Lean
 open Batteries
 
@@ -334,7 +335,10 @@ def RawContext.toggleNote (ctx : RawContext) : RawContext := sorry
 def RawContext.moveNoteUpSemitone (ctx : RawContext) : RawContext := sorry
 def RawContext.moveNoteDownSemitone (ctx : RawContext) : RawContext := sorry
 
-def RawContext.undo (ctx : RawContext) : RawContext := sorry
-def RawContext.redo (ctx : RawContext) : RawContext := sorry
+def RawContext.undoAction (ctx : RawContext) : RawContext := sorry
+def RawContext.redoAction (ctx : RawContext) : RawContext := sorry
+
+def RawContext.undoMovement (ctx : RawContext) : RawContext := sorry
+def RawContext.redoMovement (ctx : RawContext) : RawContext := sorry
 
 end ffi
