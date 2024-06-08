@@ -127,66 +127,72 @@ inductive NoteAction
 | moveNoteDownSemitone
 deriving Inhabited, DecidableEq, Repr
 
-class Diffable (α : Type) (δ : outParam Type) extends VAdd δ α, VSub δ α where
+class Patchable (α : Type) (δ : Type) extends VAdd δ α where
   /-- Given the diff `f -δ→ g` and `f`, compute `g -(f @⁻¹ δ)→ f`.
   Note that the diff can be inverted sensibly only at the element it was
   applied to. -/
   reverse : α → δ → δ
 
 
-@[inherit_doc] infixr:73 " @⁻¹ " => Diffable.reverse
+@[inherit_doc] infixr:73 " @⁻¹ " => Patchable.reverse
 
 /-- apply the patch  `a -d→ ` to get `(apply2 a d).snd`,
 and simultaneously make the patch `(apply2 a d).snd -(apply2 a d).snd→ a`. -/
-def Diffable.apply2 [Diffable α δ] (a : α) (d : δ) : α × δ :=
-  (d +ᵥ a, Diffable.reverse a d)
+def Patchable.apply2 [Patchable α δ] (a : α) (d : δ) : α × δ :=
+  (d +ᵥ a, Patchable.reverse a d)
 
 @[simp]
-theorem Diffable.fst_apply2 [Diffable α δ] (a : α) (d : δ) : (Diffable.apply2 a d).fst = d +ᵥ a := by
-  simp [Diffable.apply2]
+theorem Patchable.fst_apply2 [Patchable α δ] (a : α) (d : δ) : (Patchable.apply2 a d).fst = d +ᵥ a := by
+  simp [Patchable.apply2]
 
 @[simp]
-theorem Diffable.snd_apply2 [Diffable α δ] (a : α) (d : δ) : (Diffable.apply2 a d).snd = Diffable.reverse a d := by
-  simp [Diffable.apply2]
+theorem Patchable.snd_apply2 [Patchable α δ] (a : α) (d : δ) : (Patchable.apply2 a d).snd = Patchable.reverse a d := by
+  simp [Patchable.apply2]
 
-class LawfulDiffable (α : Type) (δ : outParam Type) extends Diffable α δ where
-  vsub_vadd {a b : α} : (b -ᵥ a) +ᵥ a = b
+class Diffable (α : Type) (δ : outParam Type) extends Patchable α δ, VSub δ α
+
+class LawfulPatchable (α : Type) (δ : outParam Type) [Patchable α δ] where
   reverse_vadd_vadd {a : α} {d : δ} : (a @⁻¹ d) +ᵥ (d +ᵥ a) = a
   vadd_reverse_reverse {a : α} {d : δ} : (d +ᵥ a) @⁻¹ a @⁻¹ d = d
+
+/-- TODO: how to extend LawfulPatchable? -/
+class LawfulDiffable (α : Type) (δ : outParam Type) [Diffable α δ]
+    extends LawfulPatchable α δ where
+  vsub_vadd {a b : α} : (b -ᵥ a) +ᵥ a = b
   reverse_vsub {a b : α} : b @⁻¹ (a -ᵥ b) = b -ᵥ a
 
-attribute [simp] LawfulDiffable.reverse_vadd_vadd
-attribute [simp] LawfulDiffable.vadd_reverse_reverse
+attribute [simp] LawfulPatchable.reverse_vadd_vadd
+attribute [simp] LawfulPatchable.vadd_reverse_reverse
 attribute [simp] LawfulDiffable.vsub_vadd
 attribute [simp] LawfulDiffable.reverse_vsub
 
 structure NaiveDiff (α : Type) where
   new : α
 
-instance diffableNaiveDiff : Diffable α (NaiveDiff α) where
+instance  : Diffable α (NaiveDiff α) where
   vadd d _ := d.new
   vsub new _cur := { new := new }
   reverse cur _cur2new := { new := cur }
 
 instance : LawfulDiffable α (NaiveDiff α) where
-  vsub_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
-  reverse_vadd_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
-  vadd_reverse_reverse := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
-  reverse_vsub := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Diffable.reverse]
+  vsub_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
+  reverse_vadd_vadd := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
+  vadd_reverse_reverse := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
+  reverse_vsub := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
 
 /-- A data structure which maintains the history of a given type. -/
-structure HistoryStack (α : Type) [Diffable α δ] where
+structure HistoryStack (α : Type) (δ : Type) where
   historyPrev : List δ  -- upon being applied, gives previous element.
   cur : α
   historyNext: List δ -- upon being applied, gives next element
 deriving Inhabited, Repr
 
-instance [DecidableEq α] : DecidableEq (HistoryStack α) := fun a b => by
+instance [DecidableEq α] : DecidableEq (HistoryStack α δ) := fun a b => by
   -- rintros ⟨prev, cur, next⟩ := a
   sorry
 
 /--  past₂ ←p  past₁ ←p cur  -n→ c₁ -n→ c₂ ... -/
-def HistoryStack.init {α : Type} [Diffable α δ] (a : α) : HistoryStack α where
+def HistoryStack.init {α : Type} (a : α) : HistoryStack α δ where
   historyPrev := []
   cur := a
   historyNext := []
@@ -195,22 +201,22 @@ def HistoryStack.init {α : Type} [Diffable α δ] (a : α) : HistoryStack α wh
 Given a state as follows:
  past₂ ←p-  past₁ ←p- cur  -n→ c₁ -n→ c₂ ... -/
 --/
-def HistoryStack.prev [Diffable α δ] (h : HistoryStack α) : HistoryStack α :=
+def HistoryStack.prev (h : HistoryStack α δ) [Patchable α δ] : HistoryStack α δ :=
   match h.historyPrev with
   | [] => h
   | p :: ps =>
-    let (next, patch) := Diffable.apply2 h.cur p
+    let (next, patch) := Patchable.apply2 h.cur p
     { h with
       cur := next,
       historyPrev := ps,
       historyNext := patch :: h.historyNext
     }
 
-def HistoryStack.next [Diffable α δ] (h : HistoryStack α) : HistoryStack α :=
+def HistoryStack.next (h : HistoryStack α δ) [Patchable α δ] : HistoryStack α δ :=
   match h.historyNext with
   | [] => h
   | a :: as =>
-    let (next, patch) := Diffable.apply2 h.cur a
+    let (next, patch) := Patchable.apply2 h.cur a
     {
       cur := next,
       historyPrev := patch :: h.historyPrev,
@@ -220,15 +226,15 @@ def HistoryStack.next [Diffable α δ] (h : HistoryStack α) : HistoryStack α :
 
 /-- Todo: show that prev / next are a galois connection. -/
 
-theorem HistoryStack.prev_next_eq_self_of_next_ne
-    (h : HistoryStack α) (hprev : h.historyNext ≠ []) :
+theorem HistoryStack.prev_next_eq_self_of_next_ne [Patchable α δ] [LawfulPatchable α δ]
+    (h : HistoryStack α δ) (hprev : h.historyNext ≠ []) :
     (HistoryStack.prev (HistoryStack.next h)) = h := by
   rcases h with ⟨prev, cur, next⟩
   simp [HistoryStack.prev, HistoryStack.next]
   cases next <;> cases prev <;> simp_all
 
-theorem HistoryStack.next_prev_eq_self_of_prev_ne
-    (h : HistoryStack α)
+theorem HistoryStack.next_prev_eq_self_of_prev_ne [Patchable α δ] [LawfulPatchable α δ]
+    (h : HistoryStack α δ)
     (hprev : h.historyPrev ≠ []) :
     (HistoryStack.next (HistoryStack.prev h)) = h := by
   rcases h with ⟨prev, cur, next⟩
@@ -236,8 +242,8 @@ theorem HistoryStack.next_prev_eq_self_of_prev_ne
   cases next <;> cases prev <;> simp_all
 
 /-- Wipe away history next, making the actions as 'cur', and keeping history prev. -/
-def HistoryStack.setForgettingFuture [DecidableEq α]
-    (newcur : α) (h : HistoryStack α) : HistoryStack α where
+def HistoryStack.setForgettingFuture [DecidableEq α] [Diffable α δ]
+    (newcur : α) (h : HistoryStack α δ) : HistoryStack α δ where
   cur := newcur
   historyPrev :=
     if h.cur = newcur then h.historyPrev
@@ -246,25 +252,33 @@ def HistoryStack.setForgettingFuture [DecidableEq α]
 
 /-- If we actually pushed a new state, then undo will take us back to the old state. -/
 theorem HistoryStack.cur_prev_setForgettingFuture_eq_cur [DecidableEq α]
-    (h : HistoryStack α) (newcur : α) (hnewcur : h.cur ≠ newcur):
+    [Diffable α δ] [LawfulDiffable α δ]
+    (h : HistoryStack α δ) (newcur : α) (hnewcur : h.cur ≠ newcur):
     (HistoryStack.setForgettingFuture newcur h).prev.cur = h.cur := by
   simp [HistoryStack.setForgettingFuture, prev, hnewcur]
 
-/--  undo followed by a redo will keep us at the current state. -/
+/--  Undo followed by a redo will keep us at the current state. -/
 theorem HistoryStack.cur_next_prev_setForgettingFuture_eq_cur [DecidableEq α]
-    (h : HistoryStack α) (newcur : α) (hnewcur : h.cur ≠ newcur):
+    [Diffable α δ] [LawfulDiffable α δ]
+    (h : HistoryStack α δ) (newcur : α) (hnewcur : h.cur ≠ newcur) :
     (HistoryStack.setForgettingFuture newcur h).prev.next.cur = newcur := by
   simp [HistoryStack.setForgettingFuture, prev, next, hnewcur]
 
-/-- Wipe away history next, making the actions as 'cur', and keeping history prev. -/
-def HistoryStack.modifyForgettingFuture [DecidableEq α]
-    (f : α → α) (h : HistoryStack α) : HistoryStack α :=
+/-- Wipe away history next, making the actions as `cur`, and keeping history prev. -/
+def HistoryStack.modifyForgettingFuture [DecidableEq α] [Diffable α δ]
+    (f : α → α) (h : HistoryStack α δ) : HistoryStack α δ :=
   HistoryStack.setForgettingFuture (f h.cur) h
 
+/-- Wipe away history next, applying patch `p`, and keeping history prev. -/
+def HistoryStack.patchForgettingFuture [DecidableEq α] [Diffable α δ]
+    (h : HistoryStack α δ) (p : δ) : HistoryStack α δ where
+  cur := p +ᵥ h.cur
+  historyPrev := (h.cur @⁻¹ p) :: h.historyPrev
+  historyNext := []
 
 structure RawContext where
   track : Track
-  cursor : HistoryStack Cursor
+  cursor : HistoryStack Cursor (NaiveDiff Cursor)
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
 deriving Inhabited, DecidableEq
 
