@@ -498,9 +498,31 @@ def RawContext.addNote (ctx : RawContext) : RawContext :=
     t.removeNoteAt start |>.addNote newNote
   { ctx with track := newTrack }
 
-def RawContext.moveNoteUpSemitone (ctx : RawContext) : RawContext := sorry
+def Note.raiseSemitone (n : Note) : Note :=
+  { n with pitch := Pitch.raiseSemitone n.pitch }
 
-def RawContext.moveNoteDownSemitone (ctx : RawContext) : RawContext := sorry
+theorem Note.self_containsNote_raiseSemitone_self (n : Note) :
+    n.containsNote (Note.raiseSemitone n) := by
+  simp [Note.containsNote, Note.raiseSemitone, note_omega]
+
+def RawContext.raiseSemitone (ctx : RawContext) : RawContext :=
+  let newTrack := ctx.track.modifyForgettingFuture fun t =>
+    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.raiseSemitone
+      (Note.self_containsNote_raiseSemitone_self)
+  { ctx with track := newTrack }
+
+def Note.lowerSemitone (n : Note) : Note :=
+  { n with pitch := Pitch.lowerSemitone n.pitch }
+
+theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
+    n.containsNote (Note.lowerSemitone n) := by
+  simp [Note.containsNote, Note.lowerSemitone, note_omega]
+
+def RawContext.lowerSemitone (ctx : RawContext) : RawContext :=
+  let newTrack := ctx.track.modifyForgettingFuture fun t =>
+    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.lowerSemitone
+      (Note.self_containsNote_lowerSemitone_self)
+  { ctx with track := newTrack }
 
 def RawContext.undoAction (ctx : RawContext) : RawContext :=
   { ctx with track := ctx.track.prev }
