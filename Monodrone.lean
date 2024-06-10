@@ -427,7 +427,7 @@ def RawContext.default : RawContext := {
     lastPlacedPitch := Pitch.middleC
 }
 
-namespace ffi
+section ffi
 /-!
 
 #### C FFI
@@ -468,15 +468,19 @@ def cursorGetA (ctx : @&RawContext): UInt64 :=
 def cursorGetB (ctx : @&RawContext): UInt64 :=
   ctx.cursor.cur.b.val.toUInt64
 
+@[export monodrone_ctx_move_down_one]
 def RawContext.moveDownOne (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownOne }
 
+@[export monodrone_ctx_move_up_one]
 def RawContext.moveUpOne (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpOne }
 
+@[export monodrone_ctx_move_down_half_page]
 def RawContext.moveDownHalfPage (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownHalfPage }
 
+@[export monodrone_ctx_move_up_half_page]
 def RawContext.moveUpHalfPage (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpHalfPage }
 
@@ -485,8 +489,7 @@ def RawContext.removeNote (ctx : RawContext) : RawContext :=
     t.removeNoteAt ctx.cursor.cur.b.val
   { ctx with track := newTrack }
 
-def RawContext.addNote (ctx : RawContext) : RawContext :=
-  let pitch := ctx.lastPlacedPitch
+def RawContext.addNoteOfPitch (ctx : RawContext) (pitch : Pitch): RawContext :=
   let start := ctx.cursor.cur.b.val
   let nsteps := 1
   let newNote : Note := {
@@ -498,6 +501,15 @@ def RawContext.addNote (ctx : RawContext) : RawContext :=
     t.removeNoteAt start |>.addNote newNote
   { ctx with track := newTrack }
 
+
+@[export monodrone_ctx_add_note]
+def RawContext.addNote (ctx : RawContext) : RawContext :=
+  ctx.addNoteOfPitch ctx.lastPlacedPitch
+
+@[export monodrone_ctx_add_note_c]
+def RawContext.addNoteC (ctx : RawContext) : RawContext :=
+  ctx.addNoteOfPitch Pitch.middleC
+
 def Note.raiseSemitone (n : Note) : Note :=
   { n with pitch := Pitch.raiseSemitone n.pitch }
 
@@ -505,6 +517,7 @@ theorem Note.self_containsNote_raiseSemitone_self (n : Note) :
     n.containsNote (Note.raiseSemitone n) := by
   simp [Note.containsNote, Note.raiseSemitone, note_omega]
 
+@[export monodrone_ctx_raise_semitone]
 def RawContext.raiseSemitone (ctx : RawContext) : RawContext :=
   let newTrack := ctx.track.modifyForgettingFuture fun t =>
     t.modifyNoteOfContains ctx.cursor.cur.b.val Note.raiseSemitone
@@ -518,20 +531,29 @@ theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
     n.containsNote (Note.lowerSemitone n) := by
   simp [Note.containsNote]
   unfold Note.lowerSemitone
-  -- simp only [le_refl, true_and, Note.lastPlayed, le_refl]
-
   simp only [le_refl, true_and]
   simp only [Note.lastPlayed, le_refl]
 
+@[export monodrone_ctx_lower_semitone]
+def RawContext.lowerSemitone (ctx : RawContext) : RawContext :=
+  let newTrack := ctx.track.modifyForgettingFuture fun t =>
+    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.raiseSemitone
+      (Note.self_containsNote_raiseSemitone_self)
+  { ctx with track := newTrack }
+
+@[export monodrone_ctx_undo_action]
 def RawContext.undoAction (ctx : RawContext) : RawContext :=
   { ctx with track := ctx.track.prev }
 
+@[export monodrone_ctx_redo_action]
 def RawContext.redoAction (ctx : RawContext) : RawContext :=
   { ctx with track := ctx.track.next }
 
+@[export monodrone_ctx_undo_movement]
 def RawContext.undoMovement (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.prev }
 
+@[export monodrone_ctx_redo_movement]
 def RawContext.redoMovement (ctx : RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.next }
 

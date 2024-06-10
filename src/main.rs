@@ -251,7 +251,7 @@ fn main() {
     }
 
     event!(Level::INFO, "creating context");
-    let monodrone_ctx = monodroneffi::new_context();
+    let mut monodrone_ctx = monodroneffi::new_context();
     event!(Level::INFO, "ctx: {:p}", monodrone_ctx);
     let track = monodroneffi::get_track(monodrone_ctx);
     event!(Level::INFO, "track: {:?}", track);
@@ -290,6 +290,19 @@ fn main() {
             sequencer_io.set_track(track.clone());
             sequencer_io.restart();
         }
+
+        if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
+            monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_UP)) {
+            monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+            monodrone_ctx = monodroneffi::add_note_c(monodrone_ctx);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
+            monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
+            monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
+        }
+
 
         let mut d = rl.begin_drawing(&thread);
 

@@ -13,7 +13,30 @@ extern {
     // https://www.sublimetext.com/docs/api_reference.html#sublime.Region
     pub fn monodrone_ctx_cursor_a(ctx : *mut i8) -> u64;
     pub fn monodrone_ctx_cursor_b(ctx : *mut i8) -> u64;
+
+
+
+    // if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
+    //     monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
+    // } else if (rl.is_key_pressed(KeyboardKey::KEY_UP)) {
+    //     monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
+    // } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+    //     monodrone_ctx = monodroneffi::add_note_c(monodrone_ctx);
+    // } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
+    //     monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
+    // } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
+    //     monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
+    // }
+
+    pub fn monodrone_ctx_move_down_one(ctx : *mut i8) -> *mut i8;
+    pub fn monodrone_ctx_move_up_one(ctx : *mut i8) -> *mut i8;
+    pub fn monodrone_ctx_add_note_c(ctx : *mut i8) -> *mut i8;
+    pub fn monodrone_ctx_lower_semitone(ctx : *mut i8) -> *mut i8;
+    pub fn monodrone_ctx_raise_semitone(ctx : *mut i8) -> *mut i8;
+    
 }
+
+
 pub fn initialize() -> () {
     unsafe { initialize_Monodrone(1, leanffi::lean_box(0)) };
 }
@@ -84,21 +107,24 @@ impl TrackBuilder {
 impl From<TrackBuilder> for Track {
     fn from(builder: TrackBuilder) -> Self {
         Track { notes: builder.notes }
+    }   
+}
+
+
+/// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
+pub fn monodrone_ctx_run_linear_fn<T> (ctx : *mut i8, f : unsafe extern "C" fn(*mut i8) -> T) -> T {
+    unsafe {
+        lean_inc_ref_cold(ctx);
+        f(ctx)
     }
 }
 
 pub fn get_cursor_a (ctx : *mut i8) -> u64 {
-    unsafe {
-        lean_inc_ref_cold(ctx);
-        monodrone_ctx_cursor_a(ctx)
-    }
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_a)
 }
 
 pub fn get_cursor_b (ctx : *mut i8) -> u64 {
-    unsafe {
-        lean_inc_ref_cold(ctx);
-        monodrone_ctx_cursor_b(ctx)
-    }
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_b)
 }
 
 
@@ -121,4 +147,25 @@ pub fn get_track (ctx : *mut i8) -> Track {
     }
 
     Track { notes }
+}
+
+/// TODO: ask Theo how to automatically do this.
+pub fn move_down_one (ctx : *mut i8) -> *mut i8 {
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_move_down_one)
+}
+
+pub fn move_up_one (ctx : *mut i8) -> *mut i8 {
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_move_up_one)
+}
+
+pub fn add_note_c (ctx : *mut i8) -> *mut i8 {
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_add_note_c)
+}
+
+pub fn lower_semitone (ctx : *mut i8) -> *mut i8 {
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_lower_semitone)
+}
+
+pub fn raise_semitone (ctx : *mut i8) -> *mut i8 {
+    monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_raise_semitone)
 }
