@@ -516,13 +516,12 @@ def Note.lowerSemitone (n : Note) : Note :=
 
 theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
     n.containsNote (Note.lowerSemitone n) := by
-  simp [Note.containsNote, Note.lowerSemitone, note_omega]
+  simp [Note.containsNote]
+  unfold Note.lowerSemitone
+  -- simp only [le_refl, true_and, Note.lastPlayed, le_refl]
 
-def RawContext.lowerSemitone (ctx : RawContext) : RawContext :=
-  let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.lowerSemitone
-      (Note.self_containsNote_lowerSemitone_self)
-  { ctx with track := newTrack }
+  simp only [le_refl, true_and]
+  simp only [Note.lastPlayed, le_refl]
 
 def RawContext.undoAction (ctx : RawContext) : RawContext :=
   { ctx with track := ctx.track.prev }
