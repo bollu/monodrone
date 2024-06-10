@@ -283,9 +283,7 @@ fn main() {
 
 
     while !rl.window_should_close() {
-        let track = monodroneffi::get_track(monodrone_ctx);
-        // event!(Level::INFO, "track: {:?}", track);
-
+        // Step 1: Handle events 
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             sequencer_io.set_track(track.clone());
             sequencer_io.restart();
@@ -302,20 +300,19 @@ fn main() {
         } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
             monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
         }
+        // Step 2: Get stuff to render 
+        let track = monodroneffi::get_track(monodrone_ctx);
+        let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
 
-
+        // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
 
         d.clear_background(Color::new(50, 50, 60, 255));
-        
-
         // draw tracker.
         for y in 0..100 {
             let h = 1;
             d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
         }
-
-        let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
 
         for (i, note) in track.notes.iter().enumerate() {
             let y = note.start as i32;
@@ -324,7 +321,7 @@ fn main() {
             if cursor_b == i as u64 {
                 d.draw_rectangle(4, y, 8, 40 * h, Color::new(255, 166, 47, 255));
             }
-            
+
             d.draw_text(&format!(" {}", pitch), 10, 12, 22, Color::new(202, 244, 255, 255));
         }
     }
