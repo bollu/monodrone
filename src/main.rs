@@ -315,11 +315,16 @@ fn main() {
             d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
         }
 
-        for note in track.notes.iter() {
+        let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
+
+        for (i, note) in track.notes.iter().enumerate() {
             let y = note.start as i32;
             let h = note.nsteps as i32;
             let pitch = note.pitch as i32;
-            d.draw_rectangle(4, y, 8, 40 * h, Color::new(255, 166, 47, 255));
+            if cursor_b == i as u64 {
+                d.draw_rectangle(4, y, 8, 40 * h, Color::new(255, 166, 47, 255));
+            }
+            
             d.draw_text(&format!(" {}", pitch), 10, 12, 22, Color::new(202, 244, 255, 255));
         }
     }
