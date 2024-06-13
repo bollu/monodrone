@@ -47,4 +47,7 @@ package «Monodrone» where
 lean_lib «Monodrone» where
   defaultFacets := #[`fatStatic]
 
+lean_exe MonodroneTests where 
+  
+
 require mathlib from git "https://github.com/leanprover-community/mathlib4" @ "86653eb"

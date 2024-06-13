@@ -298,6 +298,7 @@ attribute [simp] LawfulDiffable.reverse_vsub
 
 structure NaiveDiff (α : Type) where
   new : α
+deriving DecidableEq, Repr, Inhabited
 
 instance  : Diffable α (NaiveDiff α) where
   vadd d _ := d.new
@@ -321,6 +322,8 @@ structure HistoryStack (α : Type) (δ : Type) where
   historyNext: List δ
 deriving Inhabited, Repr
 
+instance [Repr α] [Repr δ] : Repr (HistoryStack α δ) where
+  reprPrec h _ := "HistoryStack.mk " ++ repr h.historyPrev ++ " " ++ repr h.cur ++ " " ++ repr h.historyNext
 
 def HistoryStack.init {α : Type} (a : α) : HistoryStack α δ where
   historyPrev := []
@@ -413,7 +416,7 @@ structure RawContext where
   track : HistoryStack Track (NaiveDiff Track)
   cursor : HistoryStack Cursor (NaiveDiff Cursor)
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
-deriving Inhabited
+deriving Inhabited, Repr
 
 def RawContext.empty : RawContext := {
     track := HistoryStack.init Track.empty,
@@ -452,20 +455,20 @@ def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
   ctx.track.cur.notes.get! ix.toNat
 
 @[export monodrone_note_get_pitch]
-def noteGetPitch (n : Note) : UInt64 := n.pitch.pitch
+def noteGetPitch (n : @&Note) : UInt64 := n.pitch.pitch
 
 @[export monodrone_note_get_start]
-def noteGetStart (n : Note) : UInt64 := n.start.toUInt64
+def noteGetStart (n : @&Note) : UInt64 := n.start.toUInt64
 
 @[export monodrone_note_get_nsteps]
-def noteGetNsteps (n : Note) : UInt64 := n.nsteps.toUInt64
+def noteGetNsteps (n : @&Note) : UInt64 := n.nsteps.toUInt64
 
 @[export monodrone_ctx_cursor_a]
 def cursorGetA (ctx : @&RawContext): UInt64 :=
   ctx.cursor.cur.a.val.toUInt64
 
 @[export monodrone_ctx_cursor_b]
-def cursorGetB (ctx : @&RawContext): UInt64 :=
+def cursorGetB (ctx : @&RawContext) : UInt64 :=
   ctx.cursor.cur.b.val.toUInt64
 
 @[export monodrone_ctx_move_down_one]
@@ -556,5 +559,4 @@ def RawContext.undoMovement (ctx : @&RawContext) : RawContext :=
 @[export monodrone_ctx_redo_movement]
 def RawContext.redoMovement (ctx : @&RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.next }
-
 end ffi

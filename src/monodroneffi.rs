@@ -13,21 +13,6 @@ extern {
     // https://www.sublimetext.com/docs/api_reference.html#sublime.Region
     pub fn monodrone_ctx_cursor_a(ctx : *mut i8) -> u64;
     pub fn monodrone_ctx_cursor_b(ctx : *mut i8) -> u64;
-
-
-
-    // if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
-    //     monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
-    // } else if (rl.is_key_pressed(KeyboardKey::KEY_UP)) {
-    //     monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
-    // } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
-    //     monodrone_ctx = monodroneffi::add_note_c(monodrone_ctx);
-    // } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
-    //     monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
-    // } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
-    //     monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
-    // }
-
     pub fn monodrone_ctx_move_down_one(ctx : *mut i8) -> *mut i8;
     pub fn monodrone_ctx_move_up_one(ctx : *mut i8) -> *mut i8;
     pub fn monodrone_ctx_add_note_c(ctx : *mut i8) -> *mut i8;
@@ -135,15 +120,17 @@ pub fn get_track (ctx : *mut i8) -> Track {
     };
     let mut notes: Vec<Note> = Vec::new();
     for i in 0..len {
-        unsafe { lean_inc_ref_cold(ctx); }
-        let note = unsafe { monodrone_track_get_note(ctx, i) };
-        unsafe { lean_inc_ref_cold(note) };
-        let pitch = unsafe { monodrone_note_get_pitch(note) };
-        unsafe { lean_inc_ref_cold(note) };
-        let start = unsafe { monodrone_note_get_start(note) };
-        unsafe { lean_inc_ref_cold(note) };
-        let nsteps = unsafe { monodrone_note_get_nsteps(note) };
-        notes.push(Note { pitch, start, nsteps });
+        unsafe { 
+            lean_inc_ref_cold(ctx); 
+            let note = monodrone_track_get_note(ctx, i);
+            lean_inc_ref_cold(note);
+            let pitch = monodrone_note_get_pitch(note);
+            lean_inc_ref_cold(note);
+            let start = monodrone_note_get_start(note);
+            lean_inc_ref_cold(note);
+            let nsteps = monodrone_note_get_nsteps(note);
+            notes.push(Note { pitch, start, nsteps });
+        }
     }
 
     Track { notes }

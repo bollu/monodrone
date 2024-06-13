@@ -252,6 +252,8 @@ fn main() {
 
     event!(Level::INFO, "creating context");
     let mut monodrone_ctx = monodroneffi::new_context();
+    monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
+    monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
     event!(Level::INFO, "ctx: {:p}", monodrone_ctx);
     let track = monodroneffi::get_track(monodrone_ctx);
     event!(Level::INFO, "track: {:?}", track);
@@ -281,7 +283,6 @@ fn main() {
         .title("Hello, World")
         .build();
 
-
     while !rl.window_should_close() {
         // Step 1: Handle events 
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
@@ -303,6 +304,7 @@ fn main() {
         // Step 2: Get stuff to render 
         let track = monodroneffi::get_track(monodrone_ctx);
         let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
+        println!("cursor_b: {}", cursor_b);
 
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
