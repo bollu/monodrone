@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-set -o xtrace
 set -e
-cc -g $(leanc --print-cflags) $(leanc --print-ldflags) -L../.lake/build/lib/ ../.lake/build/lib/libMonodroneFat.a ffi.c -o a.out
-
+set -o xtrace
+clang -Wall -Werror -fsanitize=address -fsanitize=undefined -g main.c $(leanc --print-cflags) $(leanc --print-ldflags) -L../.lake/build/lib/ -lMonodroneFat -o main.out
