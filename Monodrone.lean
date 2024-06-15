@@ -19,13 +19,13 @@ Track: A sequence lane dedicated to a specific drum sound or instrument.
 
 /-- A pitch represented by the MIDI pitch value. -/
 structure Pitch where
-  pitch : UInt64
+  pitch : Nat
   junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr
 
 def Pitch.middleC : Pitch := { pitch := 60 }
 def Pitch.raiseSemitone (p : Pitch) : Pitch := { pitch := p.pitch + 1 }
-def Pitch.lowerSemitone (p : Pitch) : Pitch := { pitch := p.pitch - 1 }
+def Pitch.lowerSemitone (p : Pitch) : Pitch := { pitch := (p.pitch - 1) }
 def Pitch.raiseWhole (p : Pitch) : Pitch := { pitch := p.pitch + 2 }
 def Pitch.lowerWhole (p : Pitch) : Pitch := { pitch := p.pitch - 2 }
 
@@ -455,7 +455,7 @@ def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
   ctx.track.cur.notes.get! ix.toNat
 
 @[export monodrone_note_get_pitch]
-def noteGetPitch (n : @&Note) : UInt64 := n.pitch.pitch
+def noteGetPitch (n : @&Note) : UInt64 := n.pitch.pitch.toUInt64
 
 @[export monodrone_note_get_start]
 def noteGetStart (n : @&Note) : UInt64 := n.start.toUInt64
@@ -540,8 +540,8 @@ theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
 @[export monodrone_ctx_lower_semitone]
 def RawContext.lowerSemitone (ctx : @&RawContext) : RawContext :=
   let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.raiseSemitone
-      (Note.self_containsNote_raiseSemitone_self)
+    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.lowerSemitone
+      (Note.self_containsNote_lowerSemitone_self)
   { ctx with track := newTrack }
 
 @[export monodrone_ctx_undo_action]
