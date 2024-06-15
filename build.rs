@@ -5,7 +5,7 @@ use std::fs;
 use std::time::SystemTime;
 
 
-fn cargo_add_leanc_Libpath() {
+fn cargo_add_ld_options() {
     // Run the command 'leanc --print-ldflags'
     let output = Command::new("leanc")
         .arg("--print-ldflags")
@@ -23,29 +23,25 @@ fn cargo_add_leanc_Libpath() {
             eprintln!("Error: No ldflags found after -L");
             return;
         }
-        let ldflags = parts[1].split_whitespace().next().unwrap_or_default();
+        let ld_search_path = parts[1].split_whitespace().next().unwrap_or_default();
+        println!("cargo::warning='ld_search_path is {ld_search_path}'");
 
-        // Pass ldflags to Cargo as arguments
-        println!("cargo:rustc-link-search=native={}", ldflags);
+        // Pass search_path to Cargo as arguments
+        println!("cargo:rustc-link-search=native={}", ld_search_path);
+        return; 
+
+        let lib_names : Vec<&str> = parts.iter().skip(2).map(|part| {
+            part.split_whitespace().next().unwrap_or_default()
+        }).collect();
+
+        eprintln!("error: lib names: {:?}", lib_names);
+        
     } else {
         // Print an error message if the command failed
         eprintln!("Error: leanc command failed with status {:?}", output.status);
     }
 }
 
-fn cago_add_leanc_libnames() {
-    // Add additional library search path
-    // println!("cargo:rustc-link-search=native=/Users/bollu/.elan/toolchains/leanprover--lean4---nightly/lib/lean");
-
-    // Link against the specified libraries
-    println!("cargo:rustc-link-lib=static=leancpp");
-    println!("cargo:rustc-link-lib=static=Init");
-    println!("cargo:rustc-link-lib=static=Lean");
-    println!("cargo:rustc-link-lib=static=leanrt");
-    println!("cargo:rustc-link-lib=static=c++");
-    println!("cargo:rustc-link-lib=static=Lake");
-    
-}
 // Example custom build script.
 fn main() {
     
@@ -54,8 +50,7 @@ fn main() {
     println!("cargo::rerun-if-changed=Monodrone/");
     println!("cargo::rerun-if-changed=Monodrone.lean");
 
-    cargo_add_leanc_Libpath();
-    cago_add_leanc_libnames();
+    cargo_add_ld_options();
 
     let monodrone_dir = "./";
     let status = Command::new("lake")

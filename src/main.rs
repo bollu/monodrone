@@ -5,7 +5,7 @@ use std::borrow::BorrowMut;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
-
+use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref};
 use midi::Message::Start;
 use monodroneffi::Note;
 use raylib::prelude::*;
@@ -18,17 +18,16 @@ use rustysynth::{MidiFile, MidiFileSequencer, SoundFont, Synthesizer, Synthesize
 use tracing_subscriber::layer::SubscriberExt;
 use tracing::{event, Level};
 mod monodroneffi;
-mod leanffi;
 
 use std::cmp;
 
-// TODO: read midi 
+// TODO: read midi
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NoteEvent {
-    NoteOn { pitch : u8, instant : u64 },  
-    NoteOff { pitch : u8, instant : u64 },  
-} 
+    NoteOn { pitch : u8, instant : u64 },
+    NoteOff { pitch : u8, instant : u64 },
+}
 
 impl NoteEvent {
     fn instant(&self) -> u64 {
@@ -44,7 +43,7 @@ impl NoteEvent {
             NoteEvent::NoteOff { pitch, .. } => *pitch,
         }
     }
-        
+
 }
 
 // order note events by instant
@@ -81,7 +80,7 @@ pub struct MidiSequencer {
     track : monodroneffi::Track,
     playing : bool,
     // start_instant : u64, // instant of time we started playing.
-    // end_instant : u64, 
+    // end_instant : u64,
     cur_instant : u64, // current instant of time, as we last heard.
     last_rendered_instant : u64, // instant of time we last rendered.
     // looping : bool,
@@ -123,8 +122,8 @@ impl MidiSequencer {
     }
 
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let new_instant = self.cur_instant + 1; 
-        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})", 
+        let new_instant = self.cur_instant + 1;
+        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})",
         self.cur_instant, new_instant, self.last_rendered_instant, self.playing);
 
         if (!self.playing) {
@@ -137,12 +136,12 @@ impl MidiSequencer {
         assert!(self.last_rendered_instant <= self.cur_instant);
         assert!(self.cur_instant <= new_instant);
         self.cur_instant = new_instant;
-        
+
         assert!(left.len() == right.len());
         assert!(left.len() >= self.synthesizer.get_block_size()); // we have enough space to render at least one block.
 
         let mut nwritten : usize = 0;
-        while(self.last_rendered_instant < new_instant && 
+        while(self.last_rendered_instant < new_instant &&
             // we have space enough for another block.
             self.synthesizer.get_block_size() + nwritten < left.len()) {
 
@@ -241,13 +240,13 @@ fn main() {
 
     unsafe {
         event!(Level::INFO, "initializing lean runtime module");
-        leanffi::lean_initialize_runtime_module();
+        lean_initialize_runtime_module();
 
         event!(Level::INFO, "initializing monodrone");
         monodroneffi::initialize();
 
         event!(Level::INFO, "done with Lean initialization. Marking end of initialization.");
-        leanffi::lean_io_mark_end_initialization();
+        lean_io_mark_end_initialization();
     }
 
     event!(Level::INFO, "creating context");
@@ -276,7 +275,7 @@ fn main() {
     let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
     let mut sequencer_io : MidiSequencerIO = MidiSequencerIO::new(MidiSequencer::new(synthesizer), params);
 
-    
+
     event!(Level::INFO, "Starting up");
     let (mut rl, thread) = raylib::init()
         .size(640, 480)
@@ -284,7 +283,7 @@ fn main() {
         .build();
 
     while !rl.window_should_close() {
-        // Step 1: Handle events 
+        // Step 1: Handle events
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             sequencer_io.set_track(track.clone());
             sequencer_io.restart();
@@ -301,7 +300,7 @@ fn main() {
         } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
             monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
         }
-        // Step 2: Get stuff to render 
+        // Step 2: Get stuff to render
         let track = monodroneffi::get_track(monodrone_ctx);
         let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
         println!("cursor_b: {}", cursor_b);

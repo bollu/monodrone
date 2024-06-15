@@ -10,7 +10,7 @@ debug_panic = "0.2.1"
 eframe = "0.27.2"
 egui = "0.27.2"
 env_logger = "0.11.3"
-# lean-sys = "0.0.6"
+lean-sys = { git = "https://github.com/bollu/lean-sys/", branch = "macos-query-xcrun", features=[] }
 libc = "0.2.155"
 midi = "0.1.0"
 raylib = "5.0.1"
