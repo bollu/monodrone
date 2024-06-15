@@ -287,9 +287,7 @@ fn main() {
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             sequencer_io.set_track(track.clone());
             sequencer_io.restart();
-        }
-
-        if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
+        } if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
             monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
         } else if (rl.is_key_pressed(KeyboardKey::KEY_UP)) {
             monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
@@ -313,16 +311,18 @@ fn main() {
         for y in 0..100 {
             let h = 1;
             d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
+
+            if cursor_b == y as u64 {
+                d.draw_rectangle(4, 44 * y, 8, 40 * h, Color::new(255, 166, 47, 255));
+            }
+
         }
 
         for (i, note) in track.notes.iter().enumerate() {
             let y = note.start as i32;
             let h = note.nsteps as i32;
             let pitch = note.pitch as i32;
-            if cursor_b == i as u64 {
-                d.draw_rectangle(4, y, 8, 40 * h, Color::new(255, 166, 47, 255));
-            }
-
+            println!("pitch: {pitch}");
             d.draw_text(&format!(" {}", pitch), 10, 12, 22, Color::new(202, 244, 255, 255));
         }
     }
