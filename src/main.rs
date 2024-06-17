@@ -323,7 +323,7 @@ fn main() {
             let h = note.nsteps as i32;
             let pitch = note.pitch as i32;
             println!("pitch: {pitch}");
-            d.draw_text(&format!(" {}", pitch), 10, 12, 22, Color::new(202, 244, 255, 255));
+            d.draw_text(&format!(" {}", pitch), 10, 10 + 44 * y, 22, Color::new(202, 244, 255, 255));
         }
     }
 }

@@ -1,6 +1,8 @@
 import Lean
 import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Basic
+import Mathlib.Data.List.Lemmas
+import Mathlib.Data.Bool.AllAny
 import Mathlib.Algebra.AddTorsor
 -- import Mathlib.Order.Disjoint
 import Batteries.Data.RBMap
@@ -121,6 +123,12 @@ structure Track where
   junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Repr, DecidableEq
 
+/-
+def Range := Nat × Nat
+def Track.queryVacancy (t : Track) (r : Range) : Option (Vacant t r) := sorry
+def Track.addNote (t : Track) (n : Note) (hn : Vacant t n.range) : Track := sorry
+-/
+
 /--
 Try to add a note to a track.
 Succeeds if there is space for the note. Fails otherwise,
@@ -136,6 +144,66 @@ def Track.addNote (t : Track) (n : Note) : Track :=
       assumption
   }
   else t
+
+def Track.getNoteAtIx (t : Track) (ix : Nat) : Option Note :=
+  t.notes.find? fun n => n.contains ix
+
+/-- make a note with pitch `p` at index `ix`. -/
+def Note.atIx (ix : Nat) (p : Pitch) : Note :=
+  { pitch := p, start := ix, nsteps := 1, hnsteps := by decide }
+-- def Track.editNote {n : Note} {t : Track} {note : Note} (hn : t.getNoteAtIx ix = .some note) (n' : Note) (hn' : n'.containsNote n) : Track :=
+--   let t' := t.removeNoteAt ix
+--   t'.addNote n'
+
+/-- If we don't have a note at it 'ix', then a note at ix 'ix' is disjoint from all notes in the track. -/
+theorem Track.Note_disjoint_Note_atIx_of_getNoteAtIx_eq_none {t : Track} (ix : Nat) (p : Pitch)
+    (ht : t.getNoteAtIx ix = none) : t.notes.all (fun n => n.disjoint (Note.atIx ix p)) := by
+  simp only [Note.disjoint, Bool.or_eq_true, decide_eq_true_eq, Bool.decide_or, List.all_eq_true]
+  intros n hn
+  simp only [Note.atIx]
+  simp only [getNoteAtIx, List.find?_eq_none, decide_eq_true_eq] at ht
+  specialize (ht _ hn)
+  simp_all [Note.contains, Note.lastPlayed]
+  omega
+
+  /-- If we don't have a note at it 'ix', then a note at ix 'ix' is disjoint from all notes in the track. -/
+theorem Track.Note_disjoint_of_getNoteAtIx_eq_none_of_mem_of_eq_Note_atIx {t : Track} {m n : Note}
+    (hm : m ∈ t.notes)
+    (hn : n = Note.atIx ix p)
+    (ht : t.getNoteAtIx ix = none) :  m.disjoint n := by
+  subst hn
+  have hdisjoint := t.Note_disjoint_Note_atIx_of_getNoteAtIx_eq_none ix p ht
+  replace hdisjoint := List.all_iff_forall.mp hdisjoint m hm
+  simpa using hdisjoint
+
+
+def Track.addNoteAtIx (t : Track) (p : Pitch) (ht : t.getNoteAtIx ix = none) : Track :=
+  let n : Note := Note.atIx ix p
+{
+    t with
+    notes := n :: t.notes
+    hdisjoint := by
+      simp [List.pairwise_cons, ht, t.hdisjoint]
+      intros m hm
+      rw [Note.disjoint_symm]
+      apply Note_disjoint_of_getNoteAtIx_eq_none_of_mem_of_eq_Note_atIx hm rfl ht
+  }
+
+
+/-- Try to remove note at location 'loc'. -/
+def Track.removeNoteAtIx (t : Track) (loc : Nat) : { t : Track // t.getNoteAtIx loc = none } :=
+  let t' :=
+    { t with
+      notes := t.notes.filter (fun note => ¬ note.contains loc),
+      hdisjoint := List.Pairwise.filter _ t.hdisjoint
+    }
+  ⟨t', by
+    simp [getNoteAtIx, t']
+    intros x hx
+    simp [List.mem_filter] at hx
+    obtain ⟨hx₁, hx₂⟩ := hx
+    assumption
+  ⟩
 
 open List in
 theorem List.pairwise_map' {l : List α} {f : α → β}
@@ -172,42 +240,39 @@ theorem disjoint_of_containsNote {nlarge nsmall m : Note}
   simp_all [note_omega]
   omega
 
-/-- Modify a note at the location 'loc' if it exists, as long as the
-modification does not increase the the length of the note. -/
-def Track.modifyNoteOfContains (t : Track) (loc : Nat) (f : Note → Note)
-  (hf : ∀ (n : Note), n.containsNote (f n)) : Track :=
-  { t with
+@[simp]
+theorem disjoint_irreflexive (n : Note) : ¬ n.disjoint n := by
+  simp [Note.disjoint, Note.lastPlayed]
+  have hnsteps := n.hnsteps
+  omega
+
+def Track.editNoteAtIx (t : Track) {ix : Nat} (hix : t.getNoteAtIx ix = some n) (n' : Note) (hn' : n.containsNote n') : Track :=
+    { t with
     notes := t.notes.map fun note =>
-      if note.contains loc then f note else note
+      if note = n then n' else note
     hdisjoint := by
       apply List.pairwise_map' (R := Note.disjoint) (S := Note.disjoint) t.hdisjoint
       intros a a'
       intros haa'
       split_ifs
       case pos ha ha' =>
-        have hcontra := not_contains_of_disjoint_of_contains haa' ha
-        contradiction
+        subst ha
+        subst ha'
+        simp at haa'
       case neg ha ha' =>
+        subst ha
         apply disjoint_of_containsNote
-        apply hf
+        apply hn'
         apply haa'
       case pos ha ha' =>
+        subst ha'
         rw [Note.disjoint_symm]
         apply disjoint_of_containsNote
-        apply hf
+        apply hn'
         rw [Note.disjoint_symm]
         apply haa'
       case neg ha ha' =>
         exact haa'
-  }
-
-/--
-Try to remove note at location 'loc'.
--/
-def Track.removeNoteAt (t : Track) (loc : Nat) : Track :=
-  { t with
-    notes := t.notes.filter (fun note => note.contains loc),
-    hdisjoint := List.Pairwise.filter _ t.hdisjoint
   }
 
 def Track.empty : Track := { notes := [], hdisjoint := by simp [] }
@@ -489,21 +554,15 @@ def RawContext.moveUpHalfPage (ctx : @&RawContext) : RawContext :=
 
 def RawContext.removeNote (ctx : @&RawContext) : RawContext :=
   let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.removeNoteAt ctx.cursor.cur.b.val
+    t.removeNoteAtIx ctx.cursor.cur.b.val
   { ctx with track := newTrack }
 
 def RawContext.addNoteOfPitch (ctx : @&RawContext) (pitch : Pitch): RawContext :=
   let start := ctx.cursor.cur.b.val
-  let nsteps := 1
-  let newNote : Note := {
-      pitch := pitch,
-      start := start,
-      nsteps := nsteps, hnsteps := by decide
-    }
-  let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.removeNoteAt start |>.addNote newNote
-  { ctx with track := newTrack }
-
+  let newt := ctx.track.modifyForgettingFuture fun t =>
+    let ⟨t', ht'⟩ := t.removeNoteAtIx start
+    t'.addNoteAtIx pitch ht'
+  { ctx with track := newt }
 
 @[export monodrone_ctx_add_note]
 def RawContext.addNote (ctx : @&RawContext) : RawContext :=
@@ -523,8 +582,9 @@ theorem Note.self_containsNote_raiseSemitone_self (n : Note) :
 @[export monodrone_ctx_raise_semitone]
 def RawContext.raiseSemitone (ctx : @&RawContext) : RawContext :=
   let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.raiseSemitone
-      (Note.self_containsNote_raiseSemitone_self)
+    match ht : t.getNoteAtIx ctx.cursor.cur.b.val with
+    | none => t.addNoteAtIx .middleC ht
+    | some n  => t.editNoteAtIx ht (Note.raiseSemitone n) (Note.self_containsNote_raiseSemitone_self n)
   { ctx with track := newTrack }
 
 def Note.lowerSemitone (n : Note) : Note :=
@@ -540,9 +600,10 @@ theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
 @[export monodrone_ctx_lower_semitone]
 def RawContext.lowerSemitone (ctx : @&RawContext) : RawContext :=
   let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.modifyNoteOfContains ctx.cursor.cur.b.val Note.lowerSemitone
-      (Note.self_containsNote_lowerSemitone_self)
-  { ctx with track := newTrack }
+  match ht : t.getNoteAtIx ctx.cursor.cur.b.val with
+  | none => t.addNoteAtIx Pitch.middleC.lowerSemitone ht
+  | some n  => t.editNoteAtIx ht (Note.lowerSemitone n) (Note.self_containsNote_lowerSemitone_self n)
+  { ctx with track := newTrack  }
 
 @[export monodrone_ctx_undo_action]
 def RawContext.undoAction (ctx : @&RawContext) : RawContext :=
