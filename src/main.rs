@@ -283,25 +283,29 @@ fn main() {
         .build();
 
     while !rl.window_should_close() {
-        // Step 1: Handle events
-        if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            sequencer_io.set_track(track.clone());
-            sequencer_io.restart();
-        } if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
-            monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_UP)) {
-            monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
-            monodrone_ctx = monodroneffi::add_note_c(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
-            monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
-            monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
-        }
+
         // Step 2: Get stuff to render
         let track = monodroneffi::get_track(monodrone_ctx);
         let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
         println!("cursor_b: {}", cursor_b);
+
+        // Step 1: Handle events
+        if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+            sequencer_io.set_track(track.clone());
+            sequencer_io.restart();
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
+            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+                monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
+            } else {
+                monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
+            }
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
+            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+                monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
+            } else {
+                monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
+            }
+        }
 
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
