@@ -753,12 +753,6 @@ def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
       userPitch := { n.userPitch with accidental := if n.userPitch.accidental = a then Accidental.natural else a }
     })
 
-def Track.toggleSharp (t : Track) (s : Span) : Track :=
-  t.toggleAccidental Accidental.sharp s
-
-def Track.toggleFlat (t : Track) (s : Span) : Track :=
-  t.toggleAccidental Accidental.flat s
-
 def Track.increaseDuration (t : Track) (s : Span) : Track :=
   t.modifyInSpan s (fun n => .some (n.increaseNSteps))
 
@@ -924,6 +918,21 @@ def RawContext.decreaseDuration (ctx : @&RawContext) : RawContext :=
       t.decreaseDuration ctx.cursor.cur.toSpan
   }
 
+@[export monodrone_ctx_toggle_sharp]
+def RawContext.toggleSharp (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.toggleAccidental Accidental.sharp ctx.cursor.cur.toSpan
+  }
+
+@[export monodrone_ctx_toggle_flat]
+def RawContext.toggleFlat (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.toggleAccidental Accidental.flat ctx.cursor.cur.toSpan
+  }
+
+
 /-# Cursor Query -/
 @[export monodrone_ctx_get_cursor_sync_index]
 def getCursorSyncIndex (ctx : @&RawContext) : UInt64 := ctx.cursor.ninserts.toUInt64
@@ -988,7 +997,7 @@ theorem Accidental.of_to_uint64 (a : Accidental) :
     Accidental.ofUInt64 a.toUInt64 = a := by
   cases a <;> rfl
 
-@[export monodrone_note_get_pitch_accidental]
+@[export monodrone_note_get_accidental]
 def noteGetAccidental (n : @&Note) : UInt64 :=
   n.userPitch.accidental.toUInt64
 

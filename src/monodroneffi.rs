@@ -23,8 +23,8 @@ extern {
     // note editing.
     fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64) -> *mut lean_object;
     fn monodrone_ctx_delete(ctx : *mut lean_object) -> *mut lean_object;
-    // fn monodrone_ctx_toggle_note_sharp(ctx : *mut lean_object);
-    // fn monodrone_ctx_toggle_note_flat(ctx : *mut lean_object);
+    fn monodrone_ctx_toggle_sharp(ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_toggle_flat(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_increase_duration(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_decrease_duration(ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
@@ -51,7 +51,7 @@ extern {
 
     // note query
     fn monodrone_note_get_pitch_name(note : *mut lean_object) -> u64;
-    // fn monodrone_note_get_accidental(note : *mut lean_object) -> u64;
+    fn monodrone_note_get_accidental(note : *mut lean_object) -> u64;
     fn monodrone_note_get_x(note : *mut lean_object) -> u64;
     fn monodrone_note_get_y(note : *mut lean_object) -> u64;
     fn monodrone_note_get_nsteps(note : *mut lean_object) -> u64;
@@ -129,6 +129,13 @@ pub fn increase_duration(ctx : *mut lean_object) -> *mut lean_object {
 
 pub fn decrease_duration(ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_duration) }
+}
+pub fn toggle_sharp (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_sharp) }
+}
+
+pub fn toggle_flat (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_flat) }
 }
 
 
@@ -291,6 +298,15 @@ impl Accidental {
             Accidental::Flat => "b",
         }
     }
+
+    pub fn of_lean(ix : u64) -> Accidental {
+        match ix {
+            0 => Accidental::Natural,
+            1 => Accidental::Sharp,
+            2 => Accidental::Flat,
+            _ => panic!("Invalid accidental index {}", ix),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -339,7 +355,11 @@ impl UINote {
         let x = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_x) };
         let y = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_y) };
         let nsteps = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_nsteps) };
-        UINote { pitchName: PitchName::of_lean(pitchName), accidental: Accidental::Natural, x, y, nsteps }
+        let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
+        UINote { pitchName: PitchName::of_lean(pitchName),
+            accidental: Accidental::of_lean(accidental),
+            x, y,
+            nsteps }
     }
 
     pub fn to_player_note (&self) -> PlayerNote {

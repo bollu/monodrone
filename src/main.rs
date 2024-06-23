@@ -74,11 +74,13 @@ fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : 
     let mut note_events = Vec::new();
     let mut ix2pitches : HashMap<u64, Vec<u64>> = HashMap::new();
 
-    for (i, note) in track.notes.iter().enumerate() {
+    for note in track.notes.iter() {
         ix2pitches.entry(note.start).or_insert(Vec::new()).push(note.pitch);
     }
-    // TODO: only emit a note off if there is no same note in the next instant.
-    for (i, note) in track.notes.iter().enumerate() {
+    // only emit a note off if there is no same note in the next time step.
+    // Otherwise, we hear a jarring of a note being "stacattod" where we
+    // turn it off and on in the same instant.
+    for note in track.notes.iter() {
         if (note.start + note.nsteps) * TIME_STRETCH_FACTOR  == instant {
             let off_event = NoteEvent::NoteOff { pitch : note.pitch as u8, instant : instant as u64 };
             match ix2pitches.get(&(note.start+note.nsteps+1)) {
@@ -187,7 +189,7 @@ impl MidiSequencer {
             self.synthesizer.render(&mut left[nwritten..], &mut right[nwritten..]);
             nwritten += self.synthesizer.get_block_size();
             self.last_rendered_instant += 1; // we have rendered this instant.
-            event!(Level::INFO, "-> done [playing]");
+            // event!(Level::INFO, "-> done [playing]");
 
         }
     }
@@ -422,6 +424,11 @@ fn mainLoop() {
                 println!("undo");
                 monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
             }
+        }
+        else if (rl.is_key_pressed(KeyboardKey::KEY_THREE)) {
+            monodrone_ctx = monodroneffi::toggle_sharp(monodrone_ctx);
+        } else if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
+            monodrone_ctx = monodroneffi::toggle_flat(monodrone_ctx);
         }
 
         // Step 3: Render
