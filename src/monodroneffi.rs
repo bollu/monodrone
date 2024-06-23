@@ -21,12 +21,12 @@ extern {
     fn monodrone_ctx_select_anchor_move_down_one(ctx: *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object;
     // note editing.
-    fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64);
-    fn monodrone_ctx_delete(ctx : *mut lean_object);
+    fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64) -> *mut lean_object;
+    fn monodrone_ctx_delete(ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_ctx_toggle_note_sharp(ctx : *mut lean_object);
     // fn monodrone_ctx_toggle_note_flat(ctx : *mut lean_object);
-    fn monodrone_ctx_increase_duration(ctx : *mut lean_object);
-    fn monodrone_ctx_decrease_duration(ctx : *mut lean_object);
+    fn monodrone_ctx_increase_duration(ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_decrease_duration(ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
     // fn monodrone_goto_begin_of_line(ctx : *mut lean_object);
     // fn monodrone_copy(ctx : *mut lean_object);
@@ -114,20 +114,20 @@ pub fn select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object {
 }
 
 // note editing.
-pub fn set_pitch(ctx : *mut lean_object, pitch : PitchName) {
+pub fn set_pitch(ctx : *mut lean_object, pitch : PitchName) -> *mut lean_object {
     unsafe { lean_inc_ref(ctx); }
-    unsafe { monodrone_ctx_set_pitch(ctx, pitch_name_to_midi_pitch(pitch) ) }
+    unsafe { monodrone_ctx_set_pitch(ctx, pitch.to_lean() ) }
 }
 
-pub fn delete(ctx : *mut lean_object) {
+pub fn delete(ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete) }
 
 }
-pub fn increase_duration(ctx : *mut lean_object) {
+pub fn increase_duration(ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_duration) }
 }
 
-pub fn decrease_duration(ctx : *mut lean_object) {
+pub fn decrease_duration(ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_duration) }
 }
 
@@ -139,6 +139,7 @@ pub fn get_track_sync_index (ctx : *mut lean_object) -> u64 {
 pub fn get_cursor_sync_index (ctx : *mut lean_object) -> u64 {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_sync_index) }
 }
+
 
 
 
@@ -227,11 +228,61 @@ pub enum PitchName {
     B,
 }
 
+impl PitchName {
+    pub fn to_str(&self) -> &str {
+        match self {
+            PitchName::C => "C",
+            PitchName::D => "D",
+            PitchName::E => "E",
+            PitchName::F => "F",
+            PitchName::G => "G",
+            PitchName::A => "A",
+            PitchName::B => "B",
+        }
+    }
+
+    pub fn to_lean(&self) -> u64 {
+        match self {
+            PitchName::C => 0,
+            PitchName::D => 1,
+            PitchName::E => 2,
+            PitchName::F => 3,
+            PitchName::G => 4,
+            PitchName::A => 5,
+            PitchName::B => 6,
+        }
+    }
+
+    pub fn of_lean (ix : u64) -> PitchName {
+        match ix {
+            0 => PitchName::C,
+            1 => PitchName::D,
+            2 => PitchName::E,
+            3 => PitchName::F,
+            4 => PitchName::G,
+            5 => PitchName::A,
+            6 => PitchName::B,
+            _ => panic!("Invalid pitch name index {}", ix),
+        }
+    }
+
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Accidental {
     Natural,
     Sharp,
     Flat,
+}
+
+impl Accidental {
+    pub fn to_str(&self) -> &str {
+        match self {
+            Accidental::Natural => "",
+            Accidental::Sharp => "#",
+            Accidental::Flat => "b",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -242,6 +293,12 @@ pub struct UINote {
     pub y: u64,
     pub nsteps: u64,
 
+}
+
+impl UINote {
+    pub fn to_str (&self) -> String {
+        format!("{}{}", self.pitchName.to_str(), self.accidental.to_str())
+    }
 }
 
 fn pitch_name_to_midi_pitch (pitchName : PitchName) -> u64 {
@@ -274,12 +331,12 @@ impl UINote {
         let x = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_x) };
         let y = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_y) };
         let nsteps = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_nsteps) };
-        UINote { pitchName: PitchName::C, accidental: Accidental::Natural, x, y, nsteps }
+        UINote { pitchName: PitchName::of_lean(pitchName), accidental: Accidental::Natural, x, y, nsteps }
     }
 
     pub fn to_player_note (&self) -> PlayerNote {
         PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitchName, self.accidental) ,
-            start: self.x, nsteps: self.nsteps }
+            start: self.y, nsteps: self.nsteps }
     }
 }
 
@@ -306,7 +363,7 @@ impl UITrack {
 
         let mut hitbox = HashMap::new();
         for (ix, note) in notes.iter().enumerate() {
-            for y in note.y..note.x + note.nsteps {
+            for y in note.y..note.y + note.nsteps {
                 hitbox.insert((note.x, y), ix);
             }
         }
@@ -316,6 +373,13 @@ impl UITrack {
         };
 
         UITrack { sync_index, notes, hitbox }
+    }
+
+    pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<&UINote> {
+        match self.hitbox.get(&(x, y)) {
+            Some(ix) => Some(&self.notes[*ix]),
+            None => None,
+        }
     }
 
     pub fn to_player_track (&self) -> PlayerTrack {

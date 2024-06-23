@@ -68,12 +68,13 @@ impl Ord for NoteEvent {
 
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
+    let TIME_STRETCH_FACTOR = 5;
     let mut note_events = Vec::new();
     for note in track.notes.iter() {
-        if note.start == instant {
+        if note.start * TIME_STRETCH_FACTOR == instant {
             note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant });
         }
-        if note.start + note.nsteps + 1 == instant {
+        if (note.start + note.nsteps) * TIME_STRETCH_FACTOR  == instant {
             note_events.push(NoteEvent::NoteOff { pitch : note.pitch as u8, instant });
         }
     }
@@ -293,10 +294,12 @@ fn mainLoop() {
         // Step 2: Get stuff to render
         if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
             track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+            println!("-> got new track {:?}", track);
         }
 
         if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
             selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+            println!("-> got new selection");
         }
 
 
@@ -333,6 +336,30 @@ fn mainLoop() {
             }
 
         }
+        else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_D)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_E)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::E);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_F)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::F);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_G)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::G);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_A)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::A);
+        }
+        else if (rl.is_key_pressed (KeyboardKey::KEY_B)) {
+            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)) {
+            monodrone_ctx = monodroneffi::delete(monodrone_ctx);
+        }
+
 
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
@@ -370,6 +397,13 @@ fn mainLoop() {
                     BOX_WIDTH as i32,
                     BOX_HEIGHT as i32, draw_color);
 
+                match track.get_note_from_coord(x, y) {
+                    Some(note) => {
+                        d.draw_text(&format!("{}", note.to_str()), draw_x as i32 + 5, draw_y as i32 + 5, 20,
+                            Color::new(0, 0, 0, 255));
+                    },
+                    None => ()
+                }
             }
         }
 

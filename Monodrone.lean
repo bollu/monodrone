@@ -46,6 +46,17 @@ structure Span where
   hheight : height > 0
 deriving DecidableEq, Repr
 
+def Loc.toSpan (l : Loc) : Span := {
+  topLeft := l,
+  width := 1,
+  height := 1,
+  hwidth := by decide,
+  hheight := by decide
+}
+
+@[simp]
+theorem topLeft_toSpan_eq (l : Loc) : l.toSpan.topLeft = l := rfl
+
 def Span.bottomRight (s : Span) : Loc :=
   { x := s.topLeft.x + s.width - 1, y := s.topLeft.y + s.height - 1 }
 
@@ -69,7 +80,7 @@ inductive Accidental
 | natural
 | sharp
 | flat
-deriving DecidableEq, Repr
+deriving DecidableEq, Repr, Inhabited
 
 inductive PitchName
 | C
@@ -79,7 +90,35 @@ inductive PitchName
 | G
 | A
 | B
-deriving DecidableEq, Repr
+deriving DecidableEq, Repr, Inhabited
+
+
+def PitchName.toUInt64 (p : PitchName) : UInt64 :=
+  match p with
+  | PitchName.C => 0
+  | PitchName.D => 1
+  | PitchName.E => 2
+  | PitchName.F => 3
+  | PitchName.G => 4
+  | PitchName.A => 5
+  | PitchName.B => 6
+
+def PitchName.ofUInt64 (n : UInt64) : PitchName :=
+  match n with
+  | 0 => PitchName.C
+  | 1 => PitchName.D
+  | 2 => PitchName.E
+  | 3 => PitchName.F
+  | 4 => PitchName.G
+  | 5 => PitchName.A
+  | 6 => PitchName.B
+  | _ => panic! s!"Invalid pitch name {n}"
+
+/-- Our decoding is consistent with our encoding. -/
+theorem PitchName.of_to_uint64 (p : PitchName) :
+    PitchName.ofUInt64 p.toUInt64 = p := by
+  cases p <;> rfl
+
 
 /-- A piatch as shown to the user in the UI. -/
 structure UserPitch where
@@ -195,8 +234,56 @@ instance : Decidable (Span.containsLoc s ix) := by
   infer_instance
 
 def Span.disjoint (s t : Span) : Prop :=
-  s.topLeft.x + s.width ≤ t.topLeft.x || t.topLeft.x + t.width ≤ s.topLeft.x ||
-  s.topLeft.y + s.height ≤ t.topLeft.y || t.topLeft.y + t.height ≤ s.topLeft.y
+  (s.topLeft.x + s.width ≤ t.topLeft.x || t.topLeft.x + t.width ≤ s.topLeft.x) ||
+  (s.topLeft.y + s.height ≤ t.topLeft.y || t.topLeft.y + t.height ≤ s.topLeft.y)
+
+theorem Span.not_contains_loc_of_disjoint_of_contains_loc (s t : Span) (ix : Loc)
+    (hst : Span.disjoint s t)
+    (hs :  s.containsLoc ix) : ¬ t.containsLoc ix := by
+  simp_all only [disjoint, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq, containsLoc,
+    ge_iff_le, not_and, not_lt, and_imp]
+  intros hdisjoint hcontains
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  simp_all
+  omega
+
+theorem Span.not_disjoint_of_contains_of_contains (s t : Span) (ix : Loc)
+    (hs : s.containsLoc ix) (ht : t.containsLoc ix) : ¬ s.disjoint t := by
+  simp_all [Span.disjoint, containsLoc]
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  simp_all
+  omega
+
+theorem Span.disjoint_of_contains_iff_not_contains {s t: Span} {ix : Loc}
+  (hix : s.containsLoc ix ↔ ¬ t.containsLoc ix) : s.disjoint t := by
+  simp_all [Span.disjoint, Span.containsLoc]
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  rcases ix with ⟨ixx, ixy⟩
+  simp_all
+  /-
+  case mk.mk.mk.mk.mk.intro
+  sw sh : ℕ
+  hsw : sw > 0
+  hsh : sh > 0
+  tw th : ℕ
+  htw : tw > 0
+  hth : th > 0
+  stx sty ttx tty ixx ixy : ℕ
+  hix1 : ((stx ≤ ixx ∧ ixx < stx + sw) ∧ sty ≤ ixy) ∧ ixy < sty + sh → ttx ≤ ixx → ixx < ttx + tw → tty ≤ ixy → tty + th ≤ ixy
+  hix2 : (ttx ≤ ixx → ixx < ttx + tw → tty ≤ ixy → tty + th ≤ ixy) → ((stx ≤ ixx ∧ ixx < stx + sw) ∧ sty ≤ ixy) ∧ ixy < sty + sh
+  ⊢ (stx + sw ≤ ttx ∨ ttx + tw ≤ stx) ∨ sty + sh ≤ tty ∨ tty + th ≤ sty
+  -/
+  obtain ⟨hix1, hix2⟩ := hix
+  omega
 
 theorem Span.disjoint_irrefl (s : Span) : ¬ s.disjoint s := by
   simp [Span.disjoint]
@@ -212,7 +299,6 @@ theorem Span.disjoint_symm (n1 n2 : Span) :
     Span.disjoint n1 n2 ↔ Span.disjoint n2 n1 := by
   simp [Span.disjoint]
   constructor <;> omega
-
 
 def Span.overlaps (s1 s2 : Span) : Prop :=
   ¬ Span.disjoint s1 s2
@@ -347,10 +433,15 @@ def SpanY.containsSpanY (s t : SpanY) : Prop :=
 
 
 def Span.toSpanYs (s : Span) : List SpanY :=
-  List.map (λ x => { x := x + s.topLeft.x, top := s.topLeft.y, height := s.height, hheight := s.hheight })
+  List.map (λ dx => {
+    x := s.topLeft.x + dx,
+    top := s.topLeft.y,
+    height := s.height,
+    hheight := s.hheight
+  })
   (List.range s.width)
 
-def SpanY.difference (s t : SpanY) : List SpanY := sorry
+
 
 @[simp, note_omega]
 def Note.start (n : Note) := n.loc.x
@@ -590,9 +681,9 @@ def Selection.bottomRight (s : Selection) : Loc :=
   | some a => { x := max a.x s.cursor.x, y := max a.y s.cursor.y }
 
 def Selection.toSpan (s : Selection) : Span :=
-  { topLeft := s.topLeft,
-    width := (s.bottomRight.x - s.topLeft.x) + 1,
-    height := (s.bottomRight.y - s.topLeft.y) + 1,
+  { topLeft := s.cursor -- s.topLeft,
+    width := 1 -- (s.bottomRight.x - s.topLeft.x) + 1,
+    height := 1 -- (s.bottomRight.y - s.topLeft.y) + 1,
     hwidth := by omega, hheight := by omega
   }
 
@@ -617,6 +708,11 @@ def Note.atSpanY (p : PitchName) (s : SpanY) : Note :=
     hnsteps := s.hheight }
 
 
+def Track.addNoteAtLoc (t : Track) (p : PitchName) (l : Loc) : Track :=
+  let newNote := Note.atIx l p
+  let deletedNotes := t.notes.filter (fun n => n.loc ≠ l)
+  { t with notes := newNote :: deletedNotes, hdisjoint := sorry }
+
 /--
 If we have notes that overlap, then adjust their pitches.
 If we have no notes that overlap, then add a new note into the span Y with the given pitch.
@@ -635,13 +731,12 @@ add a note with the given pitch if the span is empty,
 and otherwise, adjust the pitch of the notes in the span.
 -/
 def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
-  s.toSpanYs.foldl (fun t s => t.addNoteAtSpanY p s) t
+  s.toSpanYs.foldl (fun t sy => t.addNoteAtSpanY p sy) t
 
 def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
   let modifiedNotes :=
     t.notes.foldl (fun ns n =>
-      let s' := toSpan n
-      if s'.overlaps s
+      if s.containsSpan (toSpan n)
       then
         match f n with
         | none => ns
@@ -656,6 +751,11 @@ def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
     .some { n with
       userPitch := { n.userPitch with pitchName := p }
     })
+
+def Track.deleteNotesAtLoc (t : Track) (l : Loc) : Track :=
+  let modifiedNotes := t.notes.filter (fun n => ¬ (toSpan n).containsLoc l )
+  -- let modifiedNotes := t.notes.filter (fun n => n.loc ≠ l)
+  { t with notes := modifiedNotes, hdisjoint := sorry }
 
 /-- Remove all notes that overlap with the span -/
 def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
@@ -808,19 +908,14 @@ def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
     s.selectAnchorLocMoveAct (LocMoveAction.down 1)
   }
 
-def RawContext.addNote (ctx : @&RawContext) (p : PitchName) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture fun t =>
-      t.addNotesAtSpan p ctx.cursor.cur.toSpan
-  }
-
 /-# Note Editing. -/
 
 @[export monodrone_ctx_set_pitch]
-def RawContext.setPitch (ctx : @&RawContext) (p : PitchName) : RawContext :=
+def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
-      t.setPitchAtSpan p ctx.cursor.cur.toSpan
+      t.addNoteAtLoc (PitchName.ofUInt64 p) ctx.cursor.cur.cursor
+      -- t.setPitchAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
   }
 
 @[export monodrone_ctx_delete]
@@ -828,6 +923,7 @@ def RawContext.delete (ctx : @&RawContext) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
       t.deleteNotesAtSpan ctx.cursor.cur.toSpan
+      -- t.deleteNotesAtLoc ctx.cursor.cur.cursor
   }
 
 @[export monodrone_ctx_increase_duration]
@@ -886,32 +982,6 @@ def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
 
 
 /-# Note Query -/
-
-def PitchName.toUInt64 (p : PitchName) : UInt64 :=
-  match p with
-  | PitchName.C => 0
-  | PitchName.D => 1
-  | PitchName.E => 2
-  | PitchName.F => 3
-  | PitchName.G => 4
-  | PitchName.A => 5
-  | PitchName.B => 6
-
-def PitchName.ofUInt64 (n : UInt64) : PitchName :=
-  match n.toNat with
-  | 0 => PitchName.C
-  | 1 => PitchName.D
-  | 2 => PitchName.E
-  | 3 => PitchName.F
-  | 4 => PitchName.G
-  | 5 => PitchName.A
-  | 6 => PitchName.B
-  | _ => PitchName.C
-
-/-- Our decoding is consistent with our encoding. -/
-theorem PitchName.of_to_uint64 (p : PitchName) :
-    PitchName.ofUInt64 p.toUInt64 = p := by
-  cases p <;> rfl
 
 @[export monodrone_note_get_pitch_name]
 def noteGetPitchName (n : @&Note) : UInt64 :=
