@@ -224,6 +224,36 @@ impl Debouncer {
 
 }
 
+struct Easer  {
+    pub target : f32,
+    cur : f32,
+}
+
+impl Easer {
+    fn new(value : f32) -> Easer {
+        Easer {
+            target : value,
+            cur : value,
+        }
+    }
+
+    fn get(&self) -> f32 {
+        self.cur
+    }
+
+     fn set (&mut self, value : f32) {
+        self.target = value;
+     }
+
+    fn step (&mut self, dt : f32) {
+        let DAMPING = 0.2;
+        self.cur = self.cur + (self.target - self.cur) * DAMPING;
+        if (self.cur - self.target).abs() < 0.1 {
+            self.cur = self.target;
+        }
+    }
+}
+
 
 
 
@@ -344,8 +374,11 @@ fn mainLoop() {
 
     let TARGET_FPS = 60;
     rl.set_target_fps(TARGET_FPS);
+    let SCREEN_HEIGHT = rl.get_screen_height();
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
+
+    let mut cameraYEaser = Easer::new(0.0);
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
         debounceMovement.add_time_elapsed(time_elapsed);
@@ -439,21 +472,32 @@ fn mainLoop() {
         let BOX_HEIGHT = 40;
         let BOX_WIDTH = 40;
         let BOX_WIDTH_PADDING_LEFT = 5;
+        let BOX_WINDOW_CORNER_PADDING_LEFT = BOX_WIDTH_PADDING_LEFT;
         let BOX_WIDTH_PADDING_RIGHT = 5;
         let BOX_HEIGHT_PADDING_TOP = 5;
+        let BOX_WINDOW_CORNER_PADDING_TOP = BOX_HEIGHT_PADDING_TOP;
+
         let BOX_HEIGHT_PADDING_BOTTOM = 5;
         let BOX_DESLECTED_COLOR = Color::new(100, 100, 100, 255);
         let BOX_SELECTED_COLOR = Color::new(180, 180, 180, 255);
         let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
         let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
         let TEXT_COLLOR_FOLLOWING = Color::new(120, 120, 120, 255);
+
+        cameraYEaser.set(
+            (((selection.anchor_y as f32 *
+            (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)) -
+            SCREEN_HEIGHT as f32 * 0.5).max(0.0));
+        cameraYEaser.step(time_elapsed);
         // draw tracker.
         for x in 0..8 {
-            for y in 0..100 {
-                let draw_x = x * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
+            for y in 0u64..100 {
+                let draw_x = BOX_WINDOW_CORNER_PADDING_LEFT +
+                    x * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
                     BOX_WIDTH_PADDING_LEFT;
-                let draw_y = y * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) +
-                    BOX_HEIGHT_PADDING_TOP;
+                let draw_y = BOX_WINDOW_CORNER_PADDING_TOP +
+                    y as i32 * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) +
+                    BOX_HEIGHT_PADDING_TOP - cameraYEaser.get() as i32;
                 let mut draw_color =
                 if (selection.is_cursored(x, y)) {
                     BOX_CURSORED_COLOR
