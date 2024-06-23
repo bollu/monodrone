@@ -417,6 +417,10 @@ impl UITrack {
         }
         PlayerTrack { notes }
     }
+
+    pub fn get_last_instant (&self) -> u64 {
+        self.notes.iter().map(|note| note.y + note.nsteps).max().unwrap_or(0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

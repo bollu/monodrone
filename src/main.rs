@@ -68,7 +68,7 @@ impl Ord for NoteEvent {
     }
 }
 
-const AUDIO_TIME_STRETCH_FACTOR : u64 = 2;
+const AUDIO_TIME_STRETCH_FACTOR : u64 = 1;
 
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
@@ -106,11 +106,12 @@ pub struct MidiSequencer {
     synthesizer: Synthesizer,
     track : monodroneffi::PlayerTrack,
     playing : bool,
-    // start_instant : u64, // instant of time we started playing.
-    // end_instant : u64,
+    start_instant : u64,
+    end_instant : u64,
     cur_instant : u64, // current instant of time, as we last heard.
     last_rendered_instant : u64, // instant of time we last rendered.
-    // looping : bool,
+    looping : bool,
+    num_instants_wait_before_loop : u64,
 }
 
 impl MidiSequencer {
@@ -126,10 +127,11 @@ impl MidiSequencer {
             track : monodroneffi::PlayerTrack::new(),
             playing: false,
             cur_instant: 0,
+            start_instant: 0,
             last_rendered_instant: 0,
-            // looping : false,
-            // start_instant : 0,
-            // end_instant : 0
+            looping : false,
+            end_instant : 0,
+            num_instants_wait_before_loop : 0,
         }
     }
 
@@ -146,21 +148,46 @@ impl MidiSequencer {
     pub fn stop(&mut self) {
         self.synthesizer.reset();
         self.playing = false;
+        self.cur_instant = 0;
+        self.last_rendered_instant = 0;
+    }
+
+    pub fn start(&mut self, start_instant : u64, end_instant : u64, looping : bool) {
+        self.playing = true;
+        self.cur_instant = start_instant;
+        self.start_instant = start_instant;
+        self.end_instant = end_instant;
+        self.looping = looping;
+        self.last_rendered_instant = start_instant;
     }
 
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        // TODO: do this based on time elapsed.
+        // TODO: do this based on time elapsed. This seems to be called
+        // per "instant" that a new note needs to be played, as per
         let new_instant = self.cur_instant + 1;
-        event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})",
-        self.cur_instant, new_instant, self.last_rendered_instant, self.playing);
+        event!(Level::INFO, "process_and_render cur({}) -> new({}) |
+             last rendered({}) | end({}) is_playing({}) | looping ({})",
+        self.cur_instant, new_instant, self.last_rendered_instant,
+        self.end_instant, self.playing, self.looping);
 
-        if (!self.playing) {
+
+        if !self.playing {
             left.fill(0f32);
             right.fill(0f32);
-            // event!(Level::INFO, "-> done [!playing]");
+
+            if self.looping {
+                println!("looping");
+                let NUM_INSTANTS_WAIT_BEFORE_LOOP = 2;
+                self.num_instants_wait_before_loop += 1;
+                if self.num_instants_wait_before_loop >= NUM_INSTANTS_WAIT_BEFORE_LOOP {
+                    self.cur_instant = self.start_instant;
+                    self.last_rendered_instant = self.start_instant;
+                    self.playing = true;
+                    self.num_instants_wait_before_loop = 0;
+                }
+            }
             return;
         }
-
         assert!(self.last_rendered_instant <= self.cur_instant);
         assert!(self.cur_instant <= new_instant);
         self.cur_instant = new_instant;
@@ -193,6 +220,12 @@ impl MidiSequencer {
             // event!(Level::INFO, "-> done [playing]");
 
         }
+
+        if self.cur_instant >= self.end_instant {
+            self.playing = false;
+        }
+
+
     }
 
 }
@@ -248,13 +281,11 @@ impl Easer {
         self.target = value;
      }
 
-     fn setCurrentAndTarget(&mut self, value : f32) {
-         self.cur = value;
-         self.target = value;
-     }
-
     fn step (&mut self, dt : f32) {
-        self.cur = self.cur + (self.target - self.cur) * self.damping;
+        if (self.target - self.cur).abs() > 100.0 {
+            self.cur = self.target;
+        }
+        self.cur = self.cur + ((self.target - self.cur) * self.damping);
         if (self.cur - self.target).abs() < 0.1 {
             self.cur = self.target;
         }
@@ -303,16 +334,19 @@ impl MidiSequencerIO {
         }
     }
 
-    fn toggle_is_playing(&mut self) {
-        self.sequencer.lock().as_mut().unwrap().toggle_is_playing();
-    }
-
-    fn restart(&mut self) {
+    fn restart(&mut self, start_instant : u64, end_instant : u64, looping : bool) {
         event!(Level::INFO, "### restarting ###");
         let mut seq_changer = self.sequencer.lock().unwrap();
-        seq_changer.playing = true;
-        seq_changer.cur_instant = 0;
-        seq_changer.last_rendered_instant = 0;
+
+        seq_changer.looping = looping;
+        seq_changer.start_instant = start_instant;
+        seq_changer.end_instant = end_instant;
+        if seq_changer.playing {
+            seq_changer.stop()
+        } else {
+            seq_changer.start(start_instant, end_instant, looping);
+
+        }
     }
 
     fn set_track(&mut self, track : monodroneffi::PlayerTrack) {
@@ -385,7 +419,7 @@ fn mainLoop() {
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
 
     let mut cameraYEaser = Easer::new(0.0);
-    let mut nowPlayingYEaser = Easer::new(-100.0);
+    let mut nowPlayingYEaser = Easer::new(0);
     nowPlayingYEaser.damping = 0.5;
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
@@ -403,13 +437,29 @@ fn mainLoop() {
         }
 
 
-        // let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
-        // println!("cursor_b: {}", cursor_b);
-
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+
             sequencer_io.set_track(track.to_player_track().clone());
-            sequencer_io.restart();
-            nowPlayingYEaser.setCurrentAndTarget(-100.0);
+            let is_looping =
+                selection.cursor_y != selection.anchor_y;
+            let start_instant = if is_looping {
+                cmp::min(selection.cursor_y, selection.anchor_y) as u64
+            } else {
+                if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                    selection.cursor_y as u64
+                } else {
+                    0
+                }
+            };
+
+            let end_instant = if is_looping {
+                cmp::max(selection.cursor_y, selection.anchor_y) as u64
+            } else {
+                track.get_last_instant() as u64
+            };
+            sequencer_io.restart(start_instant * AUDIO_TIME_STRETCH_FACTOR,
+                end_instant * AUDIO_TIME_STRETCH_FACTOR,
+                is_looping);
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
             if ( rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
@@ -504,7 +554,7 @@ fn mainLoop() {
         {
             let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
             let now_playing_box_y =
-                (cur_instant as i32 /AUDIO_TIME_STRETCH_FACTOR as i32 - 1);
+                (cur_instant as i32 / AUDIO_TIME_STRETCH_FACTOR as i32);
 
             nowPlayingYEaser.set(
                 (BOX_WINDOW_CORNER_PADDING_LEFT +
@@ -554,17 +604,10 @@ fn mainLoop() {
         }
 
         d.draw_rectangle(0 as i32,
-            nowPlayingYEaser.get() as i32,
+            (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
             BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
             BOX_HEIGHT as i32, BOX_NOW_PLAYING_COLOR);
 
-        // for (i, note) in track.notes.iter().enumerate() {
-        //     let y = note.start as i32;
-        //     let h = note.nsteps as i32;
-        //     let pitch = note.pitch as i32;
-        //     println!("pitch: {pitch}");
-        //     d.draw_text(&format!(" {}", pitch), 10, 10 + 44 * y, 22, Color::new(202, 244, 255, 255));
-        // }
     }
 }
 
