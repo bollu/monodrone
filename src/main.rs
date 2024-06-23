@@ -68,9 +68,10 @@ impl Ord for NoteEvent {
     }
 }
 
+const AUDIO_TIME_STRETCH_FACTOR : u64 = 2;
+
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
-    let TIME_STRETCH_FACTOR = 2;
     let mut note_events = Vec::new();
     let mut ix2pitches : HashMap<u64, Vec<u64>> = HashMap::new();
 
@@ -81,9 +82,9 @@ fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : 
     // Otherwise, we hear a jarring of a note being "stacattod" where we
     // turn it off and on in the same instant.
     for note in track.notes.iter() {
-        if (note.start + note.nsteps) * TIME_STRETCH_FACTOR  == instant {
+        if (note.start + note.nsteps) * AUDIO_TIME_STRETCH_FACTOR  == instant {
             let off_event = NoteEvent::NoteOff { pitch : note.pitch as u8, instant : instant as u64 };
-            match ix2pitches.get(&(note.start+note.nsteps+1)) {
+            match ix2pitches.get(&(note.start+note.nsteps)) {
                 Some(next_notes) => {
                     if !next_notes.contains(&note.pitch) {
                         note_events.push(off_event);
@@ -94,7 +95,7 @@ fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : 
                 }
             }
         }
-        if note.start * TIME_STRETCH_FACTOR == instant {
+        if note.start * AUDIO_TIME_STRETCH_FACTOR == instant {
             note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant : instant as u64 });
         }
     }
@@ -227,6 +228,7 @@ impl Debouncer {
 struct Easer  {
     pub target : f32,
     cur : f32,
+    pub damping : f32
 }
 
 impl Easer {
@@ -234,6 +236,7 @@ impl Easer {
         Easer {
             target : value,
             cur : value,
+            damping : 0.2,
         }
     }
 
@@ -245,9 +248,13 @@ impl Easer {
         self.target = value;
      }
 
+     fn setCurrentAndTarget(&mut self, value : f32) {
+         self.cur = value;
+         self.target = value;
+     }
+
     fn step (&mut self, dt : f32) {
-        let DAMPING = 0.2;
-        self.cur = self.cur + (self.target - self.cur) * DAMPING;
+        self.cur = self.cur + (self.target - self.cur) * self.damping;
         if (self.cur - self.target).abs() < 0.1 {
             self.cur = self.target;
         }
@@ -315,7 +322,6 @@ impl MidiSequencerIO {
 }
 
 
-
 fn mainLoop() {
     tracing_subscriber::fmt().init();
     let _ = tracing::subscriber::set_global_default(
@@ -379,6 +385,8 @@ fn mainLoop() {
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
 
     let mut cameraYEaser = Easer::new(0.0);
+    let mut nowPlayingYEaser = Easer::new(-100.0);
+    nowPlayingYEaser.damping = 0.5;
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
         debounceMovement.add_time_elapsed(time_elapsed);
@@ -401,6 +409,7 @@ fn mainLoop() {
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             sequencer_io.set_track(track.to_player_track().clone());
             sequencer_io.restart();
+            nowPlayingYEaser.setCurrentAndTarget(-100.0);
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
             if ( rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
@@ -476,11 +485,13 @@ fn mainLoop() {
         let BOX_WIDTH_PADDING_RIGHT = 5;
         let BOX_HEIGHT_PADDING_TOP = 5;
         let BOX_WINDOW_CORNER_PADDING_TOP = BOX_HEIGHT_PADDING_TOP;
+        let BOX_NOW_PLAYING_SUGAR_WIDTH = 5;
 
         let BOX_HEIGHT_PADDING_BOTTOM = 5;
         let BOX_DESLECTED_COLOR = Color::new(100, 100, 100, 255);
         let BOX_SELECTED_COLOR = Color::new(180, 180, 180, 255);
         let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
+        let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
         let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
         let TEXT_COLLOR_FOLLOWING = Color::new(120, 120, 120, 255);
 
@@ -490,10 +501,23 @@ fn mainLoop() {
             SCREEN_HEIGHT as f32 * 0.5).max(0.0));
         cameraYEaser.step(time_elapsed);
         // draw tracker.
-        for x in 0..8 {
+        {
+            let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
+            let now_playing_box_y =
+                (cur_instant as i32 /AUDIO_TIME_STRETCH_FACTOR as i32 - 1);
+
+            nowPlayingYEaser.set(
+                (BOX_WINDOW_CORNER_PADDING_LEFT +
+                now_playing_box_y * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM))
+                as f32
+            );
+            nowPlayingYEaser.step(time_elapsed);
+
+        }
+        for x in 0u64..8 {
             for y in 0u64..100 {
                 let draw_x = BOX_WINDOW_CORNER_PADDING_LEFT +
-                    x * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
+                    x as i32 * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
                     BOX_WIDTH_PADDING_LEFT;
                 let draw_y = BOX_WINDOW_CORNER_PADDING_TOP +
                     y as i32 * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) +
@@ -525,9 +549,14 @@ fn mainLoop() {
                                 text_color);
                     },
                     None => ()
-                }
+                };
             }
         }
+
+        d.draw_rectangle(0 as i32,
+            nowPlayingYEaser.get() as i32,
+            BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
+            BOX_HEIGHT as i32, BOX_NOW_PLAYING_COLOR);
 
         // for (i, note) in track.notes.iter().enumerate() {
         //     let y = note.start as i32;
