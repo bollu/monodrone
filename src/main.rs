@@ -69,7 +69,7 @@ impl Ord for NoteEvent {
 
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
-    let TIME_STRETCH_FACTOR = 3;
+    let TIME_STRETCH_FACTOR = 2;
     let mut note_events = Vec::new();
     for note in track.notes.iter() {
         if note.start * TIME_STRETCH_FACTOR == instant {
