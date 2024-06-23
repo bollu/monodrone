@@ -57,12 +57,12 @@ extern {
     fn monodrone_note_get_nsteps(note : *mut lean_object) -> u64;
 
     // Undo/Redo action
-    fn monodrone_ctx_undo_action(ctx : *mut lean_object);
-    fn monodrone_ctx_redo_action(ctx : *mut lean_object);
+    fn monodrone_ctx_undo_action(ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_redo_action(ctx : *mut lean_object) -> *mut lean_object;
 
     // Undo/Redo movement
-    fn monodrone_ctx_undo_movement (ctx : *mut lean_object);
-    fn monodrone_ctx_redo_movement (ctx : *mut lean_object);
+    fn monodrone_ctx_undo_movement (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_redo_movement (ctx : *mut lean_object) -> *mut lean_object;
 
 }
 
@@ -145,6 +145,14 @@ pub fn get_cursor_sync_index (ctx : *mut lean_object) -> u64 {
 
 pub fn step (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_step) }
+}
+
+pub fn undo_action (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_undo_action) }
+}
+
+pub fn redo_action (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_redo_action) }
 }
 
 

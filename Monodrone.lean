@@ -573,7 +573,8 @@ def HistoryStack.prev (h : HistoryStack α δ) [Patchable α δ] : HistoryStack 
     { h with
       cur := next,
       historyPrev := ps,
-      historyNext := patch :: h.historyNext
+      historyNext := patch :: h.historyNext,
+      ninserts := h.ninserts + 1
     }
 
 def HistoryStack.next (h : HistoryStack α δ) [Patchable α δ] : HistoryStack α δ :=
@@ -582,16 +583,16 @@ def HistoryStack.next (h : HistoryStack α δ) [Patchable α δ] : HistoryStack 
   | a :: as =>
     let (next, patch) := Patchable.apply2 h.cur a
     {
-      ninserts := h.ninserts,
+      ninserts := h.ninserts + 1,
       cur := next,
       historyPrev := patch :: h.historyPrev,
-      historyNext := as
+      historyNext := as,
     }
 
 /-- Todo: show that prev / next are a galois connection. -/
 theorem HistoryStack.prev_next_eq_self_of_next_ne [Patchable α δ] [LawfulPatchable α δ]
     (h : HistoryStack α δ) (hprev : h.historyNext ≠ []) :
-    (HistoryStack.prev (HistoryStack.next h)) = h := by
+    (HistoryStack.prev (HistoryStack.next h)).cur = h.cur := by
   rcases h with ⟨ninserts, prev, cur, next⟩
   simp [HistoryStack.prev, HistoryStack.next]
   cases next <;> cases prev <;> simp_all
@@ -599,7 +600,7 @@ theorem HistoryStack.prev_next_eq_self_of_next_ne [Patchable α δ] [LawfulPatch
 theorem HistoryStack.next_prev_eq_self_of_prev_ne [Patchable α δ] [LawfulPatchable α δ]
     (h : HistoryStack α δ)
     (hprev : h.historyPrev ≠ []) :
-    (HistoryStack.next (HistoryStack.prev h)) = h := by
+    (HistoryStack.next (HistoryStack.prev h)).cur = h.cur := by
   rcases h with ⟨ninserts, prev, cur, next⟩
   simp [HistoryStack.prev, HistoryStack.next]
   cases next <;> cases prev <;> simp_all
@@ -716,13 +717,6 @@ add a note with the given pitch if the span is empty,
 and otherwise, adjust the pitch of the notes in the span.
 -/
 def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
-  let spanY : SpanY := {
-    x := s.topLeft.x,
-    y := s.topLeft.y,
-    height := s.height,
-    hheight := s.hheight
-  }
-  -- t.addNoteAtSpanY p spanY
   s.toSpanYs.foldl (fun t sy => t.addNoteAtSpanY p sy) t
 
 def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=

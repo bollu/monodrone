@@ -6,6 +6,7 @@ use std::error::Error;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
+use egui::Key;
 use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref};
 use midi::Message::Start;
 use monodroneffi::PlayerNote;
@@ -329,7 +330,6 @@ fn mainLoop() {
         let time_elapsed = rl.get_frame_time();
         debounceMovement.add_time_elapsed(time_elapsed);
 
-        println!("time elapsed: {}", time_elapsed);
         // Step 2: Get stuff to render
         if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
             track = monodroneffi::UITrack::from_lean(monodrone_ctx);
@@ -397,7 +397,14 @@ fn mainLoop() {
         } else if (rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)) {
             monodrone_ctx = monodroneffi::delete(monodrone_ctx);
         }
-
+        else if (rl.is_key_pressed(KeyboardKey::KEY_Z)) { // TODO: figure out how to get control key.
+            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+                    monodrone_ctx = monodroneffi::redo_action(monodrone_ctx);
+            } else {
+                println!("undo");
+                monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
+            }
+        }
 
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
