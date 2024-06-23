@@ -2,6 +2,7 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use std::borrow::BorrowMut;
+use std::collections::HashMap;
 use std::error::Error;
 use std::process::Output;
 use std::sync::Mutex;
@@ -71,12 +72,28 @@ impl Ord for NoteEvent {
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
     let TIME_STRETCH_FACTOR = 2;
     let mut note_events = Vec::new();
-    for note in track.notes.iter() {
-        if note.start * TIME_STRETCH_FACTOR == instant {
-            note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant });
-        }
+    let mut ix2pitches : HashMap<u64, Vec<u64>> = HashMap::new();
+
+    for (i, note) in track.notes.iter().enumerate() {
+        ix2pitches.entry(note.start).or_insert(Vec::new()).push(note.pitch);
+    }
+    // TODO: only emit a note off if there is no same note in the next instant.
+    for (i, note) in track.notes.iter().enumerate() {
         if (note.start + note.nsteps) * TIME_STRETCH_FACTOR  == instant {
-            note_events.push(NoteEvent::NoteOff { pitch : note.pitch as u8, instant });
+            let off_event = NoteEvent::NoteOff { pitch : note.pitch as u8, instant : instant as u64 };
+            match ix2pitches.get(&(note.start+note.nsteps+1)) {
+                Some(next_notes) => {
+                    if !next_notes.contains(&note.pitch) {
+                        note_events.push(off_event);
+                    }
+                },
+                None => {
+                    note_events.push(off_event);
+                }
+            }
+        }
+        if note.start * TIME_STRETCH_FACTOR == instant {
+            note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant : instant as u64 });
         }
     }
     note_events
@@ -129,6 +146,7 @@ impl MidiSequencer {
     }
 
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
+        // TODO: do this based on time elapsed.
         let new_instant = self.cur_instant + 1;
         event!(Level::INFO, "process_and_render cur({}) -> new({}) | last rendered({}) | is_playing({})",
         self.cur_instant, new_instant, self.last_rendered_instant, self.playing);
