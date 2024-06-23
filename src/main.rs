@@ -223,6 +223,7 @@ impl MidiSequencer {
 
         if self.cur_instant >= self.end_instant {
             self.playing = false;
+            self.cur_instant = self.end_instant;
         }
 
 
@@ -419,7 +420,7 @@ fn mainLoop() {
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
 
     let mut cameraYEaser = Easer::new(0.0);
-    let mut nowPlayingYEaser = Easer::new(0);
+    let mut nowPlayingYEaser = Easer::new(0.0);
     nowPlayingYEaser.damping = 0.5;
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
@@ -442,8 +443,11 @@ fn mainLoop() {
             sequencer_io.set_track(track.to_player_track().clone());
             let is_looping =
                 selection.cursor_y != selection.anchor_y;
+
             let start_instant = if is_looping {
-                cmp::min(selection.cursor_y, selection.anchor_y) as u64
+                cmp::min(
+                    cmp::min(selection.cursor_y, selection.anchor_y) as u64,
+                    track.get_last_instant() as u64)
             } else {
                 if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
                     selection.cursor_y as u64
@@ -453,7 +457,9 @@ fn mainLoop() {
             };
 
             let end_instant = if is_looping {
-                cmp::max(selection.cursor_y, selection.anchor_y) as u64
+                cmp::max(
+                    cmp::max(selection.cursor_y, selection.anchor_y) as u64,
+                track.get_last_instant() as u64)
             } else {
                 track.get_last_instant() as u64
             };
@@ -554,10 +560,10 @@ fn mainLoop() {
         {
             let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
             let now_playing_box_y =
-                (cur_instant as i32 / AUDIO_TIME_STRETCH_FACTOR as i32);
+                ((cur_instant as i32 - 1) / AUDIO_TIME_STRETCH_FACTOR as i32);
 
             nowPlayingYEaser.set(
-                (BOX_WINDOW_CORNER_PADDING_LEFT +
+                (BOX_WINDOW_CORNER_PADDING_TOP +
                 now_playing_box_y * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM))
                 as f32
             );
