@@ -33,11 +33,104 @@ def Pitch.lowerWhole (p : Pitch) : Pitch := { pitch := p.pitch - 2 }
 
 def Note.lastNoteIx : Nat := 9999
 
+structure Loc where
+  x : Nat
+  y : Nat
+deriving DecidableEq, Repr, Inhabited
+
+structure Span where
+  topLeft : Loc
+  width : Nat
+  height : Nat
+  hwidth : width > 0
+  hheight : height > 0
+deriving DecidableEq, Repr
+
+def Span.bottomRight (s : Span) : Loc :=
+  { x := s.topLeft.x + s.width - 1, y := s.topLeft.y + s.height - 1 }
+
+instance : Inhabited Span where
+  default := {
+      topLeft := default,
+      width := 1,
+      height := 1,
+      hwidth := by decide,
+      hheight := by decide }
+def Span.foldlLocs {α} (s : Span) (f : α → Loc → α) (a : α) : α :=
+  List.foldl (λ a i => f a { x := s.topLeft.x + i % s.width, y := s.topLeft.y + i / s.width }) a (List.iota (s.width * s.height))
+
+def Span.foldrLocs {α} (s : Span) (f : α → Loc → α) (a : α) : α :=
+  List.foldr (λ i a => f a { x := s.topLeft.x + i % s.width, y := s.topLeft.y + i / s.width }) a (List.iota (s.width * s.height))
+
+def Span.locs (s : Span) : List Loc :=
+  Span.foldrLocs s (λ ls l => l :: ls) []
+
+inductive Accidental
+| natural
+| sharp
+| flat
+deriving DecidableEq, Repr
+
+inductive PitchName
+| C
+| D
+| E
+| F
+| G
+| A
+| B
+deriving DecidableEq, Repr
+
+/-- A piatch as shown to the user in the UI. -/
+structure UserPitch where
+  pitchName : PitchName
+  accidental : Accidental
+  octave : Nat
+deriving DecidableEq, Repr
+
+def UserPitch.toPitch (p : UserPitch) : Pitch :=
+  let pitch := match p.pitchName with
+  | PitchName.C => 0
+  | PitchName.D => 2
+  | PitchName.E => 4
+  | PitchName.F => 5
+  | PitchName.G => 7
+  | PitchName.A => 9
+  | PitchName.B => 11
+  let pitch := (pitch : ℤ) + match p.accidental with
+  | Accidental.natural => 0
+  | Accidental.sharp => 1
+  | Accidental.flat => -1
+  let pitch := pitch + 12 * p.octave
+  { pitch := pitch.toNat }
+
+def UserPitch.toggleAccidental (p : UserPitch) (a : Accidental) : UserPitch :=
+  { p with accidental := if p.accidental = a then Accidental.natural else a }
+
+def UserPitch.raiseOctave (p : UserPitch) : UserPitch :=
+  { p with octave := p.octave + 1 }
+
+def UserPitch.lowerOctave (p : UserPitch) : UserPitch :=
+  { p with octave := p.octave - 1 }
+
+def UserPitch.middleC : UserPitch := {
+  pitchName := PitchName.C,
+  accidental := Accidental.natural,
+  octave := 4
+}
+
+def UserPitch.ofPitchName (n : PitchName) : UserPitch := {
+  pitchName := n,
+  accidental := Accidental.natural,
+  octave := 4
+}
+
 /-- A Note with a location. -/
 structure Note where
-  pitch : Pitch
-  /-- The step at which the note starts. -/
-  start : Nat
+  /-- the x axis location of the note. -/
+  loc : Loc
+  /-- the pitch of the note. -/
+  userPitch : UserPitch
   /-- The duration of the note in steps. -/
   nsteps : Nat
   /-- a Note is played for at least one step -/
@@ -45,165 +138,237 @@ structure Note where
 deriving DecidableEq, Repr
 
 instance : Inhabited Note where
-  default := { pitch := Pitch.middleC, start := 0, nsteps := 1, hnsteps := by decide }
+  default := {
+      userPitch := UserPitch.middleC,
+      loc := default,
+      nsteps := 1,
+      hnsteps := by decide }
+
+def Note.increaseNSteps (n : Note) : Note :=
+  { n with nsteps := n.nsteps + 1, hnsteps := by omega }
+
+def Note.decreaseSteps (n : Note) : Option Note :=
+  if h : n.nsteps > 1 then
+    some { n with nsteps := n.nsteps - 1, hnsteps := by omega }
+  else none
+
+
+def Note.atIx (ix : Loc) (n : PitchName) : Note :=
+  { loc := ix, userPitch := UserPitch.ofPitchName n, nsteps := 1, hnsteps := by decide }
+
+class Locable (α : Type) where
+  toLoc : α → Loc
+open Locable
+
+class Spannable (α : Type) extends Locable α where
+  toSpan : α → Span
+  htoSpan : ∀ (a : α), toLoc a = (toSpan a).topLeft
+
+
+instance : Locable Loc where
+  toLoc l := l
+
+instance : Spannable Span where
+  toSpan s := s
+  htoSpan _ := rfl
+open Spannable
+
+instance : Locable Note where
+  toLoc n := n.loc
+
+instance : Spannable Note where
+  toSpan n := {
+    topLeft := n.loc,
+    width := 1,
+    height := n.nsteps,
+    hwidth := by decide,
+    hheight := n.hnsteps
+  }
+  htoSpan _ := rfl
+
+def Span.containsLoc (s : Span) (ix : Loc) : Prop :=
+  ix.x ≥ s.topLeft.x && ix.x < s.topLeft.x + s.width &&
+  ix.y ≥ s.topLeft.y && ix.y < s.topLeft.y + s.height
+
+instance : Decidable (Span.containsLoc s ix) := by
+  simp [Span.containsLoc]
+  infer_instance
+
+def Span.disjoint (s t : Span) : Prop :=
+  s.topLeft.x + s.width ≤ t.topLeft.x || t.topLeft.x + t.width ≤ s.topLeft.x ||
+  s.topLeft.y + s.height ≤ t.topLeft.y || t.topLeft.y + t.height ≤ s.topLeft.y
+
+theorem Span.disjoint_irrefl (s : Span) : ¬ s.disjoint s := by
+  simp [Span.disjoint]
+  have := s.hwidth
+  have := s.hheight
+  omega
+
+instance : Decidable (Span.disjoint s1 s2) := by
+  simp [Span.disjoint]
+  infer_instance
+
+theorem Span.disjoint_symm (n1 n2 : Span) :
+    Span.disjoint n1 n2 ↔ Span.disjoint n2 n1 := by
+  simp [Span.disjoint]
+  constructor <;> omega
+
+
+def Span.overlaps (s1 s2 : Span) : Prop :=
+  ¬ Span.disjoint s1 s2
+
+theorem Span.overlaps_if_not_disjoint (n1 n2 : Span) :
+    ¬ Span.disjoint n1 n2 → Span.overlaps n1 n2 := by
+  simp [Span.disjoint, Span.overlaps]
+
+theorem Span.disjoint_if_not_overlaps (n1 n2 : Span) :
+    ¬ Span.overlaps n1 n2 → Span.disjoint n1 n2 := by
+  simp [Span.disjoint, Span.overlaps]
+  intros h₁
+  omega
+
+theorem Span.overlaps_symm (s t : Span) :
+    Span.overlaps s t ↔ Span.overlaps t s := by
+  simp [Span.overlaps, Span.disjoint]
+  have := s.hheight
+  have := s.hwidth
+  have := t.hheight
+  have := t.hwidth
+  constructor <;> omega
+
+def Span.containsSpan (s t : Span) : Prop :=
+  s.topLeft.x ≤ t.topLeft.x && s.topLeft.y ≤ t.topLeft.y &&
+  s.topLeft.x + s.width ≥ t.topLeft.x + t.width &&
+  s.topLeft.y + s.height ≥ t.topLeft.y + t.height
+
+instance : Decidable (Span.containsSpan s1 s2) := by
+  simp [Span.containsSpan]
+  infer_instance
+
+theorem Span.containsSpan_refl (s : Span) : Span.containsSpan s s := by
+  simp [Span.containsSpan]
+
+theorem Span.containsSpan_eq_of_containSpan_constainsSpans (s t : Span)
+  (hst : Span.containsSpan s t) (hts : Span.containsSpan t s) : s = t := by
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  simp [Span.containsSpan] at *
+  omega
+
+theorem Span.containsSpan_transitive (s t u : Span)
+    (hst : Span.containsSpan s t) (htu : Span.containsSpan t u) : Span.containsSpan s u := by
+  simp [Span.containsSpan] at *
+  omega
+
+theorem Span.not_disjoint_of_containsSpan (s t : Span) :
+   Span.containsSpan s t → ¬ s.disjoint t := by
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  simp_all [Span.disjoint, Span.containsSpan]
+  omega
+
+theorem Span.overlaps_of_containsSpan (s t : Span) :
+   Span.containsSpan s t → Span.overlaps s t := by
+  simp [Span.overlaps]
+  apply Span.not_disjoint_of_containsSpan
+
+theorem Span.overlaps_of_containsSpan_symm (s t : Span) :
+   Span.containsSpan s t → Span.overlaps t s := by
+  simp [Span.overlaps, Span.containsSpan, Span.overlaps, Span.disjoint]
+  rcases s with ⟨st, sw, sh, hsw, hsh⟩
+  rcases t with ⟨tt, tw, th, htw, hth⟩
+  rcases st with ⟨stx, sty⟩
+  rcases tt with ⟨ttx, tty⟩
+  simp_all
+  omega
+
+instance : Decidable (Span.overlaps s1 s2) := by
+  simp [Span.overlaps]
+  infer_instance
+
+structure SpanY where
+  x : Nat
+  top : Nat
+  height : Nat
+  hheight : height > 0
+
+
+instance : Spannable SpanY where
+  toLoc s := { x := s.x, y := s.top }
+  toSpan s := {
+    topLeft := { x := s.x, y := s.top },
+    width := 1,
+    height := s.height,
+    hwidth := by omega,
+    hheight := s.hheight
+  }
+  htoSpan _ := rfl
+
+instance : Inhabited SpanY where
+  default := { x := 0, top := 0, height := 1, hheight := by omega }
+
+def SpanY.bottom (s : SpanY) : Nat := s.top + s.height
+
+def SpanY.toSpan (s : SpanY) : Span :=
+  { topLeft := { x := 0, y := s.top },
+    width := 1,
+    height := s.height,
+    hwidth := by omega,
+    hheight := s.hheight
+  }
+
+def SpanY.containsLoc (s : SpanY) (ix : Loc) : Prop :=
+  ix.x = s.x && ix.y ≥ s.top && ix.y < s.top + s.height
+
+instance : Decidable (SpanY.containsLoc s ix) := by
+  simp [SpanY.containsLoc]
+  infer_instance
+
+def SpanY.disjoint (s t : SpanY) : Prop :=
+  s.x ≠ t.x || s.top + s.height ≤ t.top || t.top + t.height ≤ s.top
+
+instance : Decidable (SpanY.disjoint s1 s2) := by
+  simp [SpanY.disjoint]
+  infer_instance
+
+def SpanY.overlaps (s t : SpanY) : Prop :=
+  ¬ SpanY.disjoint s t
+
+instance : Decidable (SpanY.overlaps s1 s2) := by
+  simp [SpanY.overlaps]
+  infer_instance
+
+def SpanY.containsSpanY (s t : SpanY) : Prop :=
+  s.x = t.x && s.top ≤ t.top && s.top + s.height ≥ t.top + t.height
+
+
+def Span.toSpanYs (s : Span) : List SpanY :=
+  List.map (λ x => { x := x + s.topLeft.x, top := s.topLeft.y, height := s.height, hheight := s.hheight })
+  (List.range s.width)
+
+def SpanY.difference (s t : SpanY) : List SpanY := sorry
+
+@[simp, note_omega]
+def Note.start (n : Note) := n.loc.x
 
 /-- The step when the note plays last. -/
 @[note_omega]
 def Note.lastPlayed (n : Note) : Nat := n.start + n.nsteps - 1
 
-def Note.overlaps (n1 n2 : Note) : Prop :=
-   n2.start ≤ n1.lastPlayed && n1.start ≤ n2.lastPlayed
-
-instance : Decidable (Note.overlaps n1 n2) := by
-  simp [Note.overlaps]
-  infer_instance
-
+@[simp, note_omega]
 def Note.disjoint (n1 n2 : Note) : Prop :=
-  n1.lastPlayed < n2.start || n2.lastPlayed < n1.start
-
-instance : Decidable (Note.disjoint n1 n2) := by
-  simp [Note.disjoint]
-  infer_instance
-
-
-theorem Note.overlaps_if_not_disjoint (n1 n2 : Note) :
-    ¬ Note.disjoint n1 n2 → Note.overlaps n1 n2 := by
-  simp [Note.disjoint, Note.overlaps]
-
-theorem Note.disjoint_if_not_overlaps (n1 n2 : Note) :
-    ¬ Note.overlaps n1 n2 → Note.disjoint n1 n2 := by
-  simp [Note.disjoint, Note.overlaps]
-  intros h₁
-  omega
-
-theorem Note.disjoint_symm (n1 n2 : Note) :
-    Note.disjoint n1 n2 ↔ Note.disjoint n2 n1 := by
-  simp [Note.disjoint]
-  constructor <;> omega
-
-theorem Note.overlaps_symm (n1 n2 : Note) :
-    Note.overlaps n1 n2 ↔ Note.overlaps n2 n1 := by
-  simp [Note.overlaps]
-  constructor <;> omega
-
-def Note.contains (n : Note) (ix : Nat) : Prop :=
-  n.start ≤ ix && ix ≤ n.lastPlayed
-
-instance : Decidable (Note.contains n ix) := by
-  simp [Note.contains]
-  infer_instance
-
-def Note.containsNote (n1 n2 : Note) : Prop :=
-  n1.start ≤ n2.start && n2.lastPlayed ≤ n1.lastPlayed
-
-instance : Decidable (Note.containsNote n1 n2) := by
-  simp [Note.containsNote]
-  infer_instance
-
-def Note.compare (n1 n2 : Note) : Ordering :=
-  if n1.start < n2.start then Ordering.lt
-  else if n1.start = n2.start then
-    if n1.lastPlayed < n2.lastPlayed then Ordering.lt
-    else if n2.lastPlayed < n1.lastPlayed then Ordering.gt
-    else Ordering.eq
-  else
-    Ordering.gt
-
-instance : LT Note where
-  lt n1 n2 := Note.compare n1 n2 = Ordering.lt
-
-instance : LE Note where
-  le n1 n2 := n1 < n2 ∨ n1 = n2
+  (toSpan n1).disjoint (toSpan n2)
 
 /-- A track is a list of located notes, with all notes disjoint. -/
 structure Track where
   notes : List Note
-  /-- The notes are disjoint. -/
   hdisjoint : notes.Pairwise Note.disjoint
   junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Repr, DecidableEq
-
-/-
-def Range := Nat × Nat
-def Track.queryVacancy (t : Track) (r : Range) : Option (Vacant t r) := sorry
-def Track.addNote (t : Track) (n : Note) (hn : Vacant t n.range) : Track := sorry
--/
-
-/--
-Try to add a note to a track.
-Succeeds if there is space for the note. Fails otherwise,
-returning the same track. -/
-def Track.addNote (t : Track) (n : Note) : Track :=
-  if ht : t.notes.all (fun n' => decide (n.disjoint n')) then
-  { t with
-    notes := n :: t.notes
-    hdisjoint := by
-      simp_all only [List.all_eq_true,
-        decide_eq_true_eq, not_forall, Classical.not_imp]
-      simp [List.pairwise_cons, ht, t.hdisjoint]
-      assumption
-  }
-  else t
-
-def Track.getNoteAtIx (t : Track) (ix : Nat) : Option Note :=
-  t.notes.find? fun n => n.contains ix
-
-/-- make a note with pitch `p` at index `ix`. -/
-def Note.atIx (ix : Nat) (p : Pitch) : Note :=
-  { pitch := p, start := ix, nsteps := 1, hnsteps := by decide }
--- def Track.editNote {n : Note} {t : Track} {note : Note} (hn : t.getNoteAtIx ix = .some note) (n' : Note) (hn' : n'.containsNote n) : Track :=
---   let t' := t.removeNoteAt ix
---   t'.addNote n'
-
-/-- If we don't have a note at it 'ix', then a note at ix 'ix' is disjoint from all notes in the track. -/
-theorem Track.Note_disjoint_Note_atIx_of_getNoteAtIx_eq_none {t : Track} (ix : Nat) (p : Pitch)
-    (ht : t.getNoteAtIx ix = none) : t.notes.all (fun n => n.disjoint (Note.atIx ix p)) := by
-  simp only [Note.disjoint, Bool.or_eq_true, decide_eq_true_eq, Bool.decide_or, List.all_eq_true]
-  intros n hn
-  simp only [Note.atIx]
-  simp only [getNoteAtIx, List.find?_eq_none, decide_eq_true_eq] at ht
-  specialize (ht _ hn)
-  simp_all [Note.contains, Note.lastPlayed]
-  omega
-
-  /-- If we don't have a note at it 'ix', then a note at ix 'ix' is disjoint from all notes in the track. -/
-theorem Track.Note_disjoint_of_getNoteAtIx_eq_none_of_mem_of_eq_Note_atIx {t : Track} {m n : Note}
-    (hm : m ∈ t.notes)
-    (hn : n = Note.atIx ix p)
-    (ht : t.getNoteAtIx ix = none) :  m.disjoint n := by
-  subst hn
-  have hdisjoint := t.Note_disjoint_Note_atIx_of_getNoteAtIx_eq_none ix p ht
-  replace hdisjoint := List.all_iff_forall.mp hdisjoint m hm
-  simpa using hdisjoint
-
-
-def Track.addNoteAtIx (t : Track) (p : Pitch) (ht : t.getNoteAtIx ix = none) : Track :=
-  let n : Note := Note.atIx ix p
-{
-    t with
-    notes := n :: t.notes
-    hdisjoint := by
-      simp [List.pairwise_cons, ht, t.hdisjoint]
-      intros m hm
-      rw [Note.disjoint_symm]
-      apply Note_disjoint_of_getNoteAtIx_eq_none_of_mem_of_eq_Note_atIx hm rfl ht
-  }
-
-
-/-- Try to remove note at location 'loc'. -/
-def Track.removeNoteAtIx (t : Track) (loc : Nat) : { t : Track // t.getNoteAtIx loc = none } :=
-  let t' :=
-    { t with
-      notes := t.notes.filter (fun note => ¬ note.contains loc),
-      hdisjoint := List.Pairwise.filter _ t.hdisjoint
-    }
-  ⟨t', by
-    simp [getNoteAtIx, t']
-    intros x hx
-    simp [List.mem_filter] at hx
-    obtain ⟨hx₁, hx₂⟩ := hx
-    assumption
-  ⟩
 
 open List in
 theorem List.pairwise_map' {l : List α} {f : α → β}
@@ -222,105 +387,31 @@ theorem List.pairwise_map' {l : List α} {f : α → β}
     · simp only [pairwise_cons] at hl
       exact (ih hl.2)
 
-theorem not_contains_of_disjoint_of_contains {n1 n2 : Note} {ix : Nat}
-    (hdisjoint : n1.disjoint n2) (hcontains : n1.contains ix) : ¬ n2.contains ix := by
-  simp [Note.disjoint, Note.contains] at *
-  intros h₂
-  have hn2 := n2.hnsteps
-  have hn1 := n1.hnsteps
-  simp_all [note_omega]
-  omega
-
-theorem disjoint_of_containsNote {nlarge nsmall m : Note}
-    (hcontains : nlarge.containsNote nsmall) (hdisjoint : nlarge.disjoint m) :
-    nsmall.disjoint m := by
-  simp [Note.disjoint, Note.containsNote] at *
-  have hnsmall := nsmall.hnsteps
-  have hnlarge := nlarge.hnsteps
-  simp_all [note_omega]
-  omega
-
-@[simp]
-theorem disjoint_irreflexive (n : Note) : ¬ n.disjoint n := by
-  simp [Note.disjoint, Note.lastPlayed]
-  have hnsteps := n.hnsteps
-  omega
-
-def Track.editNoteAtIx (t : Track) {ix : Nat} (hix : t.getNoteAtIx ix = some n) (n' : Note) (hn' : n.containsNote n') : Track :=
-    { t with
-    notes := t.notes.map fun note =>
-      if note = n then n' else note
-    hdisjoint := by
-      apply List.pairwise_map' (R := Note.disjoint) (S := Note.disjoint) t.hdisjoint
-      intros a a'
-      intros haa'
-      split_ifs
-      case pos ha ha' =>
-        subst ha
-        subst ha'
-        simp at haa'
-      case neg ha ha' =>
-        subst ha
-        apply disjoint_of_containsNote
-        apply hn'
-        apply haa'
-      case pos ha ha' =>
-        subst ha'
-        rw [Note.disjoint_symm]
-        apply disjoint_of_containsNote
-        apply hn'
-        rw [Note.disjoint_symm]
-        apply haa'
-      case neg ha ha' =>
-        exact haa'
-  }
-
 def Track.empty : Track := { notes := [], hdisjoint := by simp [] }
-
-def Track.default : Track where
-  notes := [ { pitch := Pitch.middleC, start := 0, nsteps := 1, hnsteps := by decide } ]
-  hdisjoint := by simp [Note.disjoint]
 
 instance : Inhabited Track where
   default := Track.empty
 
-def Track.maxLength : Nat := 9999
-
-structure Cursor where
-  /-- How far the selection extends. -/
-  a : Fin Track.maxLength
-   /-- Where the cursor is located. -/
-  b : Fin Track.maxLength
-deriving DecidableEq, Repr, DecidableEq
-
-def Cursor.atbegin : Cursor :=
-  { a := ⟨0, by simp [Track.maxLength]⟩,
-    b := ⟨0, by simp [Track.maxLength]⟩
-  }
-
-instance : Inhabited Cursor where
-  default := .atbegin
-
-inductive CursorMoveAction
+inductive LocMoveAction
 | up (d : Nat)
 | down (d : Nat)
+| left (d : Nat)
+| right (d : Nat)
 
-def CursorMoveAction.act (c : Cursor)
-    (act : CursorMoveAction) : Cursor :=
+def LocMoveAction.act (c : Loc)
+    (act : LocMoveAction) : Loc :=
   match act with
-  | .up d => { c with b := ⟨c.b.val - d, by omega⟩ }
-  | .down d => { c with b :=
-    ⟨Nat.min (c.b.val + d) (Track.maxLength - 1),
-      Nat.lt_of_le_of_lt (Nat.min_le_right ..) (by simp [Track.maxLength])⟩
-  }
+  | .up d => { c with y := c.y - d }
+  | .down d => { c with y := c.y + d }
+  | .left d => { c with x := c.x - d }
+  | .right d => { c with x := c.x + d }
 
 /-- Todo: show that moveDown / moveUp are a galois connection. -/
 
-def Cursor.moveDownOne (c : Cursor) : Cursor := (CursorMoveAction.down 1).act c
-def Cursor.moveUpOne (c : Cursor) : Cursor := (CursorMoveAction.up 1).act c
-
-def Cursor.moveDownHalfPage (c : Cursor) : Cursor := (CursorMoveAction.down 10).act c
-def Cursor.moveUpHalfPage (c : Cursor) : Cursor := (CursorMoveAction.up 10).act c
+def Loc.moveDownOne (c : Loc) : Loc := (LocMoveAction.down 1).act c
+def Loc.moveUpOne (c : Loc) : Loc := (LocMoveAction.up 1).act c
+def Loc.moveLeftOne (c : Loc) : Loc := (LocMoveAction.left 1).act c
+def Loc.moveRightOne (c : Loc) : Loc := (LocMoveAction.right 1).act c
 
 class Patchable (α : Type) (δ : Type) extends VAdd δ α where
   /-- Given the diff `f -δ→ g` and `f`, compute `g -(f @⁻¹ δ)→ f`.
@@ -380,11 +471,13 @@ instance : LawfulDiffable α (NaiveDiff α) where
 A data structure which maintains the history of a given type.
 past₂ ←p-  past₁ ←p- cur  -n→ c₁ -n→ c₂ ... -/
 structure HistoryStack (α : Type) (δ : Type) where
+  ninserts : Nat
   /- upon being applied to `cur`, gives previous element. -/
   historyPrev : List δ
   cur : α
    /- upon being applied, gives next element. -/
   historyNext: List δ
+  -- hninserts : ninserts ≥ historyPrev.length + historyNext.length + 1
 deriving Inhabited, Repr
 
 instance [Repr α] [Repr δ] : Repr (HistoryStack α δ) where
@@ -394,6 +487,7 @@ def HistoryStack.init {α : Type} (a : α) : HistoryStack α δ where
   historyPrev := []
   cur := a
   historyNext := []
+  ninserts := 1
 
 def HistoryStack.prev (h : HistoryStack α δ) [Patchable α δ] : HistoryStack α δ :=
   match h.historyPrev with
@@ -412,6 +506,7 @@ def HistoryStack.next (h : HistoryStack α δ) [Patchable α δ] : HistoryStack 
   | a :: as =>
     let (next, patch) := Patchable.apply2 h.cur a
     {
+      ninserts := h.ninserts,
       cur := next,
       historyPrev := patch :: h.historyPrev,
       historyNext := as
@@ -421,7 +516,7 @@ def HistoryStack.next (h : HistoryStack α δ) [Patchable α δ] : HistoryStack 
 theorem HistoryStack.prev_next_eq_self_of_next_ne [Patchable α δ] [LawfulPatchable α δ]
     (h : HistoryStack α δ) (hprev : h.historyNext ≠ []) :
     (HistoryStack.prev (HistoryStack.next h)) = h := by
-  rcases h with ⟨prev, cur, next⟩
+  rcases h with ⟨ninserts, prev, cur, next⟩
   simp [HistoryStack.prev, HistoryStack.next]
   cases next <;> cases prev <;> simp_all
 
@@ -429,7 +524,7 @@ theorem HistoryStack.next_prev_eq_self_of_prev_ne [Patchable α δ] [LawfulPatch
     (h : HistoryStack α δ)
     (hprev : h.historyPrev ≠ []) :
     (HistoryStack.next (HistoryStack.prev h)) = h := by
-  rcases h with ⟨prev, cur, next⟩
+  rcases h with ⟨ninserts, prev, cur, next⟩
   simp [HistoryStack.prev, HistoryStack.next]
   cases next <;> cases prev <;> simp_all
 
@@ -441,6 +536,7 @@ def HistoryStack.setForgettingFuture [DecidableEq α] [Diffable α δ]
     if h.cur = newcur then h.historyPrev
     else (h.cur -ᵥ newcur) :: h.historyPrev
   historyNext := []
+  ninserts := h.ninserts + 1
 
 /-- If we actually pushed a new state, then undo will take us back to the old state. -/
 theorem HistoryStack.cur_prev_setForgettingFuture_eq_cur [DecidableEq α]
@@ -467,6 +563,7 @@ def HistoryStack.patchForgettingFuture [DecidableEq α] [Diffable α δ]
   cur := p +ᵥ h.cur
   historyPrev := (h.cur @⁻¹ p) :: h.historyPrev
   historyNext := []
+  ninserts := h.ninserts + 1
 
 /--  Undo will take us back to the previous state. -/
 theorem HistoryStack.cur_prev_patchForgettingFuture_eq [DecidableEq α]
@@ -475,25 +572,173 @@ theorem HistoryStack.cur_prev_patchForgettingFuture_eq [DecidableEq α]
     (HistoryStack.patchForgettingFuture h patch).prev.cur = h.cur := by
   simp [HistoryStack.patchForgettingFuture, prev, next]
 
+structure Selection where
+  cursor : Loc -- Location of the cursor.
+  selectAnchor : Option Loc -- Location where selection anchor was dropped.
+deriving Inhabited, Repr, DecidableEq
+
+def Selection.atbegin : Selection := { cursor := { x := 0, y := 0 }, selectAnchor := none }
+
+def Selection.topLeft (s : Selection) : Loc :=
+  match s.selectAnchor with
+  | none => s.cursor
+  | some a => { x := min a.x s.cursor.x, y := min a.y s.cursor.y }
+
+def Selection.bottomRight (s : Selection) : Loc :=
+  match s.selectAnchor with
+  | none => s.cursor
+  | some a => { x := max a.x s.cursor.x, y := max a.y s.cursor.y }
+
+def Selection.toSpan (s : Selection) : Span :=
+  { topLeft := s.topLeft,
+    width := (s.bottomRight.x - s.topLeft.x) + 1,
+    height := (s.bottomRight.y - s.topLeft.y) + 1,
+    hwidth := by omega, hheight := by omega
+  }
+
+def Selection.selectAnchorLocMoveAct (s : Selection) (act : LocMoveAction) : Selection :=
+  let anchor := s.selectAnchor.getD s.cursor
+  { s with selectAnchor := act.act anchor }
+
+def Selection.cursorMoveAct (s : Selection) (act : LocMoveAction) : Selection :=
+  { s with cursor := act.act s.cursor, selectAnchor := .none }
+
+instance : Spannable Selection where
+  toSpan s := s.toSpan
+  htoSpan _ := rfl
+
+def Selection.ofSpan (s : Span) : Selection :=
+  { cursor := s.topLeft, selectAnchor := s.bottomRight }
+
+def Note.atSpanY (p : PitchName) (s : SpanY) : Note :=
+  { loc := { x := s.x, y := s.top },
+    userPitch := UserPitch.ofPitchName p,
+    nsteps := s.height,
+    hnsteps := s.hheight }
+
+
+/--
+If we have notes that overlap, then adjust their pitches.
+If we have no notes that overlap, then add a new note into the span Y with the given pitch.
+-/
+def Track.addNoteAtSpanY (t : Track) (p : PitchName) (s : SpanY) : Track :=
+  let newNote := Note.atSpanY p s -- insert new note.
+  let deletedNotes := -- delete all old notes.
+    t.notes.filter (fun n =>
+      (toSpan n).disjoint (toSpan s)
+    )
+  { t with notes := newNote :: deletedNotes, hdisjoint := sorry }
+
+/--
+For each Y axis span in the given span,
+add a note with the given pitch if the span is empty,
+and otherwise, adjust the pitch of the notes in the span.
+-/
+def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
+  s.toSpanYs.foldl (fun t s => t.addNoteAtSpanY p s) t
+
+def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
+  let modifiedNotes :=
+    t.notes.foldl (fun ns n =>
+      let s' := toSpan n
+      if s'.overlaps s
+      then
+        match f n with
+        | none => ns
+        | some n' => n' :: ns
+      else n :: ns
+    ) []
+  { t with notes := modifiedNotes, hdisjoint := sorry }
+
+/-- Set the pitch for each note in the span -/
+def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
+  t.modifyInSpan s (fun n =>
+    .some { n with
+      userPitch := { n.userPitch with pitchName := p }
+    })
+
+/-- Remove all notes that overlap with the span -/
+def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
+  t.modifyInSpan s (fun _ => none)
+
+def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
+  t.modifyInSpan s (fun n =>
+    .some { n with
+      userPitch := { n.userPitch with accidental := if n.userPitch.accidental = a then Accidental.natural else a }
+    })
+
+def Track.toggleSharp (t : Track) (s : Span) : Track :=
+  t.toggleAccidental Accidental.sharp s
+
+def Track.toggleFlat (t : Track) (s : Span) : Track :=
+  t.toggleAccidental Accidental.flat s
+
+def Track.increaseDuration (t : Track) (s : Span) : Track :=
+  t.modifyInSpan s (fun n => .some (n.increaseNSteps))
+
+def Track.decreaseDuration (t : Track) (s : Span) : Track :=
+  t.modifyInSpan s (fun n => n.decreaseSteps)
+
+structure Eased (α : Type) where
+  cur : α
+  desired : α
+deriving Inhabited, Repr
+
+def Eased.atDesired (d : α) : Eased α := { cur := d, desired := d }
+
+def Eased.step [Add α] [Sub α] [HMul Float α α] (e : Eased α) : Eased α :=
+  let rate := 0.01
+  { cur := e.cur + rate * (e.desired - e.cur), desired := e.desired }
+
+structure Clipboard where
+  notes : List Note
+deriving Inhabited, Repr
+
+def Clipboard.empty : Clipboard := { notes := [] }
 
 structure RawContext where
-  lastPlacedPitch : Pitch
   track : HistoryStack Track (NaiveDiff Track)
-  cursor : HistoryStack Cursor (NaiveDiff Cursor)
+  clipboard : Clipboard
+  cursor : HistoryStack Selection (NaiveDiff Selection)
+  renderX : Eased Float
+  renderY : Eased Float
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
 deriving Inhabited, Repr
 
+def Track.copy (t : Track) (s : Selection) : Clipboard :=
+  { notes := t.notes.filter (fun n => (toSpan n).containsLoc s.cursor) }
+
+instance : Add Loc where
+  add l1 l2 := { x := l1.x + l2.x, y := l1.y + l2.y }
+
+def Track.paste (t : Track) (l : Loc) (c : Clipboard) : Track :=
+  let newNotes := c.notes.map (fun n =>
+    { n with loc := l + n.loc, hnsteps := n.hnsteps }
+  )
+  -- delete any notes that create overlaps.
+  let deletedNotes := t.notes.filter (fun n => c.notes.any (fun n' => n.loc = n'.loc))
+  { t with notes := newNotes ++ deletedNotes, hdisjoint := sorry }
+
+def Track.cut (t : Track) (s : Selection) : Clipboard × Track :=
+  let c := t.copy s
+  let t := t.deleteNotesAtSpan s.toSpan
+  (c, t)
+
 def RawContext.empty : RawContext := {
     track := HistoryStack.init Track.empty,
-    cursor := HistoryStack.init .atbegin,
-    lastPlacedPitch := Pitch.middleC
+    clipboard := Clipboard.empty,
+    cursor := HistoryStack.init Selection.atbegin,
+    renderX := Eased.atDesired 0.0,
+    renderY := Eased.atDesired 0.0,
 }
 
-def RawContext.default : RawContext := {
-    track := HistoryStack.init Track.default,
-    cursor := HistoryStack.init .atbegin,
-    lastPlacedPitch := Pitch.middleC
-}
+def RawContext.step (ctx : RawContext) : RawContext :=
+  { ctx with
+    track := ctx.track.next,
+    cursor := ctx.cursor.next,
+    renderX := ctx.renderX.step,
+    renderY := ctx.renderY.step
+  }
 
 section ffi
 /-!
@@ -509,102 +754,202 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 - `object_get_<type>` to get an element of type <type>
 -/
 
-@[export monodrone_new_context]
-def newContext (_ : Unit) : RawContext := RawContext.default
+/-# Ctx -/
+@[export monodrone_ctx_new]
+def newContext (_ : Unit) : RawContext := RawContext.empty
 
-@[export monodrone_track_length]
-def trackLength (ctx : @&RawContext) : UInt64 := ctx.track.cur.notes.length.toUInt64
+/-# Cursor Movement. -/
 
-@[export monodrone_track_get_note]
+@[export monodrone_ctx_cursor_move_down_one]
+def RawContext.moveDownOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.cursorMoveAct (LocMoveAction.down 1)
+  }
+
+@[export monodrone_ctx_cursor_move_up_one]
+def RawContext.moveUpOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.cursorMoveAct (LocMoveAction.up 1)
+  }
+
+@[export monodrone_ctx_cursor_move_left_one]
+def RawContext.moveLeftOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.cursorMoveAct (LocMoveAction.left 1)
+  }
+
+@[export monodrone_ctx_cursor_move_right_one]
+def RawContext.moveRightOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.cursorMoveAct (LocMoveAction.right 1)
+  }
+
+@[export monodrone_ctx_select_anchor_move_left_one]
+def RawContext.moveSelectAnchorLeftOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.selectAnchorLocMoveAct (LocMoveAction.left 1)
+  }
+
+@[export monodrone_ctx_select_anchor_move_right_one]
+def RawContext.moveSelectAnchorRightOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.selectAnchorLocMoveAct (LocMoveAction.right 1)
+  }
+
+@[export monodrone_ctx_select_anchor_move_up_one]
+def RawContext.moveSelectAnchorUpOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.selectAnchorLocMoveAct (LocMoveAction.up 1)
+  }
+
+@[export monodrone_ctx_select_anchor_move_down_one]
+def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
+  { ctx with cursor := ctx.cursor.modifyForgettingFuture fun s =>
+    s.selectAnchorLocMoveAct (LocMoveAction.down 1)
+  }
+
+def RawContext.addNote (ctx : @&RawContext) (p : PitchName) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.addNotesAtSpan p ctx.cursor.cur.toSpan
+  }
+
+/-# Note Editing. -/
+
+@[export monodrone_ctx_set_pitch]
+def RawContext.setPitch (ctx : @&RawContext) (p : PitchName) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.setPitchAtSpan p ctx.cursor.cur.toSpan
+  }
+
+@[export monodrone_ctx_delete]
+def RawContext.delete (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.deleteNotesAtSpan ctx.cursor.cur.toSpan
+  }
+
+@[export monodrone_ctx_increase_duration]
+def RawContext.increaseDuration (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.increaseDuration ctx.cursor.cur.toSpan
+  }
+
+@[export monodrone_ctx_decrease_duration]
+def RawContext.decreaseDuration (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.decreaseDuration ctx.cursor.cur.toSpan
+  }
+
+/-# Cursor Query -/
+@[export monodrone_ctx_get_cursor_sync_index]
+def getCursorSyncIndex (ctx : @&RawContext) : UInt64 := ctx.cursor.ninserts.toUInt64
+
+@[export monodrone_ctx_get_cursor_x]
+def getCursorX (ctx : @&RawContext) : UInt64 := ctx.cursor.cur.cursor.x.toUInt64
+
+@[export monodrone_ctx_get_cursor_y]
+def getCursorY (ctx : @&RawContext) : UInt64 := ctx.cursor.cur.cursor.y.toUInt64
+
+/-# Selection Query -/
+
+@[export monodrone_ctx_has_select_anchor]
+def hasSelectAnchor (ctx : @&RawContext) : Bool :=
+  ctx.cursor.cur.selectAnchor != none
+
+@[export monodrone_ctx_get_select_anchor_x]
+def getSelectAnchornX (ctx : @&RawContext) : UInt64 :=
+  match ctx.cursor.cur.selectAnchor with
+  | none => ctx.cursor.cur.cursor.x.toUInt64
+  | some s => s.x.toUInt64
+
+@[export monodrone_ctx_get_select_anchor_y]
+def getSelectAnchorY (ctx : @&RawContext) : UInt64 :=
+  match ctx.cursor.cur.selectAnchor with
+  | none => ctx.cursor.cur.cursor.y.toUInt64
+  | some s => s.y.toUInt64
+
+/-# Track Query -/
+
+@[export  monodrone_ctx_get_track_sync_index]
+def getTrackSyncIndex (ctx : @&RawContext) : UInt64 := ctx.track.ninserts.toUInt64
+
+@[export monodrone_ctx_get_track_length]
+def getTrackLength (ctx : @&RawContext) : UInt64 := ctx.track.cur.notes.length.toUInt64
+
+@[export monodrone_ctx_get_track_note]
 def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
   ctx.track.cur.notes.get! ix.toNat
 
-@[export monodrone_note_get_pitch]
-def noteGetPitch (n : @&Note) : UInt64 := n.pitch.pitch.toUInt64
 
-@[export monodrone_note_get_start]
-def noteGetStart (n : @&Note) : UInt64 := n.start.toUInt64
+/-# Note Query -/
+
+def PitchName.toUInt64 (p : PitchName) : UInt64 :=
+  match p with
+  | PitchName.C => 0
+  | PitchName.D => 1
+  | PitchName.E => 2
+  | PitchName.F => 3
+  | PitchName.G => 4
+  | PitchName.A => 5
+  | PitchName.B => 6
+
+def PitchName.ofUInt64 (n : UInt64) : PitchName :=
+  match n.toNat with
+  | 0 => PitchName.C
+  | 1 => PitchName.D
+  | 2 => PitchName.E
+  | 3 => PitchName.F
+  | 4 => PitchName.G
+  | 5 => PitchName.A
+  | 6 => PitchName.B
+  | _ => PitchName.C
+
+/-- Our decoding is consistent with our encoding. -/
+theorem PitchName.of_to_uint64 (p : PitchName) :
+    PitchName.ofUInt64 p.toUInt64 = p := by
+  cases p <;> rfl
+
+@[export monodrone_note_get_pitch_name]
+def noteGetPitchName (n : @&Note) : UInt64 :=
+  n.userPitch.pitchName.toUInt64
+
+def Accidental.toUInt64 (a : Accidental) : UInt64 :=
+  match a with
+  | Accidental.natural => 0
+  | Accidental.sharp => 1
+  | Accidental.flat => 2
+
+def Accidental.ofUInt64 (n : UInt64) : Accidental :=
+  match n.toNat with
+  | 0 => Accidental.natural
+  | 1 => Accidental.sharp
+  | 2 => Accidental.flat
+  | _ => Accidental.natural
+
+theorem Accidental.of_to_uint64 (a : Accidental) :
+    Accidental.ofUInt64 a.toUInt64 = a := by
+  cases a <;> rfl
+
+@[export monodrone_note_get_pitch_accidental]
+def noteGetAccidental (n : @&Note) : UInt64 :=
+  n.userPitch.accidental.toUInt64
+
+
+@[export monodrone_note_get_x]
+def noteGetX (n : @&Note) : UInt64 := n.loc.x.toUInt64
+
+@[export monodrone_note_get_y]
+def noteGetY (n : @&Note) : UInt64 := n.loc.y.toUInt64
 
 @[export monodrone_note_get_nsteps]
-def noteGetNsteps (n : @&Note) : UInt64 := n.nsteps.toUInt64
+def noteGetNsteps (n : @&Note) : UInt64 :=
+  n.nsteps.toUInt64
 
-@[export monodrone_ctx_cursor_a]
-def cursorGetA (ctx : @&RawContext): UInt64 :=
-  ctx.cursor.cur.a.val.toUInt64
-
-@[export monodrone_ctx_cursor_b]
-def cursorGetB (ctx : @&RawContext) : UInt64 :=
-  ctx.cursor.cur.b.val.toUInt64
-
-@[export monodrone_ctx_move_down_one]
-def RawContext.moveDownOne (ctx : @&RawContext) : RawContext :=
-  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownOne }
-
-@[export monodrone_ctx_move_up_one]
-def RawContext.moveUpOne (ctx : @&RawContext) : RawContext :=
-  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpOne }
-
-@[export monodrone_ctx_move_down_half_page]
-def RawContext.moveDownHalfPage (ctx : @&RawContext) : RawContext :=
-  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveDownHalfPage }
-
-@[export monodrone_ctx_move_up_half_page]
-def RawContext.moveUpHalfPage (ctx : @&RawContext) : RawContext :=
-  { ctx with cursor := ctx.cursor.modifyForgettingFuture Cursor.moveUpHalfPage }
-
-def RawContext.removeNote (ctx : @&RawContext) : RawContext :=
-  let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    t.removeNoteAtIx ctx.cursor.cur.b.val
-  { ctx with track := newTrack }
-
-def RawContext.addNoteOfPitch (ctx : @&RawContext) (pitch : Pitch): RawContext :=
-  let start := ctx.cursor.cur.b.val
-  let newt := ctx.track.modifyForgettingFuture fun t =>
-    let ⟨t', ht'⟩ := t.removeNoteAtIx start
-    t'.addNoteAtIx pitch ht'
-  { ctx with track := newt }
-
-@[export monodrone_ctx_add_note]
-def RawContext.addNote (ctx : @&RawContext) : RawContext :=
-  ctx.addNoteOfPitch ctx.lastPlacedPitch
-
-@[export monodrone_ctx_add_note_c]
-def RawContext.addNoteC (ctx : @&RawContext) : RawContext :=
-  ctx.addNoteOfPitch Pitch.middleC
-
-def Note.raiseSemitone (n : Note) : Note :=
-  { n with pitch := Pitch.raiseSemitone n.pitch }
-
-theorem Note.self_containsNote_raiseSemitone_self (n : Note) :
-    n.containsNote (Note.raiseSemitone n) := by
-  simp [Note.containsNote, Note.raiseSemitone, note_omega]
-
-@[export monodrone_ctx_raise_semitone]
-def RawContext.raiseSemitone (ctx : @&RawContext) : RawContext :=
-  let newTrack := ctx.track.modifyForgettingFuture fun t =>
-    match ht : t.getNoteAtIx ctx.cursor.cur.b.val with
-    | none => t.addNoteAtIx .middleC ht
-    | some n  => t.editNoteAtIx ht (Note.raiseSemitone n) (Note.self_containsNote_raiseSemitone_self n)
-  { ctx with track := newTrack }
-
-def Note.lowerSemitone (n : Note) : Note :=
-  { n with pitch := Pitch.lowerSemitone n.pitch }
-
-theorem Note.self_containsNote_lowerSemitone_self (n : Note) :
-    n.containsNote (Note.lowerSemitone n) := by
-  simp [Note.containsNote]
-  unfold Note.lowerSemitone
-  simp only [le_refl, true_and]
-  simp only [Note.lastPlayed, le_refl]
-
-@[export monodrone_ctx_lower_semitone]
-def RawContext.lowerSemitone (ctx : @&RawContext) : RawContext :=
-  let newTrack := ctx.track.modifyForgettingFuture fun t =>
-  match ht : t.getNoteAtIx ctx.cursor.cur.b.val with
-  | none => t.addNoteAtIx Pitch.middleC.lowerSemitone ht
-  | some n  => t.editNoteAtIx ht (Note.lowerSemitone n) (Note.self_containsNote_lowerSemitone_self n)
-  { ctx with track := newTrack  }
-
+/-# Undo Redo Action -/
 @[export monodrone_ctx_undo_action]
 def RawContext.undoAction (ctx : @&RawContext) : RawContext :=
   { ctx with track := ctx.track.prev }
@@ -613,6 +958,7 @@ def RawContext.undoAction (ctx : @&RawContext) : RawContext :=
 def RawContext.redoAction (ctx : @&RawContext) : RawContext :=
   { ctx with track := ctx.track.next }
 
+/-# Undo Redo Movement -/
 @[export monodrone_ctx_undo_movement]
 def RawContext.undoMovement (ctx : @&RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.prev }

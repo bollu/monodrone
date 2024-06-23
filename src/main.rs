@@ -2,12 +2,13 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 use std::borrow::BorrowMut;
+use std::error::Error;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref};
 use midi::Message::Start;
-use monodroneffi::Note;
+use monodroneffi::PlayerNote;
 use raylib::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
 use tinyaudio::prelude::*;
@@ -17,6 +18,10 @@ const GOLDEN_RATIO: f32 = 1.61803398875;
 use rustysynth::{MidiFile, MidiFileSequencer, SoundFont, Synthesizer, SynthesizerSettings};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing::{event, Level};
+use midir::{Ignore, MidiInput};
+use std::io::{stdin, stdout, Write};
+
+
 mod monodroneffi;
 
 use std::cmp;
@@ -62,7 +67,7 @@ impl Ord for NoteEvent {
 }
 
 /// Get the note events at a given time instant.
-fn track_get_note_events_at_time (track : &monodroneffi::Track, instant : u64) -> Vec<NoteEvent> {
+fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
     let mut note_events = Vec::new();
     for note in track.notes.iter() {
         if note.start == instant {
@@ -77,7 +82,7 @@ fn track_get_note_events_at_time (track : &monodroneffi::Track, instant : u64) -
 
 pub struct MidiSequencer {
     synthesizer: Synthesizer,
-    track : monodroneffi::Track,
+    track : monodroneffi::PlayerTrack,
     playing : bool,
     // start_instant : u64, // instant of time we started playing.
     // end_instant : u64,
@@ -96,7 +101,7 @@ impl MidiSequencer {
     pub fn new(synthesizer: Synthesizer) -> Self {
         Self {
             synthesizer,
-            track : monodroneffi::Track::new(),
+            track : monodroneffi::PlayerTrack::new(),
             playing: false,
             cur_instant: 0,
             last_rendered_instant: 0,
@@ -106,7 +111,7 @@ impl MidiSequencer {
         }
     }
 
-    pub fn set_track(&mut self, track : monodroneffi::Track) {
+    pub fn set_track(&mut self, track : monodroneffi::PlayerTrack) {
         assert! (!self.playing); // we cannot change the track while playing.
         self.track = track;
     }
@@ -129,7 +134,7 @@ impl MidiSequencer {
         if (!self.playing) {
             left.fill(0f32);
             right.fill(0f32);
-            event!(Level::INFO, "-> done [!playing]");
+            // event!(Level::INFO, "-> done [!playing]");
             return;
         }
 
@@ -188,7 +193,7 @@ impl MidiSequencerIO {
         let device : Box <dyn BaseAudioOutputDevice> = run_output_device(params, {
             let sequencer = sequencer.clone();
             move |data| {
-                event!(Level::INFO, "running audio device");
+                // event!(Level::INFO, "running audio device");
                 sequencer.lock().as_mut().unwrap().process_and_render(&mut left[..], &mut right[..]);
 
                 for i in 0..data.len() {
@@ -220,13 +225,15 @@ impl MidiSequencerIO {
         seq_changer.last_rendered_instant = 0;
     }
 
-    fn set_track(&mut self, track : monodroneffi::Track) {
+    fn set_track(&mut self, track : monodroneffi::PlayerTrack) {
         self.sequencer.lock().as_mut().unwrap().track = track;
     }
 
 }
 
-fn main() {
+
+
+fn mainLoop() {
     tracing_subscriber::fmt().init();
     let _ = tracing::subscriber::set_global_default(
         tracing_subscriber::registry()
@@ -251,11 +258,11 @@ fn main() {
 
     event!(Level::INFO, "creating context");
     let mut monodrone_ctx = monodroneffi::new_context();
-    monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
-    monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
-    event!(Level::INFO, "ctx: {:p}", monodrone_ctx);
-    let track = monodroneffi::get_track(monodrone_ctx);
+
+    let mut track = monodroneffi::UITrack::from_lean(monodrone_ctx);
     event!(Level::INFO, "track: {:?}", track);
+    let mut selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+    event!(Level::INFO, "selection: {:?}", selection);
 
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
@@ -283,51 +290,161 @@ fn main() {
         .build();
 
     while !rl.window_should_close() {
-
         // Step 2: Get stuff to render
-        let track = monodroneffi::get_track(monodrone_ctx);
-        let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
-        println!("cursor_b: {}", cursor_b);
+        if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
+            track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+        }
+
+        if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
+            selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+        }
+
+
+        // let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
+        // println!("cursor_b: {}", cursor_b);
 
         // Step 1: Handle events
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            sequencer_io.set_track(track.clone());
+            sequencer_io.set_track(track.to_player_track().clone());
             sequencer_io.restart();
         } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::lower_semitone(monodrone_ctx);
+                monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
             } else {
-                monodrone_ctx = monodroneffi::move_down_one(monodrone_ctx);
+                monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
             }
         } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::raise_semitone(monodrone_ctx);
+                monodrone_ctx = monodroneffi::select_anchor_move_up_one(monodrone_ctx);
             } else {
-                monodrone_ctx = monodroneffi::move_up_one(monodrone_ctx);
+                monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
             }
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_H)) {
+            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+                monodrone_ctx = monodroneffi::select_anchor_move_left_one(monodrone_ctx);
+            } else {
+                monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
+            }
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_L)) {
+            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+                monodrone_ctx = monodroneffi::select_anchor_move_right_one(monodrone_ctx);
+            } else {
+                monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
+            }
+
         }
 
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
 
         d.clear_background(Color::new(50, 50, 60, 255));
+
+        let BOX_HEIGHT = 40;
+        let BOX_WIDTH = 40;
+        let BOX_WIDTH_PADDING_LEFT = 5;
+        let BOX_WIDTH_PADDING_RIGHT = 5;
+        let BOX_HEIGHT_PADDING_TOP = 5;
+        let BOX_HEIGHT_PADDING_BOTTOM = 5;
+        let BOX_DESLECTED_COLOR = Color::new(100, 100, 100, 255);
+        let BOX_SELECTED_COLOR = Color::new(180, 180, 180, 255);
+        let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
         // draw tracker.
-        for y in 0..100 {
-            let h = 1;
-            d.draw_rectangle(4, 44 * y, 100, 40 * h, Color::GRAY);
+        for x in 0..8 {
+            for y in 0..100 {
+                let draw_x = x * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
+                    BOX_WIDTH_PADDING_LEFT;
+                let draw_y = y * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) +
+                    BOX_HEIGHT_PADDING_TOP;
+                let mut draw_color =
+                if (selection.is_cursored(x, y)) {
+                    BOX_CURSORED_COLOR
+                }
+                else if (selection.is_selected(x, y)) {
+                    BOX_SELECTED_COLOR
+                }
+                else {
+                    BOX_DESLECTED_COLOR
+                };
+                d.draw_rectangle(draw_x as i32,
+                    draw_y as i32,
+                    BOX_WIDTH as i32,
+                    BOX_HEIGHT as i32, draw_color);
 
-            if cursor_b == y as u64 {
-                d.draw_rectangle(4, 44 * y, 8, 40 * h, Color::new(255, 166, 47, 255));
             }
-
         }
 
-        for (i, note) in track.notes.iter().enumerate() {
-            let y = note.start as i32;
-            let h = note.nsteps as i32;
-            let pitch = note.pitch as i32;
-            println!("pitch: {pitch}");
-            d.draw_text(&format!(" {}", pitch), 10, 10 + 44 * y, 22, Color::new(202, 244, 255, 255));
-        }
+        // for (i, note) in track.notes.iter().enumerate() {
+        //     let y = note.start as i32;
+        //     let h = note.nsteps as i32;
+        //     let pitch = note.pitch as i32;
+        //     println!("pitch: {pitch}");
+        //     d.draw_text(&format!(" {}", pitch), 10, 10 + 44 * y, 22, Color::new(202, 244, 255, 255));
+        // }
     }
+}
+
+fn testMidiInOpZ() -> Result<(), Box<dyn Error>> {
+    let mut input = String::new();
+
+    let mut midi_in = MidiInput::new("midir reading input")?;
+    midi_in.ignore(Ignore::None);
+
+    // Get an input port (read from console if multiple are available)
+    let in_ports = midi_in.ports();
+    let in_port = match in_ports.len() {
+        0 => return Err("no input port found".into()),
+        1 => {
+            println!(
+                "Choosing the only available input port: {}",
+                midi_in.port_name(&in_ports[0]).unwrap()
+            );
+            &in_ports[0]
+        }
+        _ => {
+            println!("\nAvailable input ports:");
+            for (i, p) in in_ports.iter().enumerate() {
+                println!("{}: {}", i, midi_in.port_name(p).unwrap());
+            }
+            print!("Please select input port: ");
+            stdout().flush()?;
+            let mut input = String::new();
+            stdin().read_line(&mut input)?;
+            in_ports
+                .get(input.trim().parse::<usize>()?)
+                .ok_or("invalid input port selected")?
+        }
+    };
+
+    println!("\nOpening connection");
+    let in_port_name = midi_in.port_name(in_port)?;
+
+    // _conn_in needs to be a named parameter, because it needs to be kept alive until the end of the scope
+    let _conn_in = midi_in.connect(
+        in_port,
+        "midir-read-input",
+        move |stamp, message, _| {
+            println!("{}: {:?} (len = {})", stamp, message, message.len());
+        },
+        (),
+    )?;
+
+    println!(
+        "Connection open, reading input from '{}' (press enter to exit) ...",
+        in_port_name
+    );
+
+    input.clear();
+    stdin().read_line(&mut input)?; // wait for next enter key press
+
+    println!("Closing connection");
+    Ok(())
+}
+
+
+fn main() {
+    // match testMidiInOpZ() {
+    //     Ok(_) => (),
+    //     Err(err) => println!("Error: {}", err),
+    // };
+    mainLoop();
 }
