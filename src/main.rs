@@ -24,7 +24,7 @@ use std::io::{stdin, stdout, Write};
 
 mod monodroneffi;
 
-use std::cmp;
+use std::cmp::{self, max};
 
 // TODO: read midi
 
@@ -68,7 +68,7 @@ impl Ord for NoteEvent {
 
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
-    let TIME_STRETCH_FACTOR = 5;
+    let TIME_STRETCH_FACTOR = 3;
     let mut note_events = Vec::new();
     for note in track.notes.iter() {
         if note.start * TIME_STRETCH_FACTOR == instant {
@@ -174,6 +174,37 @@ impl MidiSequencer {
     }
 
 }
+
+struct Debouncer {
+    time_to_next_event : f32,
+    debounce_time_sec : f32,
+}
+
+impl Debouncer {
+    fn new(debounce_time_sec : f32) -> Self {
+        Self {
+            time_to_next_event : 0.0,
+            debounce_time_sec
+        }
+    }
+
+    fn add_time_elapsed(&mut self, time_elapsed : f32) {
+        self.time_to_next_event += time_elapsed;
+    }
+
+    fn debounce(&mut self, val : bool) -> bool {
+        let out = val && (self.time_to_next_event > self.debounce_time_sec);
+        if (out) {
+            self.time_to_next_event = 0.0;
+        }
+        return out
+
+    }
+
+}
+
+
+
 
 /// Module that performs the IO for the midi sequencer inside it.
 /// Furthermore, it allows the track for the MIDI sequencer to be changed,
@@ -290,7 +321,15 @@ fn mainLoop() {
         .title("Hello, World")
         .build();
 
+    let TARGET_FPS = 60;
+    rl.set_target_fps(TARGET_FPS);
+
+    let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
     while !rl.window_should_close() {
+        let time_elapsed = rl.get_frame_time();
+        debounceMovement.add_time_elapsed(time_elapsed);
+
+        println!("time elapsed: {}", time_elapsed);
         // Step 2: Get stuff to render
         if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
             track = monodroneffi::UITrack::from_lean(monodrone_ctx);
@@ -306,29 +345,28 @@ fn mainLoop() {
         // let cursor_b = monodroneffi::get_cursor_b(monodrone_ctx);
         // println!("cursor_b: {}", cursor_b);
 
-        // Step 1: Handle events
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             sequencer_io.set_track(track.to_player_track().clone());
             sequencer_io.restart();
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_J)) {
-            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
+        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
+            if ( rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
             }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_K)) {
+        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_up_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
             }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_H)) {
+        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_H))) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_left_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
             }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_L)) {
+        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_L))) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_right_one(monodrone_ctx);
             } else {
@@ -375,6 +413,8 @@ fn mainLoop() {
         let BOX_DESLECTED_COLOR = Color::new(100, 100, 100, 255);
         let BOX_SELECTED_COLOR = Color::new(180, 180, 180, 255);
         let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
+        let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
+        let TEXT_COLLOR_FOLLOWING = Color::new(120, 120, 120, 255);
         // draw tracker.
         for x in 0..8 {
             for y in 0..100 {
@@ -399,8 +439,14 @@ fn mainLoop() {
 
                 match track.get_note_from_coord(x, y) {
                     Some(note) => {
-                        d.draw_text(&format!("{}", note.to_str()), draw_x as i32 + 5, draw_y as i32 + 5, 20,
-                            Color::new(0, 0, 0, 255));
+                        let text_color = if (note.x == x && note.y == y) {
+                            TEXT_COLOR_LEADING
+                        } else {
+                            TEXT_COLLOR_FOLLOWING
+                        };
+                        d.draw_text(&format!("{}", note.to_str()),
+                                draw_x as i32 + 5, draw_y as i32 + 5, 20,
+                                text_color);
                     },
                     None => ()
                 }

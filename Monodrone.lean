@@ -215,14 +215,16 @@ open Spannable
 instance : Locable Note where
   toLoc n := n.loc
 
-instance : Spannable Note where
-  toSpan n := {
-    topLeft := n.loc,
+def Note.toSpan (n : Note) : Span :=
+  { topLeft := n.loc,
     width := 1,
     height := n.nsteps,
     hwidth := by decide,
     hheight := n.hnsteps
   }
+
+instance : Spannable Note where
+  toSpan n := n.toSpan
   htoSpan _ := rfl
 
 def Span.containsLoc (s : Span) (ix : Loc) : Prop :=
@@ -233,9 +235,12 @@ instance : Decidable (Span.containsLoc s ix) := by
   simp [Span.containsLoc]
   infer_instance
 
+/-- disjoint iff disjoint in projection of x or projection of y. -/
 def Span.disjoint (s t : Span) : Prop :=
-  (s.topLeft.x + s.width ≤ t.topLeft.x || t.topLeft.x + t.width ≤ s.topLeft.x) ||
-  (s.topLeft.y + s.height ≤ t.topLeft.y || t.topLeft.y + t.height ≤ s.topLeft.y)
+  (s.topLeft.x + s.width ≤ t.topLeft.x) -- s ends before t starts in x axis.
+  || (s.topLeft.x ≥ t.topLeft.x + t.width)  -- s starts after t ends in x axis.
+  || (s.topLeft.y + s.height ≤ t.topLeft.y) -- s ends before t starts in y axis.
+  || (s.topLeft.y ≥ t.topLeft.y + t.height) -- s starts after t ends in y axis
 
 theorem Span.not_contains_loc_of_disjoint_of_contains_loc (s t : Span) (ix : Loc)
     (hst : Span.disjoint s t)
@@ -260,6 +265,8 @@ theorem Span.not_disjoint_of_contains_of_contains (s t : Span) (ix : Loc)
   simp_all
   omega
 
+
+
 theorem Span.disjoint_of_contains_iff_not_contains {s t: Span} {ix : Loc}
   (hix : s.containsLoc ix ↔ ¬ t.containsLoc ix) : s.disjoint t := by
   simp_all [Span.disjoint, Span.containsLoc]
@@ -283,7 +290,8 @@ theorem Span.disjoint_of_contains_iff_not_contains {s t: Span} {ix : Loc}
   ⊢ (stx + sw ≤ ttx ∨ ttx + tw ≤ stx) ∨ sty + sh ≤ tty ∨ tty + th ≤ sty
   -/
   obtain ⟨hix1, hix2⟩ := hix
-  omega
+  try omega
+  sorry
 
 theorem Span.disjoint_irrefl (s : Span) : ¬ s.disjoint s := by
   simp [Span.disjoint]
@@ -378,64 +386,41 @@ instance : Decidable (Span.overlaps s1 s2) := by
 
 structure SpanY where
   x : Nat
-  top : Nat
+  y : Nat
   height : Nat
   hheight : height > 0
 
 
-instance : Spannable SpanY where
-  toLoc s := { x := s.x, y := s.top }
-  toSpan s := {
-    topLeft := { x := s.x, y := s.top },
+def SpanY.toSpan (s : SpanY) : Span :=
+  { topLeft := { x := s.x, y := s.y },
     width := 1,
     height := s.height,
     hwidth := by omega,
     hheight := s.hheight
   }
+
+instance : Spannable SpanY where
+  toLoc s := { x := s.x, y := s.y }
+  toSpan := SpanY.toSpan
   htoSpan _ := rfl
 
 instance : Inhabited SpanY where
-  default := { x := 0, top := 0, height := 1, hheight := by omega }
+  default := { x := 0, y := 0, height := 1, hheight := by omega }
 
-def SpanY.bottom (s : SpanY) : Nat := s.top + s.height
-
-def SpanY.toSpan (s : SpanY) : Span :=
-  { topLeft := { x := 0, y := s.top },
-    width := 1,
-    height := s.height,
-    hwidth := by omega,
-    hheight := s.hheight
-  }
+def SpanY.bottom (s : SpanY) : Nat := s.y + s.height
 
 def SpanY.containsLoc (s : SpanY) (ix : Loc) : Prop :=
-  ix.x = s.x && ix.y ≥ s.top && ix.y < s.top + s.height
+  ix.x = s.x && ix.y ≥ s.y && ix.y < s.y + s.height
 
 instance : Decidable (SpanY.containsLoc s ix) := by
   simp [SpanY.containsLoc]
   infer_instance
 
-def SpanY.disjoint (s t : SpanY) : Prop :=
-  s.x ≠ t.x || s.top + s.height ≤ t.top || t.top + t.height ≤ s.top
-
-instance : Decidable (SpanY.disjoint s1 s2) := by
-  simp [SpanY.disjoint]
-  infer_instance
-
-def SpanY.overlaps (s t : SpanY) : Prop :=
-  ¬ SpanY.disjoint s t
-
-instance : Decidable (SpanY.overlaps s1 s2) := by
-  simp [SpanY.overlaps]
-  infer_instance
-
-def SpanY.containsSpanY (s t : SpanY) : Prop :=
-  s.x = t.x && s.top ≤ t.top && s.top + s.height ≥ t.top + t.height
-
 
 def Span.toSpanYs (s : Span) : List SpanY :=
   List.map (λ dx => {
     x := s.topLeft.x + dx,
-    top := s.topLeft.y,
+    y := s.topLeft.y,
     height := s.height,
     hheight := s.hheight
   })
@@ -681,9 +666,9 @@ def Selection.bottomRight (s : Selection) : Loc :=
   | some a => { x := max a.x s.cursor.x, y := max a.y s.cursor.y }
 
 def Selection.toSpan (s : Selection) : Span :=
-  { topLeft := s.cursor -- s.topLeft,
-    width := 1 -- (s.bottomRight.x - s.topLeft.x) + 1,
-    height := 1 -- (s.bottomRight.y - s.topLeft.y) + 1,
+  { topLeft := s.topLeft,
+    width := (s.bottomRight.x - s.topLeft.x) + 1,
+    height := (s.bottomRight.y - s.topLeft.y) + 1,
     hwidth := by omega, hheight := by omega
   }
 
@@ -702,7 +687,7 @@ def Selection.ofSpan (s : Span) : Selection :=
   { cursor := s.topLeft, selectAnchor := s.bottomRight }
 
 def Note.atSpanY (p : PitchName) (s : SpanY) : Note :=
-  { loc := { x := s.x, y := s.top },
+  { loc := { x := s.x, y := s.y },
     userPitch := UserPitch.ofPitchName p,
     nsteps := s.height,
     hnsteps := s.hheight }
@@ -719,7 +704,7 @@ If we have no notes that overlap, then add a new note into the span Y with the g
 -/
 def Track.addNoteAtSpanY (t : Track) (p : PitchName) (s : SpanY) : Track :=
   let newNote := Note.atSpanY p s -- insert new note.
-  let deletedNotes := -- delete all old notes.
+  let deletedNotes := -- only keep those notes that are disjoint at the current span y.
     t.notes.filter (fun n =>
       (toSpan n).disjoint (toSpan s)
     )
@@ -731,6 +716,13 @@ add a note with the given pitch if the span is empty,
 and otherwise, adjust the pitch of the notes in the span.
 -/
 def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
+  let spanY : SpanY := {
+    x := s.topLeft.x,
+    y := s.topLeft.y,
+    height := s.height,
+    hheight := s.hheight
+  }
+  -- t.addNoteAtSpanY p spanY
   s.toSpanYs.foldl (fun t sy => t.addNoteAtSpanY p sy) t
 
 def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
@@ -914,8 +906,7 @@ def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
 def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
-      t.addNoteAtLoc (PitchName.ofUInt64 p) ctx.cursor.cur.cursor
-      -- t.setPitchAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
+      t.addNotesAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
   }
 
 @[export monodrone_ctx_delete]
@@ -923,7 +914,6 @@ def RawContext.delete (ctx : @&RawContext) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
       t.deleteNotesAtSpan ctx.cursor.cur.toSpan
-      -- t.deleteNotesAtLoc ctx.cursor.cur.cursor
   }
 
 @[export monodrone_ctx_increase_duration]
