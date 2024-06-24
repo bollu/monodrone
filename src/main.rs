@@ -107,7 +107,7 @@ pub struct MidiSequencer {
     playing : bool,
     start_instant : u64,
     end_instant : u64,
-    cur_instant : u64, // current instant of time, as we last heard.
+    cur_instant : f32, // current instant of time, as we last heard.
     last_rendered_instant : u64, // instant of time we last rendered.
     looping : bool,
     num_instants_wait_before_loop : u64,
@@ -125,7 +125,7 @@ impl MidiSequencer {
             synthesizer,
             track : monodroneffi::PlayerTrack::new(),
             playing: false,
-            cur_instant: 0,
+            cur_instant: 0.0,
             start_instant: 0,
             last_rendered_instant: 0,
             looping : false,
@@ -143,13 +143,13 @@ impl MidiSequencer {
     pub fn stop(&mut self) {
         self.synthesizer.reset();
         self.playing = false;
-        self.cur_instant = 0;
+        self.cur_instant = 0.0;
         self.last_rendered_instant = 0;
     }
 
     pub fn start(&mut self, start_instant : u64, end_instant : u64, looping : bool) {
         self.playing = true;
-        self.cur_instant = start_instant;
+        self.cur_instant = start_instant as f32;
         self.start_instant = start_instant;
         self.end_instant = end_instant;
         self.looping = looping;
@@ -159,7 +159,8 @@ impl MidiSequencer {
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
         // TODO: do this based on time elapsed. This seems to be called
         // per "instant" that a new note needs to be played, as per
-        let new_instant = self.cur_instant + 1;
+        let INSTANT_DELTA = 0.5;
+        let new_instant = self.cur_instant + INSTANT_DELTA;
         event!(Level::INFO, "process_and_render cur({}) -> new({}) |
              last rendered({}) | end({}) is_playing({}) | looping ({})",
         self.cur_instant, new_instant, self.last_rendered_instant,
@@ -170,25 +171,26 @@ impl MidiSequencer {
 
         if (!self.playing) { return; }
 
-        if self.cur_instant == self.end_instant {
+        if self.cur_instant >= self.end_instant as f32 {
             if !self.looping {  self.playing = false; return; }
             let NUM_INSTANTS_WAIT_BEFORE_LOOP = 2;
             self.num_instants_wait_before_loop += 1;
             if self.num_instants_wait_before_loop >= NUM_INSTANTS_WAIT_BEFORE_LOOP {
-                self.cur_instant = self.start_instant;
+                self.cur_instant = self.start_instant as f32;
                 self.last_rendered_instant = self.start_instant;
                 self.playing = true;
                 self.num_instants_wait_before_loop = 0;
             }
         } else {
-            assert!(self.last_rendered_instant <= self.cur_instant);
+            assert!(self.last_rendered_instant <= self.cur_instant as u64);
             assert!(self.cur_instant <= new_instant);
             self.cur_instant = new_instant;
 
             assert!(left.len() == right.len());
             assert!(left.len() >= self.synthesizer.get_block_size()); // we have enough space to render at least one block.
 
-            while(self.last_rendered_instant < new_instant) {
+
+            while new_instant - self.last_rendered_instant as f32 >= 1.0 {
                 let note_events = track_get_note_events_at_time(&self.track, self.last_rendered_instant);
                 for note_event in note_events.iter() {
                     event!(Level::INFO, "note_event: {:?}", note_event);
