@@ -68,7 +68,6 @@ impl Ord for NoteEvent {
     }
 }
 
-const AUDIO_TIME_STRETCH_FACTOR : u64 = 1;
 
 /// Get the note events at a given time instant.
 fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : u64) -> Vec<NoteEvent> {
@@ -82,7 +81,7 @@ fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : 
     // Otherwise, we hear a jarring of a note being "stacattod" where we
     // turn it off and on in the same instant.
     for note in track.notes.iter() {
-        if (note.start + note.nsteps) * AUDIO_TIME_STRETCH_FACTOR  == instant {
+        if (note.start + note.nsteps)  == instant {
             let off_event = NoteEvent::NoteOff { pitch : note.pitch as u8, instant : instant as u64 };
             match ix2pitches.get(&(note.start+note.nsteps)) {
                 Some(next_notes) => {
@@ -95,7 +94,7 @@ fn track_get_note_events_at_time (track : &monodroneffi::PlayerTrack, instant : 
                 }
             }
         }
-        if note.start * AUDIO_TIME_STRETCH_FACTOR == instant {
+        if note.start == instant {
             note_events.push(NoteEvent::NoteOn { pitch : note.pitch as u8, instant : instant as u64 });
         }
     }
@@ -448,8 +447,8 @@ fn mainLoop() {
                 } else {
                     track.get_last_instant() as u64
                 };
-                sequencer_io.restart(start_instant * AUDIO_TIME_STRETCH_FACTOR,
-                    (end_instant + 1) * AUDIO_TIME_STRETCH_FACTOR,
+                sequencer_io.restart(start_instant,
+                    (end_instant + 1),
                     is_looping);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
@@ -546,7 +545,7 @@ fn mainLoop() {
         {
             let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
             let now_playing_box_y =
-                ((cur_instant as i32 - 1) / AUDIO_TIME_STRETCH_FACTOR as i32);
+                ((cur_instant as i32 - 1) as i32);
 
             nowPlayingYEaser.set(
                 (BOX_WINDOW_CORNER_PADDING_TOP +
