@@ -7,8 +7,9 @@ use std::error::Error;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
+use egui::epaint::text::cursor;
 use egui::Key;
-use ffi::GetScreenHeight;
+use ffi::{GetScreenHeight, GetScreenWidth};
 use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref};
 use midi::Message::Start;
 use monodroneffi::PlayerNote;
@@ -274,6 +275,45 @@ impl Easer {
 }
 
 
+struct Easer2d {
+    pub target_x : f32,
+    pub target_y : f32,
+    pub cur_x : f32,
+    pub cur_y : f32,
+    pub damping : f32
+}
+
+impl Easer2d {
+    fn new(x : f32, y : f32) -> Easer2d {
+        Easer2d {
+            target_x : x,
+            target_y : y,
+            cur_x : x,
+            cur_y : y,
+            damping : 0.2
+        }
+    }
+
+    fn get (&self) -> (f32, f32) {
+        (self.cur_x, self.cur_y)
+    }
+
+    fn set (&mut self, x : f32, y : f32) {
+        self.target_x = x;
+        self.target_y = y;
+    }
+
+    fn set_y(&mut self, y : f32) {
+        self.target_y = y;
+    }
+
+    fn step(&mut self, dt : f32) {
+        self.cur_x = self.cur_x + ((self.target_x - self.cur_x) * self.damping);
+        self.cur_y = self.cur_y + ((self.target_y - self.cur_y) * self.damping);
+    }
+}
+
+
 
 
 /// Module that performs the IO for the midi sequencer inside it.
@@ -405,8 +445,10 @@ fn mainLoop() {
 
 
     event!(Level::INFO, "Starting up");
+    let SCREEN_WIDTH = unsafe {GetScreenWidth()};
+    let SCREEN_HEIGHT = unsafe {GetScreenHeight()};
     let (mut rl, thread) = raylib::init()
-        .size(1280, 720)
+        .size(SCREEN_WIDTH, SCREEN_HEIGHT)
         .title("monodrone")
         .build();
 
@@ -420,6 +462,8 @@ fn mainLoop() {
 
     let mut cameraYEaser = Easer::new(0.0);
     let mut nowPlayingYEaser = Easer::new(0.0);
+    let mut cursorEaser = Easer2d::new(0.0, 0.0);
+    let mut selectAnchorEaser = Easer2d::new(0.0, 0.0);
     nowPlayingYEaser.damping = 0.5;
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
@@ -540,8 +584,8 @@ fn mainLoop() {
         // Step 3: Render
         let mut d = rl.begin_drawing(&thread);
 
-        d.clear_background(Color::new(50, 50, 60, 255));
-
+        d.clear_background(Color::new(33, 33, 33, 255));
+        // d.clear_background(Color::new(38, 50, 56, 255));
         let BOX_HEIGHT = 40;
         let BOX_WIDTH = 40;
         let BOX_WIDTH_PADDING_LEFT = 5;
@@ -552,15 +596,14 @@ fn mainLoop() {
         let BOX_NOW_PLAYING_SUGAR_WIDTH = 5;
 
         let BOX_HEIGHT_PADDING_BOTTOM = 5;
-        let BOX_DESLECTED_COLOR = Color::new(100, 100, 100, 255);
-        let BOX_SELECTED_COLOR = Color::new(180, 180, 180, 255);
+        let BOX_DESLECTED_COLOR = Color::new(66, 66, 66, 255);
+        let BOX_SELECTED_BACKGROUND_COLOR = Color::new(255, 0, 100, 255);
         let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
         let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
-        let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
-        let TEXT_COLLOR_FOLLOWING = Color::new(150, 150, 150, 255);
-        let PLAYBACK_SPEED_TEXT_COLOR = Color::new(165, 214, 167, 255);
+        let TEXT_COLOR_LEADING = Color::new(207, 216, 220, 255);
+        let TEXT_COLLOR_FOLLOWING = Color::new(99, 99, 99, 255);
+        let PLAYBACK_SPEED_TEXT_COLOR = Color::new(97, 97, 97, 255);
 
-        let PLAYBACK_SPEED_INFO_X = unsafe { GetScreenHeight() } as i32 - 100;
         let PLAYBACK_SPEED_INFO_Y = BOX_WINDOW_CORNER_PADDING_TOP;
 
 
@@ -569,6 +612,15 @@ fn mainLoop() {
             (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)) -
             SCREEN_HEIGHT as f32 * 0.5).max(0.0));
         cameraYEaser.step(time_elapsed);
+
+        cursorEaser.set(selection.cursor_x as f32, selection.cursor_y as f32);
+        cursorEaser.damping = 0.3;
+        cursorEaser.step(time_elapsed);
+
+        selectAnchorEaser.set(selection.anchor_x as f32, selection.anchor_y as f32);
+        selectAnchorEaser.damping = 0.2;
+        selectAnchorEaser.step(time_elapsed);
+
         // draw tracker.
         {
             let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
@@ -583,28 +635,76 @@ fn mainLoop() {
             nowPlayingYEaser.step(time_elapsed);
 
         }
+
+
+        let logical_x_to_draw_x = |ix : f32| -> i32 {
+            BOX_WINDOW_CORNER_PADDING_LEFT +
+            (ix * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) as f32) as i32 +
+            BOX_WIDTH_PADDING_LEFT
+        };
+
+        let logical_y_to_draw_y = |iy : f32| -> i32 {
+            BOX_WINDOW_CORNER_PADDING_TOP +
+            (iy * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32) as i32
+            + BOX_HEIGHT_PADDING_TOP - cameraYEaser.get() as i32
+        };
+
+        let logical_width_to_draw_width = |width : f32| -> i32 {
+            (width * (BOX_WIDTH) as f32 +
+            (width - 1.0) * (BOX_WIDTH_PADDING_LEFT as f32 + BOX_WIDTH_PADDING_RIGHT as f32)) as i32
+        };
+
+        let logical_height_to_draw_height = |height : f32| -> i32 {
+            (height * (BOX_HEIGHT) as f32 +
+            (height - 1.0) * (BOX_HEIGHT_PADDING_TOP as f32 + BOX_HEIGHT_PADDING_BOTTOM as f32)) as i32
+        };
+
+        let cursor_draw_x = logical_x_to_draw_x(cursorEaser.get().0);
+        let cursor_draw_y = logical_y_to_draw_y(cursorEaser.get().1);
+
+        let select_anchor_draw_x = logical_x_to_draw_x(selectAnchorEaser.get().0);
+        let select_anchor_draw_y = logical_y_to_draw_y(selectAnchorEaser.get().1);
+
+
+        let top_left_draw_x = cursor_draw_x.min(select_anchor_draw_x);
+        let top_left_draw_y = cursor_draw_y.min(select_anchor_draw_y);
+        let bottom_right_draw_x = cursor_draw_x.max(select_anchor_draw_x);
+        let bottom_right_draw_y = cursor_draw_y.max(select_anchor_draw_y);
+
         for x in 0u64..8 {
             for y in 0u64..100 {
-                let draw_x = BOX_WINDOW_CORNER_PADDING_LEFT +
-                    x as i32 * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) +
-                    BOX_WIDTH_PADDING_LEFT;
-                let draw_y = BOX_WINDOW_CORNER_PADDING_TOP +
-                    y as i32 * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) +
-                    BOX_HEIGHT_PADDING_TOP - cameraYEaser.get() as i32;
-                let mut draw_color =
-                if (selection.is_cursored(x, y)) {
-                    BOX_CURSORED_COLOR
-                }
-                else if (selection.is_selected(x, y)) {
-                    BOX_SELECTED_COLOR
-                }
-                else {
-                    BOX_DESLECTED_COLOR
-                };
+                let draw_x = logical_x_to_draw_x(x as f32);
+                let draw_y = logical_y_to_draw_y(y as f32);
+                let draw_color =
+                    if top_left_draw_x <= draw_x && (draw_x - bottom_right_draw_x) <= BOX_WIDTH / 3 &&
+                        top_left_draw_y <= draw_y && (draw_y - bottom_right_draw_y) <= BOX_HEIGHT / 3 {
+                        BOX_SELECTED_BACKGROUND_COLOR
+                    } else {
+                        BOX_DESLECTED_COLOR
+                    };
+
                 d.draw_rectangle(draw_x as i32,
                     draw_y as i32,
                     BOX_WIDTH as i32,
                     BOX_HEIGHT as i32, draw_color);
+            }
+        }
+        d.draw_rectangle(select_anchor_draw_x as i32,
+            select_anchor_draw_y as i32,
+            BOX_WIDTH as i32,
+            BOX_HEIGHT as i32,
+            BOX_SELECTED_BACKGROUND_COLOR);
+
+
+
+        d.draw_rectangle(cursor_draw_x, cursor_draw_y,
+            BOX_WIDTH as i32,
+            BOX_HEIGHT as i32, BOX_CURSORED_COLOR);
+
+        for x in 0u64..8 {
+            for y in 0u64..100 {
+                let draw_x = logical_x_to_draw_x(x as f32);
+                let draw_y = logical_y_to_draw_y(y as f32);
 
                 match track.get_note_from_coord(x, y) {
                     Some(note) => {
@@ -622,14 +722,17 @@ fn mainLoop() {
             }
         }
 
+
         d.draw_rectangle(0 as i32,
             (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
             BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
             BOX_HEIGHT as i32, BOX_NOW_PLAYING_COLOR);
 
-        d.draw_text(&format!("Playback Speed: {:.1}", sequencer_io.get_playback_speed()),
-            PLAYBACK_SPEED_INFO_X, PLAYBACK_SPEED_INFO_Y, 20, PLAYBACK_SPEED_TEXT_COLOR);
-
+        {
+            let text = format!("Playback Speed: {:.1}", sequencer_io.get_playback_speed());
+            let width = d.measure_text(text.as_str(), 20);
+            d.draw_text(&text, d.get_screen_width() as i32 - width as i32 - 20, PLAYBACK_SPEED_INFO_Y, 20, PLAYBACK_SPEED_TEXT_COLOR);
+        }
 
     }
 }
