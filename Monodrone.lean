@@ -722,7 +722,7 @@ def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
 def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
   let modifiedNotes :=
     t.notes.foldl (fun ns n =>
-      if s.containsSpan (toSpan n)
+      if s.overlaps (toSpan n)
       then
         match f n with
         | none => ns

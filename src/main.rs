@@ -140,10 +140,6 @@ impl MidiSequencer {
         self.track = track;
     }
 
-    pub fn toggle_is_playing(&mut self) {
-        self.playing = !self.playing;
-    }
-
     /// Stops playing. Keep current location.
     pub fn stop(&mut self) {
         self.synthesizer.reset();
@@ -171,62 +167,45 @@ impl MidiSequencer {
         self.end_instant, self.playing, self.looping);
 
 
-        if !self.playing {
-            left.fill(0f32);
-            right.fill(0f32);
+        self.synthesizer.render(&mut left[0..], &mut right[0..]);
 
-            if self.looping {
-                println!("looping");
-                let NUM_INSTANTS_WAIT_BEFORE_LOOP = 2;
-                self.num_instants_wait_before_loop += 1;
-                if self.num_instants_wait_before_loop >= NUM_INSTANTS_WAIT_BEFORE_LOOP {
-                    self.cur_instant = self.start_instant;
-                    self.last_rendered_instant = self.start_instant;
-                    self.playing = true;
-                    self.num_instants_wait_before_loop = 0;
-                }
+        if (!self.playing) { return; }
+
+        if self.cur_instant == self.end_instant {
+            if !self.looping {  self.playing = false; return; }
+            let NUM_INSTANTS_WAIT_BEFORE_LOOP = 2;
+            self.num_instants_wait_before_loop += 1;
+            if self.num_instants_wait_before_loop >= NUM_INSTANTS_WAIT_BEFORE_LOOP {
+                self.cur_instant = self.start_instant;
+                self.last_rendered_instant = self.start_instant;
+                self.playing = true;
+                self.num_instants_wait_before_loop = 0;
             }
-            return;
-        }
-        assert!(self.last_rendered_instant <= self.cur_instant);
-        assert!(self.cur_instant <= new_instant);
-        self.cur_instant = new_instant;
+        } else {
+            assert!(self.last_rendered_instant <= self.cur_instant);
+            assert!(self.cur_instant <= new_instant);
+            self.cur_instant = new_instant;
 
-        assert!(left.len() == right.len());
-        assert!(left.len() >= self.synthesizer.get_block_size()); // we have enough space to render at least one block.
+            assert!(left.len() == right.len());
+            assert!(left.len() >= self.synthesizer.get_block_size()); // we have enough space to render at least one block.
 
-        let mut nwritten : usize = 0;
-        while(self.last_rendered_instant < new_instant &&
-            // we have space enough for another block.
-            self.synthesizer.get_block_size() + nwritten < left.len()) {
-
-            let note_events = track_get_note_events_at_time(&self.track, self.last_rendered_instant);
-            for note_event in note_events.iter() {
-                event!(Level::INFO, "note_event: {:?}", note_event);
-                match note_event {
-                    NoteEvent::NoteOn { pitch, .. } => {
-                        self.synthesizer.note_on(0, *pitch as i32, 100);
-                    },
-                    NoteEvent::NoteOff { pitch, .. } => {
-                        self.synthesizer.note_off(0, *pitch as i32);
-                    },
+            while(self.last_rendered_instant < new_instant) {
+                let note_events = track_get_note_events_at_time(&self.track, self.last_rendered_instant);
+                for note_event in note_events.iter() {
+                    event!(Level::INFO, "note_event: {:?}", note_event);
+                    match note_event {
+                        NoteEvent::NoteOff { pitch, .. } => {
+                            self.synthesizer.note_off(0, *pitch as i32);
+                        },
+                        NoteEvent::NoteOn { pitch, .. } => {
+                            self.synthesizer.note_on(0, *pitch as i32, 100);
+                        },
+                    }
                 }
+                self.last_rendered_instant += 1; // we have rendered this instant.
             }
-            assert!(self.synthesizer.get_block_size() + nwritten < left.len());
-            // synthesizer writes in block_size.
-            self.synthesizer.render(&mut left[nwritten..], &mut right[nwritten..]);
-            nwritten += self.synthesizer.get_block_size();
-            self.last_rendered_instant += 1; // we have rendered this instant.
-            // event!(Level::INFO, "-> done [playing]");
 
         }
-
-        if self.cur_instant >= self.end_instant {
-            self.playing = false;
-            self.cur_instant = self.end_instant;
-        }
-
-
     }
 
 }
@@ -335,6 +314,13 @@ impl MidiSequencerIO {
         }
     }
 
+    fn is_playing(&self) -> bool {
+        self.sequencer.lock().as_ref().unwrap().playing
+    }
+
+    fn stop(&mut self) {
+        self.sequencer.lock().as_mut().unwrap().stop();
+    }
     fn restart(&mut self, start_instant : u64, end_instant : u64, looping : bool) {
         event!(Level::INFO, "### restarting ###");
         let mut seq_changer = self.sequencer.lock().unwrap();
@@ -342,12 +328,7 @@ impl MidiSequencerIO {
         seq_changer.looping = looping;
         seq_changer.start_instant = start_instant;
         seq_changer.end_instant = end_instant;
-        if seq_changer.playing {
-            seq_changer.stop()
-        } else {
-            seq_changer.start(start_instant, end_instant, looping);
-
-        }
+        seq_changer.start(start_instant, end_instant, looping);
     }
 
     fn set_track(&mut self, track : monodroneffi::PlayerTrack) {
@@ -409,9 +390,11 @@ fn mainLoop() {
 
     event!(Level::INFO, "Starting up");
     let (mut rl, thread) = raylib::init()
-        .size(640, 480)
-        .title("Hello, World")
+        .size(1280, 720)
+        .title("monodrone")
         .build();
+
+    rl.set_window_size(rl.get_screen_width(), rl.get_screen_height());
 
     let TARGET_FPS = 60;
     rl.set_target_fps(TARGET_FPS);
@@ -440,32 +423,35 @@ fn mainLoop() {
 
         if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
 
-            sequencer_io.set_track(track.to_player_track().clone());
-            let is_looping =
-                selection.cursor_y != selection.anchor_y;
-
-            let start_instant = if is_looping {
-                cmp::min(
-                    cmp::min(selection.cursor_y, selection.anchor_y) as u64,
-                    track.get_last_instant() as u64)
+            if (sequencer_io.is_playing()) {
+                sequencer_io.stop();
             } else {
-                if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
-                    selection.cursor_y as u64
+                sequencer_io.set_track(track.to_player_track().clone());
+                let is_looping = rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT);
+
+                let start_instant = if is_looping {
+                    cmp::min(
+                        cmp::min(selection.cursor_y, selection.anchor_y) as u64,
+                        track.get_last_instant() as u64)
                 } else {
-                    0
-                }
-            };
+                    if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+                        selection.cursor_y as u64
+                    } else {
+                        0
+                    }
+                };
 
-            let end_instant = if is_looping {
-                cmp::max(
-                    cmp::max(selection.cursor_y, selection.anchor_y) as u64,
-                track.get_last_instant() as u64)
-            } else {
-                track.get_last_instant() as u64
-            };
-            sequencer_io.restart(start_instant * AUDIO_TIME_STRETCH_FACTOR,
-                end_instant * AUDIO_TIME_STRETCH_FACTOR,
-                is_looping);
+                let end_instant = if is_looping {
+                    cmp::max(
+                        cmp::max(selection.cursor_y, selection.anchor_y) as u64,
+                    track.get_last_instant() as u64)
+                } else {
+                    track.get_last_instant() as u64
+                };
+                sequencer_io.restart(start_instant * AUDIO_TIME_STRETCH_FACTOR,
+                    (end_instant + 1) * AUDIO_TIME_STRETCH_FACTOR,
+                    is_looping);
+            }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
             if ( rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
@@ -549,7 +535,7 @@ fn mainLoop() {
         let BOX_CURSORED_COLOR = Color::new(255, 255, 255, 255);
         let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
         let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
-        let TEXT_COLLOR_FOLLOWING = Color::new(120, 120, 120, 255);
+        let TEXT_COLLOR_FOLLOWING = Color::new(150, 150, 150, 255);
 
         cameraYEaser.set(
             (((selection.anchor_y as f32 *
