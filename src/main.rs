@@ -8,6 +8,7 @@ use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use egui::Key;
+use ffi::GetScreenHeight;
 use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref};
 use midi::Message::Start;
 use monodroneffi::PlayerNote;
@@ -111,6 +112,7 @@ pub struct MidiSequencer {
     last_rendered_instant : u64, // instant of time we last rendered.
     looping : bool,
     num_instants_wait_before_loop : u64,
+    instant_delta : f32  // how many instants we increment at each tick. each tick is called at 1/10 of a second.
 }
 
 impl MidiSequencer {
@@ -131,6 +133,7 @@ impl MidiSequencer {
             looping : false,
             end_instant : 0,
             num_instants_wait_before_loop : 0,
+            instant_delta : 0.5,
         }
     }
 
@@ -157,10 +160,7 @@ impl MidiSequencer {
     }
 
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        // TODO: do this based on time elapsed. This seems to be called
-        // per "instant" that a new note needs to be played, as per
-        let INSTANT_DELTA = 0.5;
-        let new_instant = self.cur_instant + INSTANT_DELTA;
+        let new_instant = self.cur_instant + self.instant_delta;
         event!(Level::INFO, "process_and_render cur({}) -> new({}) |
              last rendered({}) | end({}) is_playing({}) | looping ({})",
         self.cur_instant, new_instant, self.last_rendered_instant,
@@ -322,6 +322,21 @@ impl MidiSequencerIO {
     fn stop(&mut self) {
         self.sequencer.lock().as_mut().unwrap().stop();
     }
+
+    fn increase_playback_rate(&mut self) {
+        let mut seq_changer = self.sequencer.lock().unwrap();
+        seq_changer.instant_delta += 0.1;
+    }
+
+    fn reduce_playback_rate(&mut self) {
+        let mut seq_changer = self.sequencer.lock().unwrap();
+        seq_changer.instant_delta -= 0.1;
+    }
+
+    fn get_playback_speed (&self) -> f32 {
+        self.sequencer.lock().as_ref().unwrap().instant_delta
+    }
+
     fn restart(&mut self, start_instant : u64, end_instant : u64, looping : bool) {
         event!(Level::INFO, "### restarting ###");
         let mut seq_changer = self.sequencer.lock().unwrap();
@@ -422,9 +437,15 @@ fn mainLoop() {
         }
 
 
-        if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+        if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
+            sequencer_io.reduce_playback_rate();
+        }
+        else if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
+            sequencer_io.increase_playback_rate();
+        }
+        else if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
 
-            if (sequencer_io.is_playing()) {
+            if sequencer_io.is_playing() {
                 sequencer_io.stop();
             } else {
                 sequencer_io.set_track(track.to_player_track().clone());
@@ -537,6 +558,11 @@ fn mainLoop() {
         let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
         let TEXT_COLOR_LEADING = Color::new(0, 0, 0, 255);
         let TEXT_COLLOR_FOLLOWING = Color::new(150, 150, 150, 255);
+        let PLAYBACK_SPEED_TEXT_COLOR = Color::new(165, 214, 167, 255);
+
+        let PLAYBACK_SPEED_INFO_X = unsafe { GetScreenHeight() } as i32 - 100;
+        let PLAYBACK_SPEED_INFO_Y = BOX_WINDOW_CORNER_PADDING_TOP;
+
 
         cameraYEaser.set(
             (((selection.anchor_y as f32 *
@@ -600,6 +626,10 @@ fn mainLoop() {
             (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
             BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
             BOX_HEIGHT as i32, BOX_NOW_PLAYING_COLOR);
+
+        d.draw_text(&format!("Playback Speed: {:.1}", sequencer_io.get_playback_speed()),
+            PLAYBACK_SPEED_INFO_X, PLAYBACK_SPEED_INFO_Y, 20, PLAYBACK_SPEED_TEXT_COLOR);
+
 
     }
 }
