@@ -586,6 +586,8 @@ fn mainLoop() {
             monodrone_ctx = monodroneffi::lower_octave(monodrone_ctx);
         } else if (rl.is_key_pressed(KeyboardKey::KEY_PERIOD)) {
             monodrone_ctx = monodroneffi::raise_octave(monodrone_ctx);
+        } else if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
+            monodrone_ctx = monodroneffi::newline(monodrone_ctx);
         }
 
         // Step 3: Render

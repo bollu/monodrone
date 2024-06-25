@@ -11,6 +11,7 @@ import Mathlib.Order.GaloisConnection
 import Lean.Elab.Tactic.Config
 import Monodrone.NoteOmega
 import Monodrone.PaperAttrs
+import Mathlib.Data.List.MinMax
 open Lean Meta
 open Batteries
 
@@ -111,7 +112,7 @@ theorem SpanY.disjoint_of_contains_of_contains {s s' t t' : SpanY}
   omega
 
 
-theorem SpanY.disjoint_comm (s t : SpanY) : s.disjoint t ↔ t.disjoint s := by
+theorem SpanY.disjoint_comm {s t : SpanY} : s.disjoint t ↔ t.disjoint s := by
   simp [SpanY.disjoint]
   constructor <;> omega
 
@@ -575,6 +576,19 @@ def Note.splitBeforeY (n : Note) (y : Nat) : Option Note × Option Note :=
   | (some s1, some s2) =>
     (Note.ofSpanY s1 n.userPitch, Note.ofSpanY s2 n.userPitch)
 
+@[simp]
+theorem Note.elim_splitBeforeY_eq_none_none {n : Note} {y : Nat}
+      (h : n.splitBeforeY y = (none, none)) : False := by
+  rcases n with ⟨l, p, ns, hns⟩
+  rcases l with ⟨lx, ly⟩
+  simp [Note.splitBeforeY, Note.toSpanY, SpanY.splitBeforeY] at h
+  by_cases hy : y ≤ ly
+  · simp_all [hy]
+  · simp_all [hy]
+    by_cases hy' : ly + ns ≤ y
+    · simp_all [hy']
+    · simp_all [hy']
+
 theorem Note.splitBeforeY_contains_snd {n bot : Note} {y : Nat}
     (hbot : (n.splitBeforeY y).snd = bot) : n.toSpanY.containsSpanY bot.toSpanY := by
   simp [Note.splitBeforeY] at hbot
@@ -657,6 +671,11 @@ def Note.lastPlayed (n : Note) : Nat := n.start + n.nsteps - 1
 @[simp, note_omega]
 def Note.disjoint (n1 n2 : Note) : Prop :=
   (toSpanY n1).disjoint (n2.toSpanY)
+
+theorem Note.disjoint_comm (n1 n2 : Note) :
+    n1.disjoint n2 ↔ n2.disjoint n1 := by
+  simp [Note.disjoint]
+  apply SpanY.disjoint_comm
 
 /-- A track is a list of located notes, with all notes disjoint. -/
 structure Track where
@@ -1417,16 +1436,199 @@ def Note.moveDownOne_disjoint_of_disjoint_of_le {n m : Note}
 def Track.splitBeforeYAux (y : Nat) (ns : List Note) : List Note :=
   ns.concatMap fun n =>
     let (n1, n2) := n.splitBeforeY y
-    match n1, n2 with
-    | none, none => [] -- this case is impossible?
-    | none, some n2 => [n2]
+    match hmatch : n1, n2 with
+    | none, none => []
+    | none, some n2 => [n2.moveDownOne]
     | some n1, none => [n1]
     | some n1, some n2 => [n1, n2.moveDownOne]
 
+theorem Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint (n m : Note)
+    (hnm : Note.disjoint n m) : Note.toSpanY (Note.moveDownOne n) |>.disjoint (Note.moveDownOne m).toSpanY := by
+  rcases n with ⟨nloc, npitch, n_nsteps, n_hnsteps⟩
+  rcases m with ⟨mloc, mpitch, m_nsteps, m_hnsteps⟩
+  rcases nloc with ⟨nx, ny⟩
+  rcases mloc with ⟨mx, my⟩
+  simp_all [Note.toSpanY, Note.moveDownOne, Note.disjoint, SpanY.disjoint,
+    Loc.moveDownOne, LocMoveAction.act]; omega
 
--- /--This too is subtle, because we need to split the note that crosses the y. -/
+def Note.before (n m : Note) : Prop := n.loc.y ≤ m.loc.y
+
+instance : Decidable (Note.before m n) := by
+  simp [Note.before]
+  infer_instance
+
+instance : DecidableRel Note.before := fun n1 n2 => by infer_instance
+
+instance : IsTotal Note Note.before where
+  total n m := by
+    simp [Note.before]
+    omega
+
+instance : IsTrans Note Note.before where
+  trans n m := by
+    simp [Note.before]
+    omega
+
+def Track.Sorted (t : Track) : Prop :=
+  t.notes.Sorted Note.before
+
+/-- If the original list of notes is disjoint, then so is the sorted list. -/
+theorem Track.disjont_sorted_of_disjoint {ns : List Note} (hns : ns.Pairwise Note.disjoint)
+    : (ns.mergeSort Note.before).Pairwise Note.disjoint := by
+  apply List.Pairwise.perm hns
+  · rw [List.perm_comm]
+    apply List.perm_mergeSort
+  · intros n m hnm
+    simp_all [SpanY.disjoint_comm]
+
+def Track.sort (t : Track) : { t : Track // t.Sorted } :=
+  ⟨{ t with
+    notes := t.notes.mergeSort Note.before,
+    hdisjoint := Track.disjont_sorted_of_disjoint t.hdisjoint
+  }, by
+    simp [Track.Sorted]
+    apply List.sorted_mergeSort
+  ⟩
+
+instance : Preorder Note where
+  le := Note.before
+  le_refl := by simp [Note.before]
+  le_trans := by simp [Note.before]; omega
+
+def notes_get_last_played_y (ns : List Note) (y0 : Nat) : { y0' : Nat // y0' ≥ y0 ∧ (∀ n ∈ ns, y0' ≥ n.loc.y + n.nsteps) } :=
+  match ns with
+  | [] => ⟨y0, by simp⟩
+  | n :: ns' =>
+    let ⟨yns, hynsy0, hynsmem⟩ := notes_get_last_played_y ns' y0
+    ⟨max (n.loc.y + n.nsteps) yns, by
+      simp only [ge_iff_le, le_max_iff, List.mem_cons, forall_eq_or_imp]
+      constructor
+      · omega
+      · constructor
+        · omega
+        · intros m hm
+          specialize (hynsmem m hm)
+          omega
+    ⟩
+
+/-- Move from top to bottom on a spanY, applying the function to each note,
+  with the postcondition that the new notes are at least as far down as the input asks them to be.
+-/
+def Track.ripplerSorted (ns : List Note)
+    (hnsorted : ns.Sorted Note.before)
+    (y0 : Nat)
+    (hndisjoint : ns.Pairwise Note.disjoint)
+    (f : (ycur : Nat) → (n : Note) → { ls : List Note // (∀ {n : Note} (hn : n ∈ ls), n.loc.y ≥ ycur) ∧ ls.Pairwise Note.disjoint}) :
+    { ms : List Note // (∀ {m : Note} (hn : m ∈ ms), m.loc.y ≥ y0) ∧ ms.Pairwise Note.disjoint } :=
+  match ns with
+  | [] => ⟨[], by simp⟩
+  | m :: ms =>
+    let ⟨outm, houtmge, houtnmdisj⟩ := f y0 m
+    let ⟨y0', hy0'y0, hy0'outm⟩ := notes_get_last_played_y outm y0
+    have hmsorted : ms.Sorted Note.before := by simp_all
+    have hmdisjoint : ms.Pairwise Note.disjoint := by simp_all
+    let ⟨outms, houtmsge, houtmsdisj⟩ := Track.ripplerSorted ms hmsorted y0' hmdisjoint f
+    ⟨outm ++ outms, by
+      rw [List.pairwise_append]
+      repeat constructor
+      · intros k hk
+        simp at hk
+        rcases hk with hk | hk
+        · specialize (houtmge hk)
+          omega
+        · specialize (houtmsge hk)
+          omega
+      · constructor
+        · assumption
+        · constructor
+          · assumption
+          · intros k hk l hl
+            specialize (houtmge hk)
+            specialize (houtmsge hl)
+            specialize (hy0'outm k hk)
+            simp [Note.toSpanY, SpanY.disjoint]
+            right
+            sorry
+    ⟩
+
+
+
+/- Run a worklist algorithm to resolve conflicts.
+This allows us to write sound but incomplete algorithms.
+This is good for prorotyping new ideas without having to verify new manipulations.
+-/
+namespace QuadraticSolver
+
+/- The conflict resolution function. -/
+variable (resolver : (n m : Note) → (hnm  : ¬ n.toSpanY.disjoint m.toSpanY) →
+ { nm : Note × Note // nm.1.disjoint nm.2 })
+
+/-- Check if all notes in 'ns' is disjoint with 'n'. -/
+def check_all_disjoint (n : Note) (ns : List Note) :
+    Option { ms : List Note // (∀ m ∈ ms, n.toSpanY.disjoint m.toSpanY) ∧ ms = ns } :=
+  match ns with
+  | [] => some ⟨[], by aesop⟩
+  | m :: ms =>
+    if hnm : n.toSpanY.disjoint m.toSpanY
+    then
+      match hms : check_all_disjoint n ms with
+      | none => none
+      | some ⟨ms', hms'⟩ => some ⟨m :: ms', by aesop⟩
+    else none
+
+
+/--
+We implement a DPLL style algorithm where we detect conflicts,
+and then try to resolve them by reducing a conflict locally, as allowed by fuel.
+This solver does not exploit any additional structure, such as the list being sorted,
+and therefore requires no preconditions on the function 'f'.
+-/
+def list_note_resolve_conflict (fuel : Nat) (ns : List Note) :
+  Option { ns : List Note // ns.Pairwise (fun n m => n.toSpanY.disjoint m.toSpanY)  } :=
+  match fuel with
+  | 0 => none
+  | fuel + 1 =>
+    match ns with
+    | [] => some ⟨[], by aesop⟩
+    | n :: [] => some ⟨n :: [], by aesop⟩
+    | n :: m :: ns' =>
+      let nm' : { nm : Note × Note //  nm.1.disjoint nm.2 } :=
+        if hnm : (n.toSpanY.disjoint m.toSpanY)
+        then ⟨(n, m), by aesop⟩
+        else resolver n m (by aesop)
+      let n := nm'.1.1
+      let m := nm'.1.2
+      match list_note_resolve_conflict fuel (m :: ns')  with
+      | none => none
+      | some ⟨ms'', hms''⟩ =>
+        match check_all_disjoint n ms'' with
+        | none => none
+        | some ⟨ms''', hms'''⟩ => some ⟨n :: ms''', by aesop⟩
+
+end QuadraticSolver
+
+section Newline
+
+def resolver (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
+    { nm : Note × Note // nm.1.disjoint nm.2 } :=
+  ⟨(n, { m with loc := ⟨m.loc.x, n.loc.y + n.nsteps⟩}), by simp [SpanY.disjoint, Note.toSpanY]⟩
+
+/-- move all notes with n.y ≥ y to y + 1 -/
+def Track.insertNewlineAt (t : Track) (y : Nat) : Track :=
+  let notes' := t.notes.map (fun n => if n.loc.y < y then n else n.moveDownOne)
+  match QuadraticSolver.list_note_resolve_conflict resolver 100 notes' with
+  | none => t
+  | some ⟨notes'', hnotes''⟩ => { t with notes := notes'', hdisjoint := by aesop }
+
 @[export monodrone_ctx_newline]
-def RawContext.newline (ctx : @&RawContext) : RawContext :=
+def RawContext.newlineSolver (ctx : @&RawContext) : RawContext :=
+  { ctx with
+    track := ctx.track.modifyForgettingFuture
+      (fun t => t.insertNewlineAt ctx.cursor.cur.cursor.y)
+  }
+-- /--This too is subtle, because we need to split the note that crosses the y. -/
+-- @[export monodrone_ctx_newline]
+def RawContext.newlineVerified (ctx : @&RawContext) : RawContext :=
   { ctx with
     track := ctx.track.modifyForgettingFuture
       (fun t =>
@@ -1434,7 +1636,7 @@ def RawContext.newline (ctx : @&RawContext) : RawContext :=
           notes := Track.splitBeforeYAux (ctx.cursor.cur.cursor.y) t.notes,
           hdisjoint := by
             simp [Track.splitBeforeYAux]
-            apply List.pairwise_concatMap_of_pairwise
+            apply List.pairwise_concatMap_of_pairwise (hl := t.hdisjoint)
             intros n
             generalize htop : (n.splitBeforeY ctx.cursor.cur.cursor.y).1 = top
             generalize hbot : (n.splitBeforeY ctx.cursor.cur.cursor.y).2 = bot
@@ -1451,11 +1653,30 @@ def RawContext.newline (ctx : @&RawContext) : RawContext :=
                   · apply Note.disjoint_of_splitBeforeY htop hbot
             · simp
               intros a a' b b'
-              -- do case analysis and see that becaose it's contained, nothing bad can happen.
-              sorry
-            · exact t.hdisjoint
+              generalize hsplita : a.splitBeforeY ctx.cursor.cur.cursor.y = splita
+              generalize hsplita' : a'.splitBeforeY ctx.cursor.cur.cursor.y = splita'
+              rcases splita with ⟨rfl | topa, rfl | bota⟩ <;>
+                rcases splita' with ⟨rfl | topa', rfl | bota'⟩ <;> simp
+              · intros hb hb' hr
+                subst hb
+                subst hb'
+                apply Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint
+                apply SpanY.disjoint_of_contains_of_contains
+                repeat sorry
+              · sorry
+              · sorry
+              · sorry
+              · sorry
+              · sorry
+              · sorry
+              · sorry
+              · sorry
+
+
         })
   }
+
+end Newline
 
 @[export monodrone_ctx_set_pitch]
 def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
