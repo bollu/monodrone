@@ -77,9 +77,11 @@ def SpanY.containsLoc (s : SpanY) (ix : Loc) : Prop :=
 def SpanY.containsY (s : SpanY) (y : Nat) : Prop :=
   y ≥ s.y && y < s.y + s.height
 
+@[aesop unsafe, note_omega]
 def SpanY.containsSpanY (s t : SpanY) : Prop :=
   s.x = t.x && s.y ≤ t.y && s.y + s.height ≥ t.y + t.height
 
+@[aesop safe, note_omega]
 theorem SpanY.containsSpanY_refl (s : SpanY) : SpanY.containsSpanY s s := by
   simp [SpanY.containsSpanY]
 
@@ -88,7 +90,7 @@ theorem SpanY.containsSpanY_trans (s t u : SpanY)
   simp [SpanY.containsSpanY] at *
   omega
 
-
+@[note_omega]
 def SpanY.disjoint (s t : SpanY) : Prop :=
   s.x ≠ t.x || s.y + s.height ≤ t.y || t.y + t.height ≤ s.y
 
@@ -282,6 +284,7 @@ class Spannable (α : Type) extends Locable α where
   toSpan : α → Span
   htoSpan : ∀ (a : α), toLoc a = (toSpan a).topLeft
 
+@[aesop unsafe unfold, note_omega]
 def Note.toSpanY (n : Note) : SpanY :=
   { x := n.loc.x, y := n.loc.y, height := n.nsteps, hheight := n.hnsteps }
 
@@ -308,6 +311,7 @@ instance : Locable Note where
 --   toSpan n := n.toSpan
 --   htoSpan _ := rfl
 
+@[note_omega]
 def Span.containsLoc (s : Span) (ix : Loc) : Prop :=
   ix.x ≥ s.topLeft.x && ix.x < s.topLeft.x + s.width &&
   ix.y ≥ s.topLeft.y && ix.y < s.topLeft.y + s.height
@@ -317,6 +321,7 @@ instance : Decidable (Span.containsLoc s ix) := by
   infer_instance
 
 /-- disjoint iff disjoint in projection of x or projection of y. -/
+@[note_omega]
 def Span.disjoint (s t : Span) : Prop :=
   (s.topLeft.x + s.width ≤ t.topLeft.x) -- s ends before t starts in x axis.
   || (s.topLeft.x ≥ t.topLeft.x + t.width)  -- s starts after t ends in x axis.
@@ -389,6 +394,7 @@ theorem Span.disjoint_symm (n1 n2 : Span) :
   simp [Span.disjoint]
   constructor <;> omega
 
+@[note_omega]
 def Span.overlaps (s1 s2 : Span) : Prop :=
   ¬ Span.disjoint s1 s2
 
@@ -411,6 +417,7 @@ theorem Span.overlaps_symm (s t : Span) :
   have := t.hwidth
   constructor <;> omega
 
+@[note_omega]
 def Span.containsSpan (s t : Span) : Prop :=
   s.topLeft.x ≤ t.topLeft.x && s.topLeft.y ≤ t.topLeft.y &&
   s.topLeft.x + s.width ≥ t.topLeft.x + t.width &&
@@ -1136,7 +1143,7 @@ def Track.modifyInSpanAux(s : Span) (f : Note → Option Note) (n : Note) (ns : 
 def Track.modifyInSpan (t : Track) (s : Span)
     (f : Note → Option Note)
     (hf : ∀ (n n' : Note) (s : Span) (hn : s.overlaps n.toSpanY.toSpan) (hn' : n' ∈ f n),
-      n.toSpanY.containsSpanY n'.toSpanY) : Track :=
+      n.toSpanY.containsSpanY n'.toSpanY := by aesop) : Track :=
   { t with
     notes := t.notes.map? (fun n => if s.overlaps n.toSpanY.toSpan then f n else n),
     hdisjoint := by
@@ -1187,21 +1194,12 @@ def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
   t.modifyInSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with pitchName := p }
-    }) (hf := by
-      intros n n' s hs hn'
-      rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
-      simp only [Option.mem_def, Option.some.injEq] at hn'
-      rw [← hn', Note.toSpanY]
-      apply SpanY.containsSpanY_refl
-    )
+    })
 
 /-- Remove all notes that overlap with the span -/
 def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
   t.modifyInSpan s (f := fun _ => none)
-    (hf := by
-      intros n n' s hs hn'
-      exfalso
-      simp at hn')
+
 
 /-- Toggle the accidental at the note. -/
 def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
@@ -1209,13 +1207,15 @@ def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
     .some { n with
       userPitch := { n.userPitch with accidental := if n.userPitch.accidental = a then Accidental.natural else a }
     })
-    (hf := by
-      intros n n' s hs hn'
-      rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
-      simp only [Option.mem_def, Option.some.injEq] at hn'
-      rw [← hn', Note.toSpanY]
-      apply SpanY.containsSpanY_refl)
 
+syntax "note_omega":tactic
+
+macro_rules
+| `(tactic| note_omega) =>
+    `(simp_all[note_omega]
+      omega)
+
+-- TODO: write a note_omega tactic.
 /-- Decrease the duration of the note. -/
 def Track.decreaseDuration (t : Track) (s : Span) : Track :=
   t.modifyInSpan s (f := fun n =>
@@ -1230,7 +1230,7 @@ def Track.decreaseDuration (t : Track) (s : Span) : Track :=
       · simp [hsteps] at hn'
       · simp [hsteps] at hn'
         rw [← hn']
-        simp [Note.toSpanY, SpanY.containsSpanY])
+        simp_all [note_omega])
 
 
 -- /- This does not work since it does not work for reflexitve relations.
@@ -1429,6 +1429,10 @@ def Note.moveDownOne_disjoint_of_disjoint_of_le {n m : Note}
     Loc.moveDownOne, LocMoveAction.act]
   omega
 
+def Note.moveUpOne (n : Note) : Note :=
+  { n with loc := n.loc.moveUpOne }
+
+
 
 def Track.splitBeforeYAux (y : Nat) (ns : List Note) : List Note :=
   ns.concatMap fun n =>
@@ -1450,6 +1454,7 @@ theorem Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint {n m : Note}
   simp_all [Note.toSpanY, Note.moveDownOne, Note.disjoint, SpanY.disjoint,
     Loc.moveDownOne, LocMoveAction.act]; omega
 
+@[note_omega]
 def Note.before (n m : Note) : Prop := n.loc.y ≤ m.loc.y
 
 instance : Decidable (Note.before m n) := by
@@ -1642,6 +1647,42 @@ def RawContext.newlineSolver (ctx : @&RawContext) : RawContext :=
         | some ⟨ns, hns⟩ => { t with notes := ns, hdisjoint := hns }
       )
   }
+
+def Track.mkWithQuadraticSolver  (default : Track) (ns : List Note) (fuel : Nat := ns.length * 2) : Track :=
+  match QuadraticSolver.list_note_resolve_conflict resolver fuel ns with
+  | none => default
+  | some ⟨ns', hns'⟩ => { default with notes := ns', hdisjoint := hns' }
+
+abbrev MAX_WIDTH : Nat := 100 -- TODO: make all width a Fin MAX_WIDTH.
+
+def Span.atYSpanningX (y : Nat) : Span :=
+  { topLeft := { x := 0, y := y} , height := 1, width := MAX_WIDTH, hwidth := by simp, hheight := by simp }
+
+@[aesop safe]
+theorem Note.contains_of_decreaseSteps (n m : Note) (hm : m ∈ n.decreaseSteps) :
+    n.toSpanY.containsSpanY m.toSpanY := by
+  simp [Note.decreaseSteps] at hm
+  by_cases h : 1 < n.nsteps
+  case neg =>
+    simp [h] at hm
+  case pos =>
+    simp [h] at hm
+    subst hm
+    simp [Note.toSpanY, SpanY.containsSpanY]
+
+@[export monodrone_ctx_delete_line]
+def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
+  {
+    ctx with
+    track := ctx.track.modifyForgettingFuture
+      (fun t =>
+        let t := t.modifyInSpan (Span.atYSpanningX ctx.cursor.cur.cursor.y) (fun n => n.decreaseSteps) (fun n n' s hs hn' => by simp [Note.contains_of_decreaseSteps n n' hn'])
+        let ns := Track.splitBeforeYAuxAux ctx.cursor.cur.cursor.y t.notes
+        let ns := ns.map (fun n => if n.loc.y > ctx.cursor.cur.cursor.y then n.moveUpOne else n)
+        let t := t.mkWithQuadraticSolver ns
+        t
+      )
+  }
 -- /--This too is subtle, because we need to split the note that crosses the y. -/
 -- @[export monodrone_ctx_newline]
 set_option trace.aesop true in
@@ -1697,7 +1738,7 @@ def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
       t.addNotesAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
   }
 
-
+@[note_omega]
 def Span.containsY (s : Span) (y : Nat) : Prop :=
   s.topLeft.y ≤ y ∧ y < s.topLeft.y + s.height
 
@@ -1754,12 +1795,6 @@ def RawContext.raiseOctave (ctx : @&RawContext) : RawContext :=
     track :=
       ctx.track.modifyForgettingFuture fun t => t.modifyInSpan ctx.cursor.cur.toSpan
           (f := fun n => .some { n with userPitch := n.userPitch.raiseOctave })
-          (hf := by
-            intros n n' s hs hn'
-            rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
-            simp only [Option.mem_def, Option.some.injEq] at hn'
-            rw [← hn', Note.toSpanY]
-            apply SpanY.containsSpanY_refl)
   }
 
 /-# Cursor Query -/

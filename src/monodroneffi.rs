@@ -28,6 +28,7 @@ extern {
     fn monodrone_ctx_lower_octave (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_raise_octave (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_newline (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_delete_line (ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
     // fn monodrone_goto_begin_of_line(ctx : *mut lean_object);
     // fn monodrone_copy(ctx : *mut lean_object);
@@ -169,6 +170,9 @@ pub fn newline (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_newline) }
 }
 
+pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_line) }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerNote {
