@@ -25,8 +25,8 @@ extern {
     fn monodrone_ctx_delete(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_toggle_sharp(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_toggle_flat(ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_increase_duration(ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_decrease_duration(ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_lower_octave (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_raise_octave (ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
     // fn monodrone_goto_begin_of_line(ctx : *mut lean_object);
     // fn monodrone_copy(ctx : *mut lean_object);
@@ -55,6 +55,7 @@ extern {
     fn monodrone_note_get_x(note : *mut lean_object) -> u64;
     fn monodrone_note_get_y(note : *mut lean_object) -> u64;
     fn monodrone_note_get_nsteps(note : *mut lean_object) -> u64;
+    fn monodrone_note_get_octave (note : *mut lean_object) -> u64;
 
     // Undo/Redo action
     fn monodrone_ctx_undo_action(ctx : *mut lean_object) -> *mut lean_object;
@@ -123,19 +124,20 @@ pub fn delete(ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete) }
 
 }
-pub fn increase_duration(ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_duration) }
-}
-
-pub fn decrease_duration(ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_duration) }
-}
 pub fn toggle_sharp (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_sharp) }
 }
 
 pub fn toggle_flat (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_flat) }
+}
+
+pub fn lower_octave (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_lower_octave) }
+}
+
+pub fn raise_octave (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_raise_octave) }
 }
 
 
@@ -314,6 +316,7 @@ pub struct UINote {
     pub pitchName: PitchName,
     pub accidental : Accidental,
     pub x: u64,
+    pub octave : u64,
     pub y: u64,
     pub nsteps: u64,
 
@@ -325,15 +328,19 @@ impl UINote {
     }
 }
 
+fn octave_to_midi_pitch (octave : u64) -> u64 {
+    12 * (octave + 1)
+}
+
 fn pitch_name_to_midi_pitch (pitchName : PitchName) -> u64 {
     match pitchName {
-        PitchName::C => 60,
-        PitchName::D => 62,
-        PitchName::E => 63,
-        PitchName::F => 64,
-        PitchName::G => 66,
-        PitchName::A => 68,
-        PitchName::B => 70,
+        PitchName::C => 0,
+        PitchName::D => 2,
+        PitchName::E => 4,
+        PitchName::F => 5,
+        PitchName::G => 7,
+        PitchName::A => 9,
+        PitchName::B => 11,
     }
 }
 
@@ -345,8 +352,8 @@ fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
     }
 }
 
-fn ui_pitch_to_midi_pitch (pitchName : PitchName, accidental : Accidental) -> u64 {
-    (pitch_name_to_midi_pitch(pitchName) as i64 + accidental_to_midi_pitch(accidental)) as u64
+fn ui_pitch_to_midi_pitch (pitchName : PitchName, accidental : Accidental, octave : u64) -> u64 {
+    (pitch_name_to_midi_pitch(pitchName) as i64 + accidental_to_midi_pitch(accidental)) as u64 + octave_to_midi_pitch(octave)
 }
 
 impl UINote {
@@ -355,15 +362,17 @@ impl UINote {
         let x = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_x) };
         let y = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_y) };
         let nsteps = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_nsteps) };
+        let octave = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_octave) };
         let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
         UINote { pitchName: PitchName::of_lean(pitchName),
             accidental: Accidental::of_lean(accidental),
+            octave : octave,
             x, y,
             nsteps }
     }
 
     pub fn to_player_note (&self) -> PlayerNote {
-        PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitchName, self.accidental) ,
+        PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitchName, self.accidental, self.octave) ,
             start: self.y, nsteps: self.nsteps }
     }
 }

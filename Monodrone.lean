@@ -10,6 +10,7 @@ import Mathlib.Data.List.Sort
 import Mathlib.Order.GaloisConnection
 import Lean.Elab.Tactic.Config
 import Monodrone.NoteOmega
+import Monodrone.PaperAttrs
 open Lean Meta
 open Batteries
 
@@ -46,16 +47,62 @@ structure Span where
   hheight : height > 0
 deriving DecidableEq, Repr
 
-def Loc.toSpan (l : Loc) : Span := {
-  topLeft := l,
-  width := 1,
-  height := 1,
-  hwidth := by decide,
-  hheight := by decide
-}
+structure SpanY where
+  x : Nat
+  y : Nat
+  height : Nat
+  hheight : height > 0
+
+def SpanY.toSpan (s : SpanY) : Span :=
+  { topLeft := { x := s.x, y := s.y },
+    width := 1,
+    height := s.height,
+    hwidth := by omega,
+    hheight := s.hheight
+  }
+
+def SpanY.topLeft (s : SpanY) : Loc := { x := s.x, y := s.y }
+
+theorem SpanY.topLeft_toSpan_eq_topLeft (s : SpanY) : s.toSpan.topLeft = s.topLeft := rfl
+
+instance : Inhabited SpanY where
+  default := { x := 0, y := 0, height := 1, hheight := by omega }
+
+def SpanY.bottom (s : SpanY) : Nat := s.y + s.height
+
+def SpanY.containsLoc (s : SpanY) (ix : Loc) : Prop :=
+  ix.x = s.x && ix.y ≥ s.y && ix.y < s.y + s.height
+
+def SpanY.containsY (s : SpanY) (y : Nat) : Prop :=
+  y ≥ s.y && y < s.y + s.height
+
+def SpanY.containsSpanY (s t : SpanY) : Prop :=
+  s.x = t.x && s.y ≤ t.y && s.y + s.height ≥ t.y + t.height
+
+def SpanY.disjoint (s t : SpanY) : Prop :=
+  s.x ≠ t.x || s.y + s.height ≤ t.y || t.y + t.height ≤ s.y
+
+theorem SpanY.disjoint_comm (s t : SpanY) : s.disjoint t ↔ t.disjoint s := by
+  simp [SpanY.disjoint]
+  constructor <;> omega
+
+instance : Decidable (SpanY.disjoint s1 s2) := by
+  simp [SpanY.disjoint]
+  infer_instance
+
+instance : Decidable (SpanY.containsSpanY s1 s2) := by
+  simp [SpanY.containsSpanY]
+  infer_instance
+
+instance : Decidable (SpanY.containsLoc s ix) := by
+  simp [SpanY.containsLoc]
+  infer_instance
+
+
+def Loc.toSpanY (l : Loc) : SpanY := { x := l.x, y := l.y, height := 1, hheight := by decide }
 
 @[simp]
-theorem topLeft_toSpan_eq (l : Loc) : l.toSpan.topLeft = l := rfl
+theorem topLeft_toSpanY_eq (l : Loc) : l.toSpanY.topLeft = l := rfl
 
 def Span.bottomRight (s : Span) : Loc :=
   { x := s.topLeft.x + s.width - 1, y := s.topLeft.y + s.height - 1 }
@@ -155,7 +202,7 @@ def UserPitch.lowerOctave (p : UserPitch) : UserPitch :=
 def UserPitch.middleC : UserPitch := {
   pitchName := PitchName.C,
   accidental := Accidental.natural,
-  octave := 4
+  octave := 4 -- middle C is 60 in MIDI pitch, which is 6 * (12 = length of scale in semitones).
 }
 
 def UserPitch.ofPitchName (n : PitchName) : UserPitch := {
@@ -203,6 +250,13 @@ class Spannable (α : Type) extends Locable α where
   toSpan : α → Span
   htoSpan : ∀ (a : α), toLoc a = (toSpan a).topLeft
 
+def Note.toSpanY (n : Note) : SpanY :=
+  { x := n.loc.x, y := n.loc.y, height := n.nsteps, hheight := n.hnsteps }
+
+instance : Spannable SpanY where
+  toLoc s := { x := s.x, y := s.y }
+  toSpan := SpanY.toSpan
+  htoSpan _ := rfl
 
 instance : Locable Loc where
   toLoc l := l
@@ -215,17 +269,12 @@ open Spannable
 instance : Locable Note where
   toLoc n := n.loc
 
-def Note.toSpan (n : Note) : Span :=
-  { topLeft := n.loc,
-    width := 1,
-    height := n.nsteps,
-    hwidth := by decide,
-    hheight := n.hnsteps
-  }
+-- def Note.toSpan (n : Note) : Span :=
+--   { topLeft := n.loc,
 
-instance : Spannable Note where
-  toSpan n := n.toSpan
-  htoSpan _ := rfl
+-- instance : Spannable Note where
+--   toSpan n := n.toSpan
+--   htoSpan _ := rfl
 
 def Span.containsLoc (s : Span) (ix : Loc) : Prop :=
   ix.x ≥ s.topLeft.x && ix.x < s.topLeft.x + s.width &&
@@ -384,38 +433,6 @@ instance : Decidable (Span.overlaps s1 s2) := by
   simp [Span.overlaps]
   infer_instance
 
-structure SpanY where
-  x : Nat
-  y : Nat
-  height : Nat
-  hheight : height > 0
-
-
-def SpanY.toSpan (s : SpanY) : Span :=
-  { topLeft := { x := s.x, y := s.y },
-    width := 1,
-    height := s.height,
-    hwidth := by omega,
-    hheight := s.hheight
-  }
-
-instance : Spannable SpanY where
-  toLoc s := { x := s.x, y := s.y }
-  toSpan := SpanY.toSpan
-  htoSpan _ := rfl
-
-instance : Inhabited SpanY where
-  default := { x := 0, y := 0, height := 1, hheight := by omega }
-
-def SpanY.bottom (s : SpanY) : Nat := s.y + s.height
-
-def SpanY.containsLoc (s : SpanY) (ix : Loc) : Prop :=
-  ix.x = s.x && ix.y ≥ s.y && ix.y < s.y + s.height
-
-instance : Decidable (SpanY.containsLoc s ix) := by
-  simp [SpanY.containsLoc]
-  infer_instance
-
 
 def Span.toSpanYs (s : Span) : List SpanY :=
   List.map (λ dx => {
@@ -427,6 +444,111 @@ def Span.toSpanYs (s : Span) : List SpanY :=
   (List.range s.width)
 
 
+/-`spany.splitBeforeY y = (s1, s2)` where
+  `s1` is the span of all the elements in `s` that are strictly before `y` (excluding `y`)
+  `s2` is the span of all the elements in `s` that are at and after `y` (≥ y). -/
+def SpanY.splitBeforeY (s : SpanY) (y : Nat) : Option SpanY × Option SpanY :=
+  if hbefore : y ≤ s.y then
+    (none, some s)
+  else if hafter : y ≥ s.y + s.height then
+    (some s, none)
+  else
+    let sbefore :=
+      { s with height := y - s.y, hheight := by omega }
+    let safter :=
+      { s with y := y, height := s.y + s.height - y, hheight := by omega }
+    (some sbefore, some safter)
+
+/-- if we get a 'fst', then it is contained in the original note. -/
+theorem SpanY.splitBeforeY_contains_fst {s top : SpanY} {y : Nat}
+    {htop : (s.splitBeforeY y).fst = top} : s.containsSpanY top := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  simp_all only [splitBeforeY, ge_iff_le]
+  by_cases h : y ≤ sy
+  · simp_all [h]
+  · simp_all only [dite_false, not_le]
+    by_cases h' : sy + sh ≤ y
+    · simp_all only [dite_true, Option.some.injEq]
+      subst htop
+      simp [containsSpanY]
+    · simp_all only [dite_false, Option.some.injEq, not_le]
+      subst htop
+      simp [containsSpanY]; omega
+
+/-- if we get a 'snd', then it is contained in the original note. -/
+@[simp]
+theorem SpanY.splitBeforeY_contains_snd {s bot : SpanY} {y : Nat}
+    {hbot : (s.splitBeforeY y).snd = bot} : s.containsSpanY bot := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  simp_all only [splitBeforeY, ge_iff_le]
+  by_cases h : y ≤ sy
+  · simp_all [h]
+    subst hbot
+    simp [containsSpanY]
+  · simp_all [h]
+    by_cases h' : sy + sh ≤ y
+    · simp_all [h']
+    · simp_all only [dite_false, Option.some.injEq, not_le]
+      subst hbot
+      simp [containsSpanY]; omega
+
+def Note.ofSpanY (s : SpanY) (p : UserPitch) : Note :=
+  { loc := { x := s.x, y := s.y },
+    userPitch := p,
+    nsteps := s.height,
+    hnsteps := s.hheight
+  }
+
+@[simp]
+theorem Note.toSpanY_ofSpanY_eq :
+    (Note.ofSpanY s p).toSpanY = s := by
+  simp [Note.ofSpanY, Note.toSpanY]
+
+def Note.splitBeforeY (n : Note) (y : Nat) : Option Note × Option Note :=
+  let s := n.toSpanY
+  match s.splitBeforeY y with
+  | (none, none) => (none, none)
+  | (none, some s2) => (none, Note.ofSpanY s2 n.userPitch)
+  | (some s1, none) => (Note.ofSpanY s1 n.userPitch, none)
+  | (some s1, some s2) =>
+    (Note.ofSpanY s1 n.userPitch, Note.ofSpanY s2 n.userPitch)
+
+theorem Note.splitBeforeY_contains_snd {n bot : Note} {y : Nat}
+    (hbot : (n.splitBeforeY y).snd = bot) : n.toSpanY.containsSpanY bot.toSpanY := by
+  simp [Note.splitBeforeY] at hbot
+  rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
+  · simp_all
+  · simp_all
+    apply SpanY.splitBeforeY_contains_snd
+    rw [hn]
+    subst hbot
+    simp [Note.toSpanY, Note.ofSpanY]
+  · simp_all
+  · simp_all
+    subst hbot
+    simp only [toSpanY_ofSpanY_eq]
+    apply SpanY.splitBeforeY_contains_snd
+    rw [hn]
+
+theorem Note.splitBeforeY_contains_fst {n top : Note} {y : Nat}
+    (htop : (n.splitBeforeY y).fst = top) : n.toSpanY.containsSpanY top.toSpanY := by
+  simp [Note.splitBeforeY] at htop
+  rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
+  · simp_all
+  · simp_all
+  · simp_all
+    apply SpanY.splitBeforeY_contains_fst
+    rw [hn]
+    subst htop
+    simp [Note.toSpanY, Note.ofSpanY]
+  · simp_all
+    subst htop
+    apply SpanY.splitBeforeY_contains_fst
+    rw [hn]
+    simp
+
 
 @[simp, note_omega]
 def Note.start (n : Note) := n.loc.x
@@ -437,7 +559,7 @@ def Note.lastPlayed (n : Note) : Nat := n.start + n.nsteps - 1
 
 @[simp, note_omega]
 def Note.disjoint (n1 n2 : Note) : Prop :=
-  (toSpan n1).disjoint (toSpan n2)
+  (toSpanY n1).disjoint (n2.toSpanY)
 
 /-- A track is a list of located notes, with all notes disjoint. -/
 structure Track where
@@ -462,6 +584,22 @@ theorem List.pairwise_map' {l : List α} {f : α → β}
       assumption
     · simp only [pairwise_cons] at hl
       exact (ih hl.2)
+
+open List in
+theorem List.pairwise_filter_of_pairwise_self {l : List α} {R : α → α → Prop}
+    {hl : List.Pairwise R l} : (l.filter p).Pairwise R := by
+  induction l
+  case nil => simp
+  case cons a as ih =>
+    simp [filter]
+    simp_all only [pairwise_cons, true_implies]
+    cases p a <;> simp only [ih]
+    rw [List.pairwise_cons]
+    simp [ih, hl]
+    intros a' ha'
+    apply hl.1
+    apply List.mem_of_mem_filter
+    assumption
 
 def Track.empty : Track := { notes := [], hdisjoint := by simp [] }
 
@@ -694,10 +832,58 @@ def Note.atSpanY (p : PitchName) (s : SpanY) : Note :=
     hnsteps := s.hheight }
 
 
+@[simp]
+theorem Note.atIx_toSpan_eq (l : Loc) (p : PitchName) :
+    (Note.atIx l p).toSpanY = l.toSpanY := by
+  simp [Note.toSpanY, Note.toSpanY, Note.atIx, Loc.toSpanY]
+
+-- theorem Note.atIx_disjoint {p : PitchName} {l : Loc} {m : Note} :
+--     (Note.atIx l p).disjoint m ↔ ¬ m.toSpanY.containsLoc l := by
+--   simp [Note.disjoint, Note.atIx]
+--   constructor
+--   · intro h h'
+--     rcases m with ⟨mloc, mpitch, mnsteps, hmnsteps⟩
+--     rcases l with ⟨lx, ly⟩
+--     rcases mloc with ⟨mx, my⟩
+--     simp_all [Note.toSpanY, SpanY.disjoint, SpanY.containsLoc]
+--     omega
+--   · intros hm
+--     rcases m with ⟨mloc, mpitch, mnsteps, hmnsteps⟩
+--     rcases mloc with ⟨mx, my⟩
+--     rcases l with ⟨lx, ly⟩
+--     simp_all [Note.toSpanY, SpanY.disjoint, SpanY.containsLoc]
+--     omega
+
+/-- TODO: figure out the right simp normal form? -/
+@[simp]
+theorem Loc.toSpan_disjoint {l : Loc} {s : SpanY} :
+    l.toSpanY.disjoint s ↔ ¬ s.containsLoc l := by
+  rcases l with ⟨lx, ly⟩
+  rcases s with ⟨sx, sw, sh, hsw, hsh⟩ <;>
+    simp [SpanY.disjoint, SpanY.containsLoc, Loc.toSpanY] <;> omega
+
 def Track.addNoteAtLoc (t : Track) (p : PitchName) (l : Loc) : Track :=
   let newNote := Note.atIx l p
-  let deletedNotes := t.notes.filter (fun n => n.loc ≠ l)
-  { t with notes := newNote :: deletedNotes, hdisjoint := sorry }
+  let deletedNotes := t.notes.filter (fun n => ¬ n.toSpanY.containsLoc l)
+  { t with
+    notes := newNote :: deletedNotes,
+    hdisjoint := by
+      simp_all [newNote, deletedNotes]
+      constructor
+      · intros n hn
+        have hn' := List.of_mem_filter hn
+        simp_all
+      · have hnotes := t.hdisjoint
+        apply List.pairwise_filter_of_pairwise_self
+        assumption
+   }
+
+
+
+@[simp]
+theorem Note.toSpan_atSpanY (p : PitchName) (s : SpanY) :
+    (Note.atSpanY p s).toSpanY = s := by
+  simp [Note.atSpanY, Note.toSpanY]
 
 /--
 If we have notes that overlap, then adjust their pitches.
@@ -707,9 +893,21 @@ def Track.addNoteAtSpanY (t : Track) (p : PitchName) (s : SpanY) : Track :=
   let newNote := Note.atSpanY p s -- insert new note.
   let deletedNotes := -- only keep those notes that are disjoint at the current span y.
     t.notes.filter (fun n =>
-      (toSpan n).disjoint (toSpan s)
+      n.toSpanY.disjoint s
     )
-  { t with notes := newNote :: deletedNotes, hdisjoint := sorry }
+  { t with
+    notes := newNote :: deletedNotes,
+    hdisjoint := by
+      simp_all only [List.pairwise_cons, Note.disjoint, newNote, deletedNotes]
+      constructor
+      · intros n hn
+        have hn' := List.of_mem_filter hn
+        simp_all only [decide_eq_true_eq, Note.toSpan_atSpanY]
+        rw [SpanY.disjoint_comm]
+        assumption
+      · apply List.pairwise_filter_of_pairwise_self
+        exact t.hdisjoint
+    }
 
 /--
 For each Y axis span in the given span,
@@ -719,17 +917,40 @@ and otherwise, adjust the pitch of the notes in the span.
 def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
   s.toSpanYs.foldl (fun t sy => t.addNoteAtSpanY p sy) t
 
+
+def Track.modifyInSpanAux(s : Span) (f : Note → Option Note) (n : Note) (ns : List Note) : List Note :=
+    if s.overlaps n.toSpanY.toSpan
+    then
+      match f n with
+      | none => ns
+      | some n' => n' :: ns
+    else n :: ns
 def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
-  let modifiedNotes :=
-    t.notes.foldl (fun ns n =>
-      if s.overlaps (toSpan n)
-      then
-        match f n with
-        | none => ns
-        | some n' => n' :: ns
-      else n :: ns
-    ) []
-  { t with notes := modifiedNotes, hdisjoint := sorry }
+  { t with
+    notes := t.notes.foldr (Track.modifyInSpanAux s f) [],
+    hdisjoint := by
+      rcases t with ⟨notes, hdisjoint, junk⟩
+      induction notes
+      case nil => simp
+      case cons n ns ih =>
+        simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
+        simp [List.foldr]
+        rw [modifyInSpanAux]
+        by_cases h : s.overlaps n.toSpanY.toSpan
+        · simp [h]
+          rcases hfn : f n with rfl | fn
+          · simp
+            apply ih hdisjoint.2
+          · simp
+            constructor
+            · intros n' hn'
+              sorry
+            · apply ih hdisjoint.2
+        · simp only [h, ↓reduceIte, List.pairwise_cons, Note.disjoint, ih hdisjoint.2, and_true]
+          intros n' hn'
+          apply hdisjoint.1
+          sorry
+  }
 
 /-- Set the pitch for each note in the span -/
 def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
@@ -739,9 +960,15 @@ def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
     })
 
 def Track.deleteNotesAtLoc (t : Track) (l : Loc) : Track :=
-  let modifiedNotes := t.notes.filter (fun n => ¬ (toSpan n).containsLoc l )
+  let modifiedNotes := t.notes.filter (fun n => ¬ (n.toSpanY).containsLoc l )
   -- let modifiedNotes := t.notes.filter (fun n => n.loc ≠ l)
-  { t with notes := modifiedNotes, hdisjoint := sorry }
+  { t with
+    notes := modifiedNotes,
+    hdisjoint := by
+      simp_all [modifiedNotes]
+      apply List.pairwise_filter_of_pairwise_self
+      exact t.hdisjoint
+  }
 
 /-- Remove all notes that overlap with the span -/
 def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
@@ -786,7 +1013,7 @@ structure RawContext where
 deriving Inhabited, Repr
 
 def Track.copy (t : Track) (s : Selection) : Clipboard :=
-  { notes := t.notes.filter (fun n => (toSpan n).containsLoc s.cursor) }
+  { notes := t.notes.filter (fun n => n.toSpanY.containsLoc s.cursor) }
 
 instance : Add Loc where
   add l1 l2 := { x := l1.x + l2.x, y := l1.y + l2.y }
@@ -890,12 +1117,122 @@ def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
 
 /-# Note Editing. -/
 
+
+def Track.mapNotesBelowY (t : Track) (y : Nat)
+    (f : Note → Note)
+    (hfAbove : ∀ {n : Note} {m : Note}  (hn : n ∈ t.notes ∧ n.loc.y < y)
+      (hm : m ∈ t.notes ∧ m.loc.y ≥ y), n.disjoint (f m))
+    (hfBelow : ∀ {n m : Note} (hn : n ∈ t.notes ∧ n.loc.y ≥ y)
+      (hm : m ∈ t.notes ∧ m.loc.y ≥ y), n.disjoint m → (f n).disjoint (f m)) : Track :=
+  {
+    t with
+    notes :=
+      t.notes.map (fun n =>
+        if n.loc.y ≥ y then f n else n
+      )
+    hdisjoint := sorry
+  }
+
+def Note.moveDownOne (n : Note) : Note :=
+  { n with loc := n.loc.moveDownOne }
+
+def Note.moveDownOne_preserves_disjoint {n m : Note}
+    (h : n.disjoint m) : (Note.moveDownOne n).disjoint (Note.moveDownOne m) := by
+  rcases n with ⟨nloc, npitch, n_nsteps, n_hnsteps⟩
+  rcases m with ⟨mloc, mpitch, m_nsteps, n_msteps⟩
+  rcases nloc with ⟨nx, ny⟩
+  rcases mloc with ⟨mx, my⟩
+  simp_all [moveDownOne, disjoint, toSpanY, SpanY.disjoint, moveDownOne,
+    Loc.moveDownOne, LocMoveAction.act]
+  omega
+
+
+def Track.splitBeforeYAux (y : Nat) (n : Note) (ns : List Note) :=
+    let (n1, n2) := n.splitBeforeY y
+    match n1, n2 with
+    | none, none => ns
+    | none, some n2 => n2.moveDownOne :: ns
+    | some n1, none => n1 :: ns
+    | some n1, some n2 => n1 :: n2.moveDownOne :: ns
+
+theorem SpanY.disjoint_of_contains {s s' t : SpanY} (hss' : s.containsSpanY s')
+    (hst : s.disjoint t) : s'.disjoint t := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  rcases s' with ⟨s'x, s'y, s'h, hsh'⟩
+  rcases t with ⟨tx, ty, th, hth⟩
+  simp_all [SpanY.disjoint, SpanY.containsSpanY]
+  omega
+
+def Track.splitBeforeY (t : Track) (y : Nat) : Track :=
+  { t with
+    notes := t.notes.foldr (init := []) (splitBeforeYAux y),
+    hdisjoint := by
+      rcases t with ⟨notes, hdisjoint, junk⟩
+      simp only
+      induction notes
+      case nil => simp
+      case cons n ns ih =>
+        simp only [List.foldr_cons]
+        rw [splitBeforeYAux]
+        rcases hn : n.splitBeforeY y with ⟨ntop, nbot⟩
+        simp only
+        rcases ntop with rfl | ntop <;> rcases nbot with rfl | nbot
+        · simp only
+          apply ih
+          simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
+          simp [hdisjoint]
+        · simp only [List.pairwise_cons, Note.disjoint, ih, and_true]
+          constructor
+          · intros m hm
+            have hbot : n.toSpanY.containsSpanY nbot.toSpanY := by
+              apply Note.splitBeforeY_contains_snd
+              rw [hn]
+            sorry
+          · apply ih
+            simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
+            simp [hdisjoint]
+        · simp only [List.pairwise_cons, Note.disjoint, ih, and_true]
+          sorry
+        · simp only [List.pairwise_cons, List.mem_cons, Note.disjoint, forall_eq_or_imp, ih,
+          and_true]
+          sorry
+  }
+
+
+def Track.newlineAfterY (t : Track) (y : Nat) : Track :=
+  let t' := t.splitBeforeY y
+  { t with
+    notes := t.notes.map (fun n =>
+      if n.loc.y ≥ y then n.moveDownOne else n
+    ),
+    hdisjoint := sorry
+  }
+
+/--This too is subtle, because we need to split the note that crosses the y.
+-/
+@[export monodrone_ctx_newline]
+def RawContext.newline (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture (fun t =>
+      t.mapNotesBelowY ctx.cursor.cur.cursor.y Note.moveDownOne
+        (by sorry) (by sorry))
+  }
+
+
 @[export monodrone_ctx_set_pitch]
 def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
       t.addNotesAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
   }
+
+
+def Span.containsY (s : Span) (y : Nat) : Prop :=
+  s.topLeft.y ≤ y ∧ y < s.topLeft.y + s.height
+
+instance : Decidable (Span.containsY s y) := by
+  simp [Span.containsY]
+  infer_instance
 
 @[export monodrone_ctx_delete]
 def RawContext.delete (ctx : @&RawContext) : RawContext :=
@@ -932,6 +1269,21 @@ def RawContext.toggleFlat (ctx : @&RawContext) : RawContext :=
       t.toggleAccidental Accidental.flat ctx.cursor.cur.toSpan
   }
 
+@[export monodrone_ctx_lower_octave]
+def RawContext.lowerOctave (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.modifyInSpan ctx.cursor.cur.toSpan fun n =>
+        .some { n with userPitch := n.userPitch.lowerOctave }
+  }
+
+@[export monodrone_ctx_raise_octave]
+def RawContext.raiseOctave (ctx : @&RawContext) : RawContext :=
+  { ctx with track :=
+    ctx.track.modifyForgettingFuture fun t =>
+      t.modifyInSpan ctx.cursor.cur.toSpan fun n =>
+        .some { n with userPitch := n.userPitch.raiseOctave }
+  }
 
 /-# Cursor Query -/
 @[export monodrone_ctx_get_cursor_sync_index]
@@ -979,6 +1331,10 @@ def trackGetNote (ctx : @&RawContext) (ix : UInt64) : Note :=
 @[export monodrone_note_get_pitch_name]
 def noteGetPitchName (n : @&Note) : UInt64 :=
   n.userPitch.pitchName.toUInt64
+
+@[export monodrone_note_get_octave]
+def noteGetOctave (n : @&Note) : UInt64 :=
+  n.userPitch.octave.toUInt64
 
 def Accidental.toUInt64 (a : Accidental) : UInt64 :=
   match a with
