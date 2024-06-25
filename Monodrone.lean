@@ -92,6 +92,7 @@ theorem SpanY.containsSpanY_trans (s t u : SpanY)
 def SpanY.disjoint (s t : SpanY) : Prop :=
   s.x ≠ t.x || s.y + s.height ≤ t.y || t.y + t.height ≤ s.y
 
+@[aesop unsafe 50% apply]
 theorem SpanY.disjoint_of_contains {s s' t : SpanY} (hss' : s.containsSpanY s')
     (hst : s.disjoint t) : s'.disjoint t := by
   rcases s with ⟨sx, sy, sh, hsh⟩
@@ -100,6 +101,7 @@ theorem SpanY.disjoint_of_contains {s s' t : SpanY} (hss' : s.containsSpanY s')
   simp_all [SpanY.disjoint, SpanY.containsSpanY]
   omega
 
+-- @[aesop unsafe  apply]
 theorem SpanY.disjoint_of_contains_of_contains {s s' t t' : SpanY}
     (hss' : s.containsSpanY s')
     (htt' : t.containsSpanY t')
@@ -111,7 +113,7 @@ theorem SpanY.disjoint_of_contains_of_contains {s s' t t' : SpanY}
   simp_all [SpanY.disjoint, SpanY.containsSpanY]
   omega
 
-
+@[aesop unsafe apply]
 theorem SpanY.disjoint_comm {s t : SpanY} : s.disjoint t ↔ t.disjoint s := by
   simp [SpanY.disjoint]
   constructor <;> omega
@@ -668,7 +670,7 @@ def Note.start (n : Note) := n.loc.x
 @[note_omega]
 def Note.lastPlayed (n : Note) : Nat := n.start + n.nsteps - 1
 
-@[simp, note_omega]
+@[simp, note_omega, aesop unsafe unfold]
 def Note.disjoint (n1 n2 : Note) : Prop :=
   (toSpanY n1).disjoint (n2.toSpanY)
 
@@ -1069,7 +1071,7 @@ theorem List.map?_cons {α β : Type} (f : α → Option β) (a : α) (as : List
 
 /-  A member of `map?`, then we are guaranteed a preimage. -/
 theorem List.mem?_map {α β : Type} {f : α → Option β} {b : β} {as : List α}
-    (hb : b ∈ List.map? f as) : ∃ a', a' ∈ as ∧ f a' = some b := by
+    (hb : b ∈ List.map? f as) : ∃ a', a' ∈ as ∧ b ∈ f a' := by
   induction as
   case nil => simp at hb
   case cons a as ih =>
@@ -1085,24 +1087,19 @@ theorem List.mem?_map {α β : Type} {f : α → Option β} {b : β} {as : List 
 
 theorem List.Pairwise_map?_of_pairwise {α β : Type} {R : α → α → Prop} {S : β → β → Prop}
     {l : List α} {f : α → Option β}
-    (hf : ∀ {a a' : α} {b b' : β}, b ∈ f a → b' ∈ f a' → R a a' → S b b')
+    (hf : ∀ {a a' : α} {b b' : β} {hb : b ∈ f a} {hb' : b' ∈ f a'} (haa' : R a a'), S b b')
     (hl : l.Pairwise R) : l.map? f |>.Pairwise S := by
   induction l
   case nil => simp [map?]
   case cons a as ih =>
     simp [List.map?]
     rcases hfa : f a with rfl | b <;> simp []
-    · simp at hl
-      simp only [ih hl.2, and_true]
+    · aesop
     · simp at hl
       simp [ih hl.2]
       intros b' hb'
       obtain ⟨a', ha'⟩ := List.mem?_map hb'
-      apply hf
-      · exact hfa
-      · exact ha'.2
-      · apply hl.1
-        exact ha'.1
+      apply hf (hl.1 _ ha'.1) <;> aesop
 
 /-- Allow changing and potentially deleting notes as long as the new note is always in the old note.
 This can be used to implement 'shrinkNote' in a clean way.
@@ -1442,8 +1439,10 @@ def Track.splitBeforeYAux (y : Nat) (ns : List Note) : List Note :=
     | some n1, none => [n1]
     | some n1, some n2 => [n1, n2.moveDownOne]
 
-theorem Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint (n m : Note)
-    (hnm : Note.disjoint n m) : Note.toSpanY (Note.moveDownOne n) |>.disjoint (Note.moveDownOne m).toSpanY := by
+@[aesop safe apply]
+theorem Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint {n m : Note}
+    (hnm : Note.disjoint n m) :
+    Note.toSpanY (Note.moveDownOne n) |>.disjoint (Note.moveDownOne m).toSpanY := by
   rcases n with ⟨nloc, npitch, n_nsteps, n_hnsteps⟩
   rcases m with ⟨mloc, mpitch, m_nsteps, m_hnsteps⟩
   rcases nloc with ⟨nx, ny⟩
@@ -1609,25 +1608,43 @@ end QuadraticSolver
 
 section Newline
 
+/-- A version that only splits, does no movement nonsense. -/
+def Track.splitBeforeYAuxAux (y : Nat) (ns : List Note) : List Note :=
+  ns.concatMap fun n =>
+    let (n1, n2) := n.splitBeforeY y
+    match hmatch : n1, n2 with
+    | none, none => []
+    | none, some n2 => [n2]
+    | some n1, none => [n1]
+    | some n1, some n2 => [n1, n2]
+
+
+
 def resolver (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
     { nm : Note × Note // nm.1.disjoint nm.2 } :=
   ⟨(n, { m with loc := ⟨m.loc.x, n.loc.y + n.nsteps⟩}), by simp [SpanY.disjoint, Note.toSpanY]⟩
 
 /-- move all notes with n.y ≥ y to y + 1 -/
-def Track.insertNewlineAt (t : Track) (y : Nat) : Track :=
-  let notes' := t.notes.map (fun n => if n.loc.y < y then n else n.moveDownOne)
-  match QuadraticSolver.list_note_resolve_conflict resolver 100 notes' with
-  | none => t
-  | some ⟨notes'', hnotes''⟩ => { t with notes := notes'', hdisjoint := by aesop }
+def Track.insertNewlineAtAux (ns : List Note) (y : Nat) : Option { ns : List Note // ns.Pairwise Note.disjoint } :=
+  let ns := Track.splitBeforeYAuxAux y ns
+  let ns := ns.map (fun n => if n.loc.y < y then n else n.moveDownOne)
+  QuadraticSolver.list_note_resolve_conflict resolver 100 ns
 
+
+/-- TODO: Still not the right behaviour, since it does not split notes at the cursor. -/
 @[export monodrone_ctx_newline]
 def RawContext.newlineSolver (ctx : @&RawContext) : RawContext :=
   { ctx with
     track := ctx.track.modifyForgettingFuture
-      (fun t => t.insertNewlineAt ctx.cursor.cur.cursor.y)
+      (fun t =>
+        match Track.insertNewlineAtAux t.notes ctx.cursor.cur.cursor.y with
+        | none => t
+        | some ⟨ns, hns⟩ => { t with notes := ns, hdisjoint := hns }
+      )
   }
 -- /--This too is subtle, because we need to split the note that crosses the y. -/
 -- @[export monodrone_ctx_newline]
+set_option trace.aesop true in
 def RawContext.newlineVerified (ctx : @&RawContext) : RawContext :=
   { ctx with
     track := ctx.track.modifyForgettingFuture
@@ -1657,12 +1674,7 @@ def RawContext.newlineVerified (ctx : @&RawContext) : RawContext :=
               generalize hsplita' : a'.splitBeforeY ctx.cursor.cur.cursor.y = splita'
               rcases splita with ⟨rfl | topa, rfl | bota⟩ <;>
                 rcases splita' with ⟨rfl | topa', rfl | bota'⟩ <;> simp
-              · intros hb hb' hr
-                subst hb
-                subst hb'
-                apply Note.toSpanY_moveDown_disjoint_toSpanY_moveDown_of_disjoint
-                apply SpanY.disjoint_of_contains_of_contains
-                repeat sorry
+              · sorry
               · sorry
               · sorry
               · sorry
