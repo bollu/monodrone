@@ -79,8 +79,37 @@ def SpanY.containsY (s : SpanY) (y : Nat) : Prop :=
 def SpanY.containsSpanY (s t : SpanY) : Prop :=
   s.x = t.x && s.y ≤ t.y && s.y + s.height ≥ t.y + t.height
 
+theorem SpanY.containsSpanY_refl (s : SpanY) : SpanY.containsSpanY s s := by
+  simp [SpanY.containsSpanY]
+
+theorem SpanY.containsSpanY_trans (s t u : SpanY)
+    (hst : SpanY.containsSpanY s t) (htu : SpanY.containsSpanY t u) : SpanY.containsSpanY s u := by
+  simp [SpanY.containsSpanY] at *
+  omega
+
+
 def SpanY.disjoint (s t : SpanY) : Prop :=
   s.x ≠ t.x || s.y + s.height ≤ t.y || t.y + t.height ≤ s.y
+
+theorem SpanY.disjoint_of_contains {s s' t : SpanY} (hss' : s.containsSpanY s')
+    (hst : s.disjoint t) : s'.disjoint t := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  rcases s' with ⟨s'x, s'y, s'h, hsh'⟩
+  rcases t with ⟨tx, ty, th, hth⟩
+  simp_all [SpanY.disjoint, SpanY.containsSpanY]
+  omega
+
+theorem SpanY.disjoint_of_contains_of_contains {s s' t t' : SpanY}
+    (hss' : s.containsSpanY s')
+    (htt' : t.containsSpanY t')
+    (hst : s.disjoint t) : s'.disjoint t' := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  rcases s' with ⟨s'x, s'y, s'h, hsh'⟩
+  rcases t with ⟨tx, ty, th, hth⟩
+  rcases t' with ⟨t'x, t'y, t'h, hth'⟩
+  simp_all [SpanY.disjoint, SpanY.containsSpanY]
+  omega
+
 
 theorem SpanY.disjoint_comm (s t : SpanY) : s.disjoint t ↔ t.disjoint s := by
   simp [SpanY.disjoint]
@@ -475,6 +504,39 @@ theorem SpanY.splitBeforeY_contains_fst {s top : SpanY} {y : Nat}
       subst htop
       simp [containsSpanY]; omega
 
+
+theorem SpanY.disjoint_of_splitBeforeY {s top bot : SpanY} {y : Nat}
+    {htop : top ∈ (s.splitBeforeY y).fst}
+    {hbot : bot ∈ (s.splitBeforeY y).snd} : top.disjoint bot := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  simp_all only [splitBeforeY, ge_iff_le]
+  by_cases h : y ≤ sy
+  · simp_all [h]
+  · simp_all [h]
+    by_cases h' : sy + sh ≤ y
+    · simp_all [h']
+    · simp_all [h']
+      subst hbot
+      subst htop
+      simp [disjoint]; omega
+
+theorem SpanY.y_lt_y_of_splitBeforeY {s top bot : SpanY} {y : Nat}
+    {htop : top ∈ (s.splitBeforeY y).fst}
+    {hbot : bot ∈ (s.splitBeforeY y).snd} : top.y < bot.y := by
+  rcases s with ⟨sx, sy, sh, hsh⟩
+  simp_all only [splitBeforeY, ge_iff_le]
+  by_cases h : y ≤ sy
+  · simp_all [h]
+  · simp_all [h]
+    by_cases h' : sy + sh ≤ y
+    · simp_all [h']
+    · simp_all [h']
+      subst hbot
+      subst htop
+      simp
+      omega
+
+
 /-- if we get a 'snd', then it is contained in the original note. -/
 @[simp]
 theorem SpanY.splitBeforeY_contains_snd {s bot : SpanY} {y : Nat}
@@ -549,6 +611,41 @@ theorem Note.splitBeforeY_contains_fst {n top : Note} {y : Nat}
     rw [hn]
     simp
 
+theorem Note.disjoint_of_splitBeforeY {n top bot : Note} {y : Nat}
+    (htop : (n.splitBeforeY y).fst = top)
+    (hbot : (n.splitBeforeY y).snd = bot) : top.toSpanY.disjoint bot.toSpanY := by
+  simp [Note.splitBeforeY] at htop hbot
+  rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
+  · simp_all
+  · simp_all
+  · simp_all
+  · simp_all
+    subst htop
+    subst hbot
+    apply SpanY.disjoint_of_splitBeforeY
+    rw [hn]
+    simp [ofSpanY, toSpanY]
+    simp [ofSpanY, toSpanY]
+    sorry
+
+theorem Note.y_lt_y_of_splitBeforeY {n top bot : Note} {y : Nat}
+    (htop : (n.splitBeforeY y).fst = top)
+    (hbot : (n.splitBeforeY y).snd = bot) : top.loc.y < bot.loc.y := by
+  simp [Note.splitBeforeY] at htop hbot
+  rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
+  · simp_all
+  · simp_all
+  · simp_all
+  · simp_all
+    subst htop
+    subst hbot
+    apply SpanY.y_lt_y_of_splitBeforeY
+    rw [hn]
+    simp [ofSpanY, toSpanY]
+    simp [ofSpanY, toSpanY]
+    sorry
 
 @[simp, note_omega]
 def Note.start (n : Note) := n.loc.x
@@ -909,6 +1006,7 @@ def Track.addNoteAtSpanY (t : Track) (p : PitchName) (s : SpanY) : Track :=
         exact t.hdisjoint
     }
 
+
 /--
 For each Y axis span in the given span,
 add a note with the given pitch if the span is empty,
@@ -918,6 +1016,99 @@ def Track.addNotesAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
   s.toSpanYs.foldl (fun t sy => t.addNoteAtSpanY p sy) t
 
 
+
+/-- Allow changing notes as long as the resulting note is always contained in the original note. -/
+def Track.mapNotes_of_contains (t : Track) (f : Note → Note) (hf : ∀ (n : Note),  n.toSpanY.containsSpanY (f n).toSpanY) : Track :=
+  { t with
+    notes := t.notes.map f,
+    hdisjoint := by
+      apply List.pairwise_map' t.hdisjoint
+      intros a b hab
+      have hfa : a.toSpanY.containsSpanY (f a).toSpanY := hf a
+      have hfb : b.toSpanY.containsSpanY (f b).toSpanY := hf b
+      apply SpanY.disjoint_of_contains_of_contains hfa hfb hab
+  }
+
+/-- Map, while allowing to drop elements. -/
+def List.map? {α β : Type} (f : α → Option β) : List α → List β
+  | [] => []
+  | a :: as =>
+    match f a with
+    | none => List.map? f as
+    | some b => b :: List.map? f as
+
+@[simp]
+theorem List.map?_nil {α β : Type} (f : α → Option β) : List.map? f [] = [] := by
+  simp [List.map?]
+
+@[simp]
+theorem List.map?_cons {α β : Type} (f : α → Option β) (a : α) (as : List α) :
+    List.map? f (a :: as) = match f a with
+    | none => List.map? f as
+    | some b => b :: List.map? f as := by
+  simp [List.map?]
+
+/-  A member of `map?`, then we are guaranteed a preimage. -/
+theorem List.mem?_map {α β : Type} {f : α → Option β} {b : β} {as : List α}
+    (hb : b ∈ List.map? f as) : ∃ a', a' ∈ as ∧ f a' = some b := by
+  induction as
+  case nil => simp at hb
+  case cons a as ih =>
+    simp_all [List.map?]
+    rcases hfa : f a with rfl | b'
+    · simp_all [hfa]
+    · simp_all [hfa]
+      rcases hb with rfl | hb
+      · simp
+      · specialize (ih hb)
+        right
+        exact ih
+
+theorem List.Pairwise_map?_of_pairwise {α β : Type} {R : α → α → Prop} {S : β → β → Prop}
+    {l : List α} {f : α → Option β}
+    (hf : ∀ {a a' : α} {b b' : β}, b ∈ f a → b' ∈ f a' → R a a' → S b b')
+    (hl : l.Pairwise R) : l.map? f |>.Pairwise S := by
+  induction l
+  case nil => simp [map?]
+  case cons a as ih =>
+    simp [List.map?]
+    rcases hfa : f a with rfl | b <;> simp []
+    · simp at hl
+      simp only [ih hl.2, and_true]
+    · simp at hl
+      simp [ih hl.2]
+      intros b' hb'
+      obtain ⟨a', ha'⟩ := List.mem?_map hb'
+      apply hf
+      · exact hfa
+      · exact ha'.2
+      · apply hl.1
+        exact ha'.1
+
+/-- Allow changing and potentially deleting notes as long as the new note is always in the old note.
+This can be used to implement 'shrinkNote' in a clean way.
+-/
+def Track.mapNotes?_of_contains (t : Track) (f : Note → Option Note)
+    (hf : ∀ (n fn : Note), fn ∈ (f n) → n.toSpanY.containsSpanY fn.toSpanY) : Track :=
+  { t with
+    notes := t.notes.map? f,
+    hdisjoint := by
+      rcases t with ⟨notes, hdisjoint, junk⟩
+      simp
+      apply List.Pairwise_map?_of_pairwise
+      intros a a' b b' hb hb' hab
+      simp [Note.disjoint]
+      apply SpanY.disjoint_of_contains_of_contains
+      · apply hf
+        exact hb
+      · apply hf
+        exact hb'
+      · assumption
+      · apply hdisjoint
+  }
+
+
+
 def Track.modifyInSpanAux(s : Span) (f : Note → Option Note) (n : Note) (ns : List Note) : List Note :=
     if s.overlaps n.toSpanY.toSpan
     then
@@ -925,66 +1116,154 @@ def Track.modifyInSpanAux(s : Span) (f : Note → Option Note) (n : Note) (ns : 
       | none => ns
       | some n' => n' :: ns
     else n :: ns
-def Track.modifyInSpan (t : Track) (s : Span) (f : Note → Option Note) : Track :=
+
+def Track.modifyInSpan (t : Track) (s : Span)
+    (f : Note → Option Note)
+    (hf : ∀ (n n' : Note) (s : Span) (hn : s.overlaps n.toSpanY.toSpan) (hn' : n' ∈ f n),
+      n.toSpanY.containsSpanY n'.toSpanY) : Track :=
   { t with
-    notes := t.notes.foldr (Track.modifyInSpanAux s f) [],
+    notes := t.notes.map? (fun n => if s.overlaps n.toSpanY.toSpan then f n else n),
     hdisjoint := by
       rcases t with ⟨notes, hdisjoint, junk⟩
-      induction notes
-      case nil => simp
-      case cons n ns ih =>
-        simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
-        simp [List.foldr]
-        rw [modifyInSpanAux]
-        by_cases h : s.overlaps n.toSpanY.toSpan
-        · simp [h]
-          rcases hfn : f n with rfl | fn
-          · simp
-            apply ih hdisjoint.2
-          · simp
-            constructor
-            · intros n' hn'
-              sorry
-            · apply ih hdisjoint.2
-        · simp only [h, ↓reduceIte, List.pairwise_cons, Note.disjoint, ih hdisjoint.2, and_true]
-          intros n' hn'
-          apply hdisjoint.1
-          sorry
-  }
+      simp
+      apply List.Pairwise_map?_of_pairwise (hl := hdisjoint)
+      intros a a' b b' hb hb'
+      intros hr
+      simp_all only [Note.disjoint]
+
+      by_cases hsa : s.overlaps a.toSpanY.toSpan
+      · simp [hsa] at hb
+        by_cases hsa' : s.overlaps a'.toSpanY.toSpan
+        · simp [hsa'] at hb'
+          apply SpanY.disjoint_of_contains_of_contains
+          · apply hf
+            exact hsa
+            exact hb
+          · apply hf
+            exact hsa'
+            exact hb'
+          · assumption
+        · simp [hsa'] at hb'
+          subst hb'
+          apply SpanY.disjoint_of_contains_of_contains
+          . apply hf
+            exact hsa
+            exact hb
+          . apply SpanY.containsSpanY_refl
+          · exact hr
+      · simp [hsa] at hb
+        by_cases hsa' : s.overlaps a'.toSpanY.toSpan
+        · simp [hsa'] at hb'
+          subst hb
+          apply SpanY.disjoint_of_contains_of_contains
+          . apply SpanY.containsSpanY_refl
+          . apply hf
+            exact hsa'
+            exact hb'
+          · exact hr
+        · simp [hsa'] at hb'
+          subst hb'
+          subst hb
+          apply hr  }
 
 /-- Set the pitch for each note in the span -/
 def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
-  t.modifyInSpan s (fun n =>
+  t.modifyInSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with pitchName := p }
-    })
-
-def Track.deleteNotesAtLoc (t : Track) (l : Loc) : Track :=
-  let modifiedNotes := t.notes.filter (fun n => ¬ (n.toSpanY).containsLoc l )
-  -- let modifiedNotes := t.notes.filter (fun n => n.loc ≠ l)
-  { t with
-    notes := modifiedNotes,
-    hdisjoint := by
-      simp_all [modifiedNotes]
-      apply List.pairwise_filter_of_pairwise_self
-      exact t.hdisjoint
-  }
+    }) (hf := by
+      intros n n' s hs hn'
+      rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
+      simp only [Option.mem_def, Option.some.injEq] at hn'
+      rw [← hn', Note.toSpanY]
+      apply SpanY.containsSpanY_refl
+    )
 
 /-- Remove all notes that overlap with the span -/
 def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
-  t.modifyInSpan s (fun _ => none)
+  t.modifyInSpan s (f := fun _ => none)
+    (hf := by
+      intros n n' s hs hn'
+      exfalso
+      simp at hn')
 
+/-- Toggle the accidental at the note. -/
 def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
-  t.modifyInSpan s (fun n =>
+  t.modifyInSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with accidental := if n.userPitch.accidental = a then Accidental.natural else a }
     })
+    (hf := by
+      intros n n' s hs hn'
+      rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
+      simp only [Option.mem_def, Option.some.injEq] at hn'
+      rw [← hn', Note.toSpanY]
+      apply SpanY.containsSpanY_refl)
 
-def Track.increaseDuration (t : Track) (s : Span) : Track :=
-  t.modifyInSpan s (fun n => .some (n.increaseNSteps))
-
+/-- Decrease the duration of the note. -/
 def Track.decreaseDuration (t : Track) (s : Span) : Track :=
-  t.modifyInSpan s (fun n => n.decreaseSteps)
+  t.modifyInSpan s (f := fun n =>
+    if hn : n.nsteps = 1
+    then none
+    else some { n with nsteps := n.nsteps - 1, hnsteps := by have hnsteps := n.hnsteps; omega })
+    (hf := by
+      intros n n' s hs hn'
+      rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
+      simp only [Option.mem_def, Option.some.injEq] at hn'
+      by_cases hsteps : nsteps = 1
+      · simp [hsteps] at hn'
+      · simp [hsteps] at hn'
+        rw [← hn']
+        simp [Note.toSpanY, SpanY.containsSpanY])
+
+
+-- /- This does not work since it does not work for reflexitve relations.
+-- We need this to implement "cut all notes at this location."
+-- -/
+
+def List.concatMap {α β : Type} (f : α → List β) : List α → List β
+  | [] => []
+  | a :: as => f a ++ List.concatMap f as
+
+/-  A member of `map?`, then we are guaranteed a preimage. -/
+theorem List.mem?_concatMap {α β : Type} {f : α → List β} {b : β} {as : List α}
+    (hb : b ∈ List.concatMap f as) : ∃ a', a' ∈ as ∧ b ∈ f a' := by
+  induction as
+  case nil => simp [concatMap] at hb
+  case cons a as ih =>
+    simp_all [List.map?]
+    rcases hfa : f a with rfl | b'
+    · simp_all [hfa]
+      simp [concatMap] at hb
+      rcases hb with hb | hb
+      · simp [hfa] at hb
+      · apply ih hb
+    · simp_all [hfa]
+      simp [concatMap] at hb
+      rcases hb with hb | hb
+      · simp_all
+      · specialize (ih hb)
+        right
+        exact ih
+
+/-- Ask Alex what the correct coinductive theorem statement is. -/
+theorem List.pairwise_concatMap_of_pairwise {α β : Type} {R : α → α → Prop} {S : β → β → Prop}
+    {l : List α} {f : α → List β}
+    (hfintra : ∀ {a : α}, Pairwise S (f a))
+    (hfinter : ∀ {a a' : α} {b b' : β} (hb : b ∈ f a) (hb' : b' ∈ f a') (hr : R a a'), S b b')
+    (hl : l.Pairwise R) : l.concatMap f |>.Pairwise S := by
+  induction l
+  case nil => simp [List.concatMap]
+  case cons a as ih =>
+    simp only [pairwise_cons] at hl
+    simp only [concatMap, pairwise_append, hfintra, ih hl.2, true_and]
+    intros b hb b' hb'
+    obtain ⟨a', ha', hb'⟩ := List.mem?_concatMap hb'
+    apply hfinter
+    · exact hb
+    · exact hb'
+    · apply hl.1
+      apply ha'
 
 structure Eased (α : Type) where
   cur : α
@@ -1018,13 +1297,13 @@ def Track.copy (t : Track) (s : Selection) : Clipboard :=
 instance : Add Loc where
   add l1 l2 := { x := l1.x + l2.x, y := l1.y + l2.y }
 
-def Track.paste (t : Track) (l : Loc) (c : Clipboard) : Track :=
-  let newNotes := c.notes.map (fun n =>
-    { n with loc := l + n.loc, hnsteps := n.hnsteps }
-  )
-  -- delete any notes that create overlaps.
-  let deletedNotes := t.notes.filter (fun n => c.notes.any (fun n' => n.loc = n'.loc))
-  { t with notes := newNotes ++ deletedNotes, hdisjoint := sorry }
+-- def Track.paste (t : Track) (l : Loc) (c : Clipboard) : Track :=
+--   let newNotes := c.notes.map (fun n =>
+--     { n with loc := l + n.loc, hnsteps := n.hnsteps }
+--   )
+--   -- delete any notes that create overlaps.
+--   let deletedNotes := t.notes.filter (fun n => c.notes.any (fun n' => n.loc = n'.loc))
+--   { t with notes := newNotes ++ deletedNotes, hdisjoint := sorry }
 
 def Track.cut (t : Track) (s : Selection) : Clipboard × Track :=
   let c := t.copy s
@@ -1118,26 +1397,14 @@ def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
 /-# Note Editing. -/
 
 
-def Track.mapNotesBelowY (t : Track) (y : Nat)
-    (f : Note → Note)
-    (hfAbove : ∀ {n : Note} {m : Note}  (hn : n ∈ t.notes ∧ n.loc.y < y)
-      (hm : m ∈ t.notes ∧ m.loc.y ≥ y), n.disjoint (f m))
-    (hfBelow : ∀ {n m : Note} (hn : n ∈ t.notes ∧ n.loc.y ≥ y)
-      (hm : m ∈ t.notes ∧ m.loc.y ≥ y), n.disjoint m → (f n).disjoint (f m)) : Track :=
-  {
-    t with
-    notes :=
-      t.notes.map (fun n =>
-        if n.loc.y ≥ y then f n else n
-      )
-    hdisjoint := sorry
-  }
 
 def Note.moveDownOne (n : Note) : Note :=
   { n with loc := n.loc.moveDownOne }
 
-def Note.moveDownOne_preserves_disjoint {n m : Note}
-    (h : n.disjoint m) : (Note.moveDownOne n).disjoint (Note.moveDownOne m) := by
+def Note.moveDownOne_disjoint_of_disjoint_of_le {n m : Note}
+    (hnm : n.loc.y ≤ m.loc.y)
+    (hdisjoint : n.toSpanY.disjoint m.toSpanY) :
+    n.toSpanY.disjoint (Note.moveDownOne m).toSpanY := by
   rcases n with ⟨nloc, npitch, n_nsteps, n_hnsteps⟩
   rcases m with ⟨mloc, mpitch, m_nsteps, n_msteps⟩
   rcases nloc with ⟨nx, ny⟩
@@ -1147,77 +1414,48 @@ def Note.moveDownOne_preserves_disjoint {n m : Note}
   omega
 
 
-def Track.splitBeforeYAux (y : Nat) (n : Note) (ns : List Note) :=
+def Track.splitBeforeYAux (y : Nat) (ns : List Note) : List Note :=
+  ns.concatMap fun n =>
     let (n1, n2) := n.splitBeforeY y
     match n1, n2 with
-    | none, none => ns
-    | none, some n2 => n2.moveDownOne :: ns
-    | some n1, none => n1 :: ns
-    | some n1, some n2 => n1 :: n2.moveDownOne :: ns
-
-theorem SpanY.disjoint_of_contains {s s' t : SpanY} (hss' : s.containsSpanY s')
-    (hst : s.disjoint t) : s'.disjoint t := by
-  rcases s with ⟨sx, sy, sh, hsh⟩
-  rcases s' with ⟨s'x, s'y, s'h, hsh'⟩
-  rcases t with ⟨tx, ty, th, hth⟩
-  simp_all [SpanY.disjoint, SpanY.containsSpanY]
-  omega
-
-def Track.splitBeforeY (t : Track) (y : Nat) : Track :=
-  { t with
-    notes := t.notes.foldr (init := []) (splitBeforeYAux y),
-    hdisjoint := by
-      rcases t with ⟨notes, hdisjoint, junk⟩
-      simp only
-      induction notes
-      case nil => simp
-      case cons n ns ih =>
-        simp only [List.foldr_cons]
-        rw [splitBeforeYAux]
-        rcases hn : n.splitBeforeY y with ⟨ntop, nbot⟩
-        simp only
-        rcases ntop with rfl | ntop <;> rcases nbot with rfl | nbot
-        · simp only
-          apply ih
-          simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
-          simp [hdisjoint]
-        · simp only [List.pairwise_cons, Note.disjoint, ih, and_true]
-          constructor
-          · intros m hm
-            have hbot : n.toSpanY.containsSpanY nbot.toSpanY := by
-              apply Note.splitBeforeY_contains_snd
-              rw [hn]
-            sorry
-          · apply ih
-            simp only [List.pairwise_cons, Note.disjoint] at hdisjoint
-            simp [hdisjoint]
-        · simp only [List.pairwise_cons, Note.disjoint, ih, and_true]
-          sorry
-        · simp only [List.pairwise_cons, List.mem_cons, Note.disjoint, forall_eq_or_imp, ih,
-          and_true]
-          sorry
-  }
+    | none, none => [] -- this case is impossible?
+    | none, some n2 => [n2]
+    | some n1, none => [n1]
+    | some n1, some n2 => [n1, n2.moveDownOne]
 
 
-def Track.newlineAfterY (t : Track) (y : Nat) : Track :=
-  let t' := t.splitBeforeY y
-  { t with
-    notes := t.notes.map (fun n =>
-      if n.loc.y ≥ y then n.moveDownOne else n
-    ),
-    hdisjoint := sorry
-  }
-
-/--This too is subtle, because we need to split the note that crosses the y.
--/
+-- /--This too is subtle, because we need to split the note that crosses the y. -/
 @[export monodrone_ctx_newline]
 def RawContext.newline (ctx : @&RawContext) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture (fun t =>
-      t.mapNotesBelowY ctx.cursor.cur.cursor.y Note.moveDownOne
-        (by sorry) (by sorry))
+  { ctx with
+    track := ctx.track.modifyForgettingFuture
+      (fun t =>
+        { t with
+          notes := Track.splitBeforeYAux (ctx.cursor.cur.cursor.y) t.notes,
+          hdisjoint := by
+            simp [Track.splitBeforeYAux]
+            apply List.pairwise_concatMap_of_pairwise
+            intros n
+            generalize htop : (n.splitBeforeY ctx.cursor.cur.cursor.y).1 = top
+            generalize hbot : (n.splitBeforeY ctx.cursor.cur.cursor.y).2 = bot
+            · rcases top with rfl | top
+              · rcases bot with rfl | bot
+                · simp
+                · simp [t.hdisjoint]
+              · rcases bot with rfl | bot
+                · simp [t.hdisjoint]
+                · simp
+                  apply Note.moveDownOne_disjoint_of_disjoint_of_le
+                  · apply Nat.le_of_lt
+                    apply Note.y_lt_y_of_splitBeforeY htop hbot
+                  · apply Note.disjoint_of_splitBeforeY htop hbot
+            · simp
+              intros a a' b b'
+              -- do case analysis and see that becaose it's contained, nothing bad can happen.
+              sorry
+            · exact t.hdisjoint
+        })
   }
-
 
 @[export monodrone_ctx_set_pitch]
 def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
@@ -1241,12 +1479,6 @@ def RawContext.delete (ctx : @&RawContext) : RawContext :=
       t.deleteNotesAtSpan ctx.cursor.cur.toSpan
   }
 
-@[export monodrone_ctx_increase_duration]
-def RawContext.increaseDuration (ctx : @&RawContext) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture fun t =>
-      t.increaseDuration ctx.cursor.cur.toSpan
-  }
 
 @[export monodrone_ctx_decrease_duration]
 def RawContext.decreaseDuration (ctx : @&RawContext) : RawContext :=
@@ -1271,18 +1503,30 @@ def RawContext.toggleFlat (ctx : @&RawContext) : RawContext :=
 
 @[export monodrone_ctx_lower_octave]
 def RawContext.lowerOctave (ctx : @&RawContext) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture fun t =>
-      t.modifyInSpan ctx.cursor.cur.toSpan fun n =>
-        .some { n with userPitch := n.userPitch.lowerOctave }
+  { ctx with
+    track :=
+      ctx.track.modifyForgettingFuture fun t => t.modifyInSpan ctx.cursor.cur.toSpan
+          (f := fun n => .some { n with userPitch := n.userPitch.lowerOctave })
+          (hf := by
+            intros n n' s hs hn'
+            rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
+            simp only [Option.mem_def, Option.some.injEq] at hn'
+            rw [← hn', Note.toSpanY]
+            apply SpanY.containsSpanY_refl)
   }
 
 @[export monodrone_ctx_raise_octave]
 def RawContext.raiseOctave (ctx : @&RawContext) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture fun t =>
-      t.modifyInSpan ctx.cursor.cur.toSpan fun n =>
-        .some { n with userPitch := n.userPitch.raiseOctave }
+  { ctx with
+    track :=
+      ctx.track.modifyForgettingFuture fun t => t.modifyInSpan ctx.cursor.cur.toSpan
+          (f := fun n => .some { n with userPitch := n.userPitch.raiseOctave })
+          (hf := by
+            intros n n' s hs hn'
+            rcases n with ⟨nloc, npitch, nsteps, hnsteps⟩
+            simp only [Option.mem_def, Option.some.injEq] at hn'
+            rw [← hn', Note.toSpanY]
+            apply SpanY.containsSpanY_refl)
   }
 
 /-# Cursor Query -/
