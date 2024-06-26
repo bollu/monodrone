@@ -23,7 +23,7 @@ use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
 use rfd::FileDialog;
-
+use raylib::ffi::Image;
 
 const GOLDEN_RATIO: f32 = 1.61803398875;
 
@@ -437,6 +437,7 @@ impl AppFilePath {
         let mut filename = whimsical_file_name();
         filename.push_str(".drn");
         let mut out = env::current_exe().unwrap();
+        out.pop();
         out.push(filename);
         AppFilePath::_format_and_set_window_title(&out.as_path(), &rl, &thread);
         AppFilePath {
@@ -462,8 +463,8 @@ impl AppFilePath {
         rl.set_window_title(thread, format!("monodrone ({})", path.to_string_lossy()).as_str())
     }
 
-    fn get_str(&self) -> &str {
-        self.path.to_str().unwrap()
+    fn to_string(&self) -> String {
+        self.path.to_string_lossy().to_string()
     }
 }
 
@@ -474,7 +475,7 @@ impl AsRef<Path> for AppFilePath {
 }
 impl Into<String> for AppFilePath {
     fn into(self) -> String {
-        self.get_str().to_string()
+        self.to_string()
     }
 }
 
@@ -619,6 +620,15 @@ fn mainLoop() {
 
     rl.set_window_size(rl.get_screen_width(), rl.get_screen_height());
 
+    unsafe {
+        let file_data = include_bytes!("../favicon.ico");
+        let filetype = "ico";
+        let ico = raylib::ffi::LoadImageFromMemory(filetype.as_ptr() as *const i8,
+            file_data.as_ptr() as *const u8,
+            file_data.len() as i32);
+        raylib::ffi::SetWindowIcon(ico);
+    };
+
     let TARGET_FPS = 60;
     rl.set_target_fps(TARGET_FPS);
     let SCREEN_HEIGHT = rl.get_screen_height();
@@ -755,7 +765,26 @@ fn mainLoop() {
         } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
             monodrone_ctx = monodroneffi::newline(monodrone_ctx);
             monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
-        } else if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
+        }
+        else if (!rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
+            // c-s for save.
+            let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
+            event!(Level::INFO, "saving file to path {}", cur_filepath.to_string());
+            match File::create(cur_filepath.path.as_path()) {
+                Ok(mut file) => {
+                    file.write_all(str.as_bytes()).unwrap();
+                }
+                Err(e) => {
+                    event!(Level::ERROR, "Error saving file: {:?}", e);
+                    rfd::MessageDialog::new()
+                    .set_level(rfd::MessageLevel::Error)
+                    .set_title(format!("Unable to save file to path '{}'.", cur_filepath.to_string()))
+                    .set_description(e.to_string())
+                    .show();
+                }
+            }
+        }
+        else if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
             // TODO: only open this with ctrl + shift + s.
             let saver_dialog = FileDialog::new()
                 .add_filter("monodrone", &["drn"])
@@ -767,7 +796,7 @@ fn mainLoop() {
             if let Option::Some(path) = saver_dialog.save_file() {
                 let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
                 // open file and write string.
-                event!(Level::INFO, "saving file to path {path:?}");
+                event!(Level::INFO, "saving-as file to path {path:?}");
                 match File::create(path.clone()) {
                     Ok(mut file) => {
                         file.write_all(str.as_bytes()).unwrap();
