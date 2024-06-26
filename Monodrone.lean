@@ -2039,9 +2039,9 @@ def RawContext.toJsonStr (ctx : @&RawContext) : String :=
   s!"{ToJson.toJson ctx}"
 
 @[export monodrone_ctx_from_json_str]
-def RawContext.fromJson (s : String) : RawContext :=
+def RawContext.fromJson (s : String) : IO RawContext :=
   match Json.parse s >>= fromJson?  with
-  | Except.ok ctx => ctx
-  | Except.error e => panic!(s!"unable to load, error: '{e}'. Raw JSON file: '{s}'")
+  | Except.ok ctx => return ctx
+  | Except.error e => throw <| IO.userError s!"parse error: '{e}'. Raw JSON file: '{s}'"
 
 end ffi

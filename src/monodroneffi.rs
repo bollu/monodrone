@@ -1,6 +1,6 @@
 
 use std::collections::HashMap;
-use lean_sys::{lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object};
+use lean_sys::{lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object};
 use lean_sys;
 
 extern {
@@ -72,6 +72,8 @@ extern {
 
     fn monodrone_ctx_to_json_str (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_from_json_str (json_str : *mut lean_object) -> *mut lean_object;
+
+    fn lean_io_error_to_string (io_obj : *mut lean_object) -> *mut lean_object;
 }
 
 /// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
@@ -211,10 +213,22 @@ pub fn ctx_to_json_str (ctx : *mut lean_object) -> String {
 }
 
 // TODO: implement Result.
-pub fn ctx_from_json_str (string : String) -> *mut lean_object {
+pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
     let lean_str = String_to_lean_str(string);
-    let ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
-    ctx
+    let io_ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
+    print!("io_ctx: {:p}\n", io_ctx);
+    unsafe {
+        lean_inc_ref(io_ctx);
+        if lean_sys::lean_io_result_is_ok(io_ctx) {
+            let ctx = lean_sys::lean_io_result_get_value(io_ctx);
+            print!("ctx: {:p}\n", ctx);
+            return Ok(ctx);
+        } else {
+            let err = lean_io_result_get_error(io_ctx);
+            let err_str = lean_str_to_String(lean_io_error_to_string(err));
+            return Err(err_str);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

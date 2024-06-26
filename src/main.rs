@@ -740,7 +740,18 @@ fn mainLoop() {
                         let reader = std::io::BufReader::new(file);
                         let str = std::io::read_to_string(reader).unwrap();
                         event!(Level::INFO, "loaded file data: {str}");
-                        monodrone_ctx = monodroneffi::ctx_from_json_str(str);
+                        monodrone_ctx = match monodroneffi::ctx_from_json_str(str) {
+                            Ok(ctx) => ctx,
+                            Err(e) => {
+                                rfd::MessageDialog::new()
+                                .set_level(rfd::MessageLevel::Error)
+                                .set_title("Unable to load file, JSON parsing error.")
+                                .set_description(&e)
+                                .show();
+                                event!(Level::ERROR, "error loading file: {:?}", e);
+                                monodrone_ctx
+                            }
+                        };
                         track = monodroneffi::UITrack::from_lean(monodrone_ctx);
                         selection = monodroneffi::Selection::from_lean(monodrone_ctx);
                         event!(Level::INFO, "loaded file!");
