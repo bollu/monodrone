@@ -12,9 +12,19 @@ import Lean.Elab.Tactic.Config
 import Monodrone.NoteOmega
 import Monodrone.PaperAttrs
 import Mathlib.Data.List.MinMax
+import Lean.Data.Json.Basic
+import Lean.Data.Json.Parser
+import Lean.Data.Json.Printer
 open Lean Meta
 open Batteries
 
+instance : ToJson Unit where
+  toJson _ := toJson ""
+
+  instance : FromJson Unit where
+    fromJson? j := match j with
+    | Json.null => Except.ok ()
+    | _ => Except.error "expected null"
 /-
 Step: The smallest unit of time in a sequencer. Each step can be assigned a sound.
 Pattern: A sequence of steps forming a repeating musical phrase or loop.
@@ -25,7 +35,9 @@ Track: A sequence lane dedicated to a specific drum sound or instrument.
 structure Pitch where
   pitch : Nat
   junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
-deriving Inhabited, DecidableEq, Repr
+deriving Inhabited, DecidableEq, Repr, ToJson, FromJson
+
+
 
 def Pitch.middleC : Pitch := { pitch := 60 }
 def Pitch.raiseSemitone (p : Pitch) : Pitch := { pitch := p.pitch + 1 }
@@ -35,10 +47,14 @@ def Pitch.lowerWhole (p : Pitch) : Pitch := { pitch := p.pitch - 2 }
 
 def Note.lastNoteIx : Nat := 9999
 
+instance : ToJson Nat where
+  toJson n := toJson s!"{n}"
+
 structure Loc where
   x : Nat
   y : Nat
-deriving DecidableEq, Repr, Inhabited
+deriving DecidableEq, Repr, Inhabited, ToJson, FromJson
+
 
 structure Span where
   topLeft : Loc
@@ -48,11 +64,42 @@ structure Span where
   hheight : height > 0
 deriving DecidableEq, Repr
 
+instance : ToJson Span where
+  toJson o :=
+    let data := (o.topLeft, o.width, o.height)
+    toJson data
+
+axiom json_parsing_is_safe {p : Prop} : p
+
+instance : FromJson Span where
+  fromJson? j :=
+    let data : Except String (Loc × Nat × Nat) := fromJson? j
+    data.map fun (l, w, h) => {
+        topLeft := l,
+        width := w,
+        height := h,
+        hwidth := json_parsing_is_safe,
+        hheight := json_parsing_is_safe
+      }
+
 structure SpanY where
   x : Nat
   y : Nat
   height : Nat
   hheight : height > 0
+
+instance : ToJson SpanY where
+  toJson o := toJson (o.x, o.y, o.height)
+
+instance : FromJson SpanY where
+  fromJson? j :=
+    let data : Except String (Nat × Nat × Nat) := fromJson? j
+    data.map fun (x, y, h) => {
+        x := x,
+        y := y,
+        height := h,
+        hheight := json_parsing_is_safe
+      }
 
 def SpanY.toSpan (s : SpanY) : Span :=
   { topLeft := { x := s.x, y := s.y },
@@ -64,6 +111,7 @@ def SpanY.toSpan (s : SpanY) : Span :=
 
 def SpanY.topLeft (s : SpanY) : Loc := { x := s.x, y := s.y }
 
+@[simp]
 theorem SpanY.topLeft_toSpan_eq_topLeft (s : SpanY) : s.toSpan.topLeft = s.topLeft := rfl
 
 instance : Inhabited SpanY where
@@ -161,7 +209,7 @@ inductive Accidental
 | natural
 | sharp
 | flat
-deriving DecidableEq, Repr, Inhabited
+deriving DecidableEq, Repr, Inhabited, ToJson, FromJson
 
 inductive PitchName
 | C
@@ -171,7 +219,7 @@ inductive PitchName
 | G
 | A
 | B
-deriving DecidableEq, Repr, Inhabited
+deriving DecidableEq, Repr, Inhabited, ToJson, FromJson
 
 
 def PitchName.toUInt64 (p : PitchName) : UInt64 :=
@@ -206,7 +254,7 @@ structure UserPitch where
   pitchName : PitchName
   accidental : Accidental
   octave : Nat
-deriving DecidableEq, Repr
+deriving DecidableEq, Repr, ToJson, FromJson
 
 def UserPitch.toPitch (p : UserPitch) : Pitch :=
   let pitch := match p.pitchName with
@@ -256,6 +304,20 @@ structure Note where
   /-- a Note is played for at least one step -/
   hnsteps : nsteps > 0
 deriving DecidableEq, Repr
+
+instance : ToJson Note where
+  toJson o :=
+    toJson (o.loc, o.userPitch, o.nsteps)
+
+instance : FromJson Note where
+  fromJson? j :=
+    let data : Except String (Loc × UserPitch × Nat) := fromJson? j
+    data.map fun (l, p, n) => {
+        loc := l,
+        userPitch := p,
+        nsteps := n,
+        hnsteps := json_parsing_is_safe
+      }
 
 instance : Inhabited Note where
   default := {
@@ -423,6 +485,11 @@ def Span.containsSpan (s t : Span) : Prop :=
   s.topLeft.x + s.width ≥ t.topLeft.x + t.width &&
   s.topLeft.y + s.height ≥ t.topLeft.y + t.height
 
+theorem Span.topLeft_le_topLeft_of_containsSpan {s t : Span} (h : Span.containsSpan s t) :
+    s.topLeft.x ≤ t.topLeft.x ∧ s.topLeft.y ≤ t.topLeft.y := by
+  simp [Span.containsSpan] at h
+  omega
+
 instance : Decidable (Span.containsSpan s1 s2) := by
   simp [Span.containsSpan]
   infer_instance
@@ -499,7 +566,8 @@ def SpanY.splitBeforeY (s : SpanY) (y : Nat) : Option SpanY × Option SpanY :=
     (some sbefore, some safter)
 
 /-- if we get a 'fst', then it is contained in the original note. -/
-theorem SpanY.splitBeforeY_contains_fst {s top : SpanY} {y : Nat}
+@[aesop safe forward]
+theorem SpanY.contains_of_splitBeforeY_fst {s top : SpanY} {y : Nat}
     {htop : (s.splitBeforeY y).fst = top} : s.containsSpanY top := by
   rcases s with ⟨sx, sy, sh, hsh⟩
   simp_all only [splitBeforeY, ge_iff_le]
@@ -515,6 +583,7 @@ theorem SpanY.splitBeforeY_contains_fst {s top : SpanY} {y : Nat}
       simp [containsSpanY]; omega
 
 
+@[aesop safe forward]
 theorem SpanY.disjoint_of_splitBeforeY {s top bot : SpanY} {y : Nat}
     {htop : top ∈ (s.splitBeforeY y).fst}
     {hbot : bot ∈ (s.splitBeforeY y).snd} : top.disjoint bot := by
@@ -530,6 +599,7 @@ theorem SpanY.disjoint_of_splitBeforeY {s top bot : SpanY} {y : Nat}
       subst htop
       simp [disjoint]; omega
 
+@[aesop safe forward]
 theorem SpanY.y_lt_y_of_splitBeforeY {s top bot : SpanY} {y : Nat}
     {htop : top ∈ (s.splitBeforeY y).fst}
     {hbot : bot ∈ (s.splitBeforeY y).snd} : top.y < bot.y := by
@@ -548,8 +618,8 @@ theorem SpanY.y_lt_y_of_splitBeforeY {s top bot : SpanY} {y : Nat}
 
 
 /-- if we get a 'snd', then it is contained in the original note. -/
-@[simp]
-theorem SpanY.splitBeforeY_contains_snd {s bot : SpanY} {y : Nat}
+@[simp, aesop safe forward]
+theorem SpanY.contains_of_splitBeforeY_snd {s bot : SpanY} {y : Nat}
     {hbot : (s.splitBeforeY y).snd = bot} : s.containsSpanY bot := by
   rcases s with ⟨sx, sy, sh, hsh⟩
   simp_all only [splitBeforeY, ge_iff_le]
@@ -585,90 +655,50 @@ def Note.splitBeforeY (n : Note) (y : Nat) : Option Note × Option Note :=
   | (some s1, some s2) =>
     (Note.ofSpanY s1 n.userPitch, Note.ofSpanY s2 n.userPitch)
 
-@[simp]
+@[simp, aesop safe forward]
 theorem Note.elim_splitBeforeY_eq_none_none {n : Note} {y : Nat}
       (h : n.splitBeforeY y = (none, none)) : False := by
   rcases n with ⟨l, p, ns, hns⟩
   rcases l with ⟨lx, ly⟩
   simp [Note.splitBeforeY, Note.toSpanY, SpanY.splitBeforeY] at h
-  by_cases hy : y ≤ ly
-  · simp_all [hy]
-  · simp_all [hy]
-    by_cases hy' : ly + ns ≤ y
-    · simp_all [hy']
-    · simp_all [hy']
+  by_cases hy : y ≤ ly <;> simp_all [hy]
+  split_ifs at h <;> simp_all
 
-theorem Note.splitBeforeY_contains_snd {n bot : Note} {y : Nat}
+@[aesop safe forward]
+theorem Note.contains_of_splitBeforeY_snd {n bot : Note} {y : Nat}
     (hbot : (n.splitBeforeY y).snd = bot) : n.toSpanY.containsSpanY bot.toSpanY := by
   simp [Note.splitBeforeY] at hbot
   rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
-  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
-  · simp_all
-  · simp_all
-    apply SpanY.splitBeforeY_contains_snd
-    rw [hn]
-    subst hbot
-    simp [Note.toSpanY, Note.ofSpanY]
-  · simp_all
-  · simp_all
-    subst hbot
-    simp only [toSpanY_ofSpanY_eq]
-    apply SpanY.splitBeforeY_contains_snd
-    rw [hn]
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2 <;> simp_all
+  repeat (apply SpanY.contains_of_splitBeforeY_snd; rw [hn]; simp [← hbot])
 
-theorem Note.splitBeforeY_contains_fst {n top : Note} {y : Nat}
+@[aesop safe forward]
+theorem Note.contains_of_splitBeforeY_fst {n top : Note} {y : Nat}
     (htop : (n.splitBeforeY y).fst = top) : n.toSpanY.containsSpanY top.toSpanY := by
   simp [Note.splitBeforeY] at htop
   rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
-  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
-  · simp_all
-  · simp_all
-  · simp_all
-    apply SpanY.splitBeforeY_contains_fst
-    rw [hn]
-    subst htop
-    simp [Note.toSpanY, Note.ofSpanY]
-  · simp_all
-    subst htop
-    apply SpanY.splitBeforeY_contains_fst
-    rw [hn]
-    simp
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2 <;> simp_all
+  repeat (apply SpanY.contains_of_splitBeforeY_fst; rw [hn]; simp[← htop])
 
+@[aesop safe forward]
 theorem Note.disjoint_of_splitBeforeY {n top bot : Note} {y : Nat}
     (htop : (n.splitBeforeY y).fst = top)
     (hbot : (n.splitBeforeY y).snd = bot) : top.toSpanY.disjoint bot.toSpanY := by
   simp [Note.splitBeforeY] at htop hbot
   rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
-  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
-  · simp_all
-  · simp_all
-  · simp_all
-  · simp_all
-    subst htop
-    subst hbot
-    apply SpanY.disjoint_of_splitBeforeY
-    rw [hn]
-    simp [ofSpanY, toSpanY]
-    simp [ofSpanY, toSpanY]
-    sorry
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2 <;> simp_all
+  subst htop hbot
+  apply SpanY.disjoint_of_splitBeforeY <;> rw[hn] <;> simp
 
+@[aesop safe forward]
 theorem Note.y_lt_y_of_splitBeforeY {n top bot : Note} {y : Nat}
     (htop : (n.splitBeforeY y).fst = top)
     (hbot : (n.splitBeforeY y).snd = bot) : top.loc.y < bot.loc.y := by
   simp [Note.splitBeforeY] at htop hbot
   rcases hn : n.toSpanY.splitBeforeY y with ⟨s1, s2⟩
-  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2
-  · simp_all
-  · simp_all
-  · simp_all
-  · simp_all
-    subst htop
-    subst hbot
-    apply SpanY.y_lt_y_of_splitBeforeY
-    rw [hn]
-    simp [ofSpanY, toSpanY]
-    simp [ofSpanY, toSpanY]
-    sorry
+  rcases s1 with rfl | s1 <;> rcases s2 with rfl | s2 <;> simp_all
+  subst htop hbot
+  apply SpanY.y_lt_y_of_splitBeforeY <;> rw [hn] <;> simp
 
 @[simp, note_omega]
 def Note.start (n : Note) := n.loc.x
@@ -692,6 +722,17 @@ structure Track where
   hdisjoint : notes.Pairwise Note.disjoint
   junk : Unit := ()  -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Repr, DecidableEq
+
+instance : ToJson Track where
+  toJson o := toJson o.notes
+
+instance : FromJson Track where
+  fromJson? j := do
+    let data : Except String (List Note) := fromJson? j
+    data.map fun notes => {
+        notes := notes,
+        hdisjoint := json_parsing_is_safe
+    }
 
 open List in
 theorem List.pairwise_map' {l : List α} {f : α → β}
@@ -736,6 +777,7 @@ inductive LocMoveAction
 | down (d : Nat)
 | left (d : Nat)
 | right (d : Nat)
+deriving ToJson, FromJson, Inhabited, Repr
 
 def LocMoveAction.act (c : Loc)
     (act : LocMoveAction) : Loc :=
@@ -793,7 +835,7 @@ attribute [simp] LawfulDiffable.reverse_vsub
 
 structure NaiveDiff (α : Type) where
   new : α
-deriving DecidableEq, Repr, Inhabited
+deriving DecidableEq, Repr, Inhabited, ToJson, FromJson
 
 instance  : Diffable α (NaiveDiff α) where
   vadd d _ := d.new
@@ -817,7 +859,7 @@ structure HistoryStack (α : Type) (δ : Type) where
    /- upon being applied, gives next element. -/
   historyNext: List δ
   -- hninserts : ninserts ≥ historyPrev.length + historyNext.length + 1
-deriving Inhabited, Repr
+deriving Inhabited, Repr, ToJson, FromJson
 
 instance [Repr α] [Repr δ] : Repr (HistoryStack α δ) where
   reprPrec h _ := "HistoryStack.mk " ++ repr h.historyPrev ++ " " ++ repr h.cur ++ " " ++ repr h.historyNext
@@ -915,7 +957,7 @@ theorem HistoryStack.cur_prev_patchForgettingFuture_eq [DecidableEq α]
 structure Selection where
   cursor : Loc -- Location of the cursor.
   selectAnchor : Option Loc -- Location where selection anchor was dropped.
-deriving Inhabited, Repr, DecidableEq
+deriving Inhabited, Repr, DecidableEq, ToJson, FromJson
 
 def Selection.atbegin : Selection := { cursor := { x := 0, y := 0 }, selectAnchor := none }
 
@@ -929,6 +971,7 @@ def Selection.bottomRight (s : Selection) : Loc :=
   | none => s.cursor
   | some a => { x := max a.x s.cursor.x, y := max a.y s.cursor.y }
 
+@[simp, note_omega, aesop unsafe unfold]
 def Selection.toSpan (s : Selection) : Span :=
   { topLeft := s.topLeft,
     width := (s.bottomRight.x - s.topLeft.x) + 1,
@@ -961,23 +1004,6 @@ def Note.atSpanY (p : PitchName) (s : SpanY) : Note :=
 theorem Note.atIx_toSpan_eq (l : Loc) (p : PitchName) :
     (Note.atIx l p).toSpanY = l.toSpanY := by
   simp [Note.toSpanY, Note.toSpanY, Note.atIx, Loc.toSpanY]
-
--- theorem Note.atIx_disjoint {p : PitchName} {l : Loc} {m : Note} :
---     (Note.atIx l p).disjoint m ↔ ¬ m.toSpanY.containsLoc l := by
---   simp [Note.disjoint, Note.atIx]
---   constructor
---   · intro h h'
---     rcases m with ⟨mloc, mpitch, mnsteps, hmnsteps⟩
---     rcases l with ⟨lx, ly⟩
---     rcases mloc with ⟨mx, my⟩
---     simp_all [Note.toSpanY, SpanY.disjoint, SpanY.containsLoc]
---     omega
---   · intros hm
---     rcases m with ⟨mloc, mpitch, mnsteps, hmnsteps⟩
---     rcases mloc with ⟨mx, my⟩
---     rcases l with ⟨lx, ly⟩
---     simp_all [Note.toSpanY, SpanY.disjoint, SpanY.containsLoc]
---     omega
 
 /-- TODO: figure out the right simp normal form? -/
 @[simp]
@@ -1131,16 +1157,8 @@ def Track.mapNotes?_of_contains (t : Track) (f : Note → Option Note)
   }
 
 
-
-def Track.modifyInSpanAux(s : Span) (f : Note → Option Note) (n : Note) (ns : List Note) : List Note :=
-    if s.overlaps n.toSpanY.toSpan
-    then
-      match f n with
-      | none => ns
-      | some n' => n' :: ns
-    else n :: ns
-
-def Track.modifyInSpan (t : Track) (s : Span)
+/-- TODO: write proof by reflection. -/
+def Track.modifyOverlapSpan (t : Track) (s : Span)
     (f : Note → Option Note)
     (hf : ∀ (n n' : Note) (s : Span) (hn : s.overlaps n.toSpanY.toSpan) (hn' : n' ∈ f n),
       n.toSpanY.containsSpanY n'.toSpanY := by aesop) : Track :=
@@ -1153,57 +1171,62 @@ def Track.modifyInSpan (t : Track) (s : Span)
       intros a a' b b' hb hb'
       intros hr
       simp_all only [Note.disjoint]
+      split_ifs at hb <;>
+        split_ifs at hb' <;>
+          simp_all [hb, hb'] <;> apply SpanY.disjoint_of_contains_of_contains
+            <;> (try assumption)
+      repeat (apply hf <;> assumption)
+      repeat (apply SpanY.containsSpanY_refl)
+      apply hf <;> assumption
+  }
 
-      by_cases hsa : s.overlaps a.toSpanY.toSpan
-      · simp [hsa] at hb
-        by_cases hsa' : s.overlaps a'.toSpanY.toSpan
-        · simp [hsa'] at hb'
-          apply SpanY.disjoint_of_contains_of_contains
-          · apply hf
-            exact hsa
-            exact hb
-          · apply hf
-            exact hsa'
-            exact hb'
-          · assumption
-        · simp [hsa'] at hb'
-          subst hb'
-          apply SpanY.disjoint_of_contains_of_contains
-          . apply hf
-            exact hsa
-            exact hb
-          . apply SpanY.containsSpanY_refl
-          · exact hr
-      · simp [hsa] at hb
-        by_cases hsa' : s.overlaps a'.toSpanY.toSpan
-        · simp [hsa'] at hb'
-          subst hb
-          apply SpanY.disjoint_of_contains_of_contains
-          . apply SpanY.containsSpanY_refl
-          . apply hf
-            exact hsa'
-            exact hb'
-          · exact hr
-        · simp [hsa'] at hb'
-          subst hb'
-          subst hb
-          apply hr  }
+/-- info: 'Track.modifyOverlapSpan' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Track.modifyOverlapSpan
+
+/- TODO: golf this proof more. -/
+/- TODO: write proof by reflection for disjoint and contained goals. -/
+def Track.modifyContainedInSpan (t : Track) (s : Span)
+    (f : Note → Option Note)
+    (hf : ∀ (n n' : Note) (s : Span) (hn : s.containsSpan n.toSpanY.toSpan) (hn' : n' ∈ f n),
+      n.toSpanY.containsSpanY n'.toSpanY := by aesop) : Track :=
+  { t with
+    notes := t.notes.map? (fun n => if s.containsSpan n.toSpanY.toSpan then f n else n),
+    hdisjoint := by
+      rcases t with ⟨notes, hdisjoint, junk⟩
+      simp
+      apply List.Pairwise_map?_of_pairwise (hl := hdisjoint)
+      intros a a' b b' hb hb'
+      intros hr
+      simp_all only [Note.disjoint]
+      split_ifs at hb <;>
+        split_ifs at hb' <;>
+          simp_all [hb, hb'] <;> apply SpanY.disjoint_of_contains_of_contains
+            <;> (try assumption)
+      repeat (apply hf <;> assumption)
+      repeat (apply SpanY.containsSpanY_refl)
+      apply hf <;> assumption
+  }
+
+/--
+info: 'Track.modifyContainedInSpan' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in #print axioms Track.modifyContainedInSpan
 
 /-- Set the pitch for each note in the span -/
 def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
-  t.modifyInSpan s (f := fun n =>
+  t.modifyOverlapSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with pitchName := p }
     })
 
 /-- Remove all notes that overlap with the span -/
-def Track.deleteNotesAtSpan (t : Track) (s : Span) : Track :=
-  t.modifyInSpan s (f := fun _ => none)
+def Track.deleteNotesContainedInSpan (t : Track) (s : Span) : Track :=
+  t.modifyContainedInSpan s (f := fun _ => none)
 
 
 /-- Toggle the accidental at the note. -/
 def Track.toggleAccidental (t : Track) (a : Accidental) (s : Span) : Track :=
-  t.modifyInSpan s (f := fun n =>
+  t.modifyOverlapSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with accidental := if n.userPitch.accidental = a then Accidental.natural else a }
     })
@@ -1218,7 +1241,7 @@ macro_rules
 -- TODO: write a note_omega tactic.
 /-- Decrease the duration of the note. -/
 def Track.decreaseDuration (t : Track) (s : Span) : Track :=
-  t.modifyInSpan s (f := fun n =>
+  t.modifyOverlapSpan s (f := fun n =>
     if hn : n.nsteps = 1
     then none
     else some { n with nsteps := n.nsteps - 1, hnsteps := by have hnsteps := n.hnsteps; omega })
@@ -1284,7 +1307,7 @@ theorem List.pairwise_concatMap_of_pairwise {α β : Type} {R : α → α → Pr
 structure Eased (α : Type) where
   cur : α
   desired : α
-deriving Inhabited, Repr
+deriving Inhabited, Repr, ToJson, FromJson
 
 def Eased.atDesired (d : α) : Eased α := { cur := d, desired := d }
 
@@ -1294,7 +1317,7 @@ def Eased.step [Add α] [Sub α] [HMul Float α α] (e : Eased α) : Eased α :=
 
 structure Clipboard where
   notes : List Note
-deriving Inhabited, Repr
+deriving Inhabited, Repr, ToJson, FromJson
 
 def Clipboard.empty : Clipboard := { notes := [] }
 
@@ -1305,26 +1328,48 @@ structure RawContext where
   renderX : Eased Float
   renderY : Eased Float
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
-deriving Inhabited, Repr
+deriving Inhabited, Repr, ToJson, FromJson
 
+
+@[simp]
+theorem Note.topLeft_toSpanY_eq_loc (n : Note) :
+    n.toSpanY.topLeft = n.loc := by aesop
+
+def Loc.sub (l : Loc) (delta : Loc) (hl : l.x ≥ delta.x ∧ l.y ≥ delta.y := by aesop) : Loc :=
+  { x := l.x - delta.x, y := l.y - delta.y }
+
+/--
+Copy the notes into the clipboard.
+In the clipboard, the notes are copied relative to the clipboard coordinate system.
+-/
 def Track.copy (t : Track) (s : Selection) : Clipboard :=
-  { notes := t.notes.filter (fun n => n.toSpanY.containsLoc s.cursor) }
+  let ns := t.notes.map? (fun n =>
+    if hn : s.toSpan.containsSpan n.toSpanY.toSpan
+    then some {
+      n with loc := n.loc.sub s.topLeft (by
+        have hn' := Span.topLeft_le_topLeft_of_containsSpan hn
+        simp at hn'
+        omega
+      )
+    }
+    else none)
+  { notes := ns }
 
 instance : Add Loc where
   add l1 l2 := { x := l1.x + l2.x, y := l1.y + l2.y }
 
--- def Track.paste (t : Track) (l : Loc) (c : Clipboard) : Track :=
---   let newNotes := c.notes.map (fun n =>
---     { n with loc := l + n.loc, hnsteps := n.hnsteps }
---   )
---   -- delete any notes that create overlaps.
---   let deletedNotes := t.notes.filter (fun n => c.notes.any (fun n' => n.loc = n'.loc))
---   { t with notes := newNotes ++ deletedNotes, hdisjoint := sorry }
 
 def Track.cut (t : Track) (s : Selection) : Clipboard × Track :=
   let c := t.copy s
-  let t := t.deleteNotesAtSpan s.toSpan
+  let t := t.deleteNotesContainedInSpan s.toSpan
   (c, t)
+
+/-- Makes space for the clipboard, and pastes notes at that location. -/
+-- def Track.paste (t : Track) (c : Clipboard) (l : Loc) : Track :=
+--   let ns := c.notes.map (fun n =>
+--     { n with loc := n.loc + l }
+--   )
+  -- { t with notes := t.notes ++ ns }
 
 def RawContext.empty : RawContext := {
     track := HistoryStack.init Track.empty,
@@ -1623,9 +1668,7 @@ end QuadraticSolver
 
 section Newline
 
-/-- A version that only splits, does no movement nonsense. -/
-def Track.splitBeforeYAuxAux (y : Nat) (ns : List Note) : List Note :=
-  ns.concatMap fun n =>
+def Track.splitNoteBeforeY (y : Nat) (n : Note) : List Note :=
     let (n1, n2) := n.splitBeforeY y
     match hmatch : n1, n2 with
     | none, none => []
@@ -1633,6 +1676,45 @@ def Track.splitBeforeYAuxAux (y : Nat) (ns : List Note) : List Note :=
     | some n1, none => [n1]
     | some n1, some n2 => [n1, n2]
 
+@[aesop safe forward]
+theorem Track.contains_of_splitNoteBeforeY {y : Nat} {n m : Note}
+    (hm : m ∈ Track.splitNoteBeforeY y n) : n.toSpanY.containsSpanY m.toSpanY := by
+  simp [Track.splitNoteBeforeY] at hm
+  split at hm <;> aesop
+
+@[aesop safe forward]
+theorem Track.disjoint_of_splitNoteBeforeY {y : Nat} {n : Note} :
+    List.Pairwise Note.disjoint (Track.splitNoteBeforeY y n) := by
+  simp [Track.splitNoteBeforeY]
+  split <;> aesop
+/-- A version that only splits, does no movement nonsense. -/
+def Track.splitNotesBeforeY (y : Nat) (ns : List Note) : List Note :=
+  ns.concatMap (Track.splitNoteBeforeY y)
+
+@[aesop safe forward]
+theorem Track.disjoint_of_splitNotesBeforeY {y : Nat} {ns : List Note}
+    {hns : ns.Pairwise Note.disjoint} : (Track.splitNotesBeforeY y ns).Pairwise Note.disjoint := by
+  simp [Track.splitNotesBeforeY]
+  apply List.pairwise_concatMap_of_pairwise
+  · intros a
+    aesop
+  · intros a b a' b' ha' hb' hab
+    simp
+    obtain ha' : a.toSpanY.containsSpanY a'.toSpanY := by
+      apply Track.contains_of_splitNoteBeforeY ha' -- TODO: aesop?
+    obtain hb' : b.toSpanY.containsSpanY b'.toSpanY := by
+      apply Track.contains_of_splitNoteBeforeY hb' -- TODO: aesop?
+    apply SpanY.disjoint_of_contains_of_contains ha' hb'
+    exact hab -- TODO: change argument order to prevent metavar
+  · exact hns
+
+/--
+If after splitting, the note contains the y position,
+then it must contain the entire note.
+ -/
+theorem Track.containsY_iff_toSpanY_bottom_le_of_mem_splitNoteBeforeY
+    (hm : m ∈ Track.splitNoteBeforeY y n) :
+    m.toSpanY.containsY y ↔ m.toSpanY.bottom ≤ y := by sorry -- HERE HERE E
 
 
 def resolverPushDown (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
@@ -1641,7 +1723,7 @@ def resolverPushDown (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
 
 /-- move all notes with n.y ≥ y to y + 1 -/
 def Track.insertNewlineAtAux (ns : List Note) (y : Nat) : Option { ns : List Note // ns.Pairwise Note.disjoint } :=
-  let ns := Track.splitBeforeYAuxAux y ns
+  let ns := Track.splitNotesBeforeY y ns
   let ns := ns.map (fun n => if n.loc.y < y then n else n.moveDownOne)
   QuadraticSolver.list_note_resolve_conflict resolverPushDown 100 ns
 
@@ -1805,13 +1887,6 @@ instance : Decidable (Span.containsY s y) := by
   simp [Span.containsY]
   infer_instance
 
-@[export monodrone_ctx_delete]
-def RawContext.delete (ctx : @&RawContext) : RawContext :=
-  { ctx with track :=
-    ctx.track.modifyForgettingFuture fun t =>
-      t.deleteNotesAtSpan ctx.cursor.cur.toSpan
-  }
-
 
 @[export monodrone_ctx_decrease_duration]
 def RawContext.decreaseDuration (ctx : @&RawContext) : RawContext :=
@@ -1838,7 +1913,7 @@ def RawContext.toggleFlat (ctx : @&RawContext) : RawContext :=
 def RawContext.lowerOctave (ctx : @&RawContext) : RawContext :=
   { ctx with
     track :=
-      ctx.track.modifyForgettingFuture fun t => t.modifyInSpan ctx.cursor.cur.toSpan
+      ctx.track.modifyForgettingFuture fun t => t.modifyOverlapSpan ctx.cursor.cur.toSpan
           (f := fun n => .some { n with userPitch := n.userPitch.lowerOctave })
           (hf := by
             intros n n' s hs hn'
@@ -1852,7 +1927,7 @@ def RawContext.lowerOctave (ctx : @&RawContext) : RawContext :=
 def RawContext.raiseOctave (ctx : @&RawContext) : RawContext :=
   { ctx with
     track :=
-      ctx.track.modifyForgettingFuture fun t => t.modifyInSpan ctx.cursor.cur.toSpan
+      ctx.track.modifyForgettingFuture fun t => t.modifyOverlapSpan ctx.cursor.cur.toSpan
           (f := fun n => .some { n with userPitch := n.userPitch.raiseOctave })
   }
 
@@ -1956,4 +2031,15 @@ def RawContext.undoMovement (ctx : @&RawContext) : RawContext :=
 @[export monodrone_ctx_redo_movement]
 def RawContext.redoMovement (ctx : @&RawContext) : RawContext :=
   { ctx with cursor := ctx.cursor.next }
+
+@[export monodrone_ctx_to_json_str]
+def RawContext.toJsonStr (ctx : @&RawContext) : String :=
+  s!"{ToJson.toJson ctx}"
+
+@[export monodrone_ctx_from_json]
+def RawContext.fromJson (s : @&String) : Except String RawContext :=
+  match FromJson.fromJson? s with
+  | Except.ok ctx => .ok ctx
+  | Except.error e => .error e
+
 end ffi
