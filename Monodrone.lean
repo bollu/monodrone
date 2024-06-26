@@ -1693,17 +1693,20 @@ theorem Note.contains_of_decreaseSteps (n m : Note) (hm : m ∈ n.decreaseSteps)
 
 @[export monodrone_ctx_delete_line]
 def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
-  {
-    ctx with
+  let cursor := ctx.cursor.cur.cursor
+  let ns := ctx.track.cur.notes
+  -- let cursor' := if ns.any (fun n => n.toSpanY.containsLoc cursor) then cursor.moveUpOne else cursor
+  { ctx with
     track := ctx.track.modifyForgettingFuture
       (fun t =>
-        let t := t.modifyInSpan (Span.atYSpanningX ctx.cursor.cur.cursor.y) (fun n => n.decreaseSteps) (fun n n' s hs hn' => by simp [Note.contains_of_decreaseSteps n n' hn'])
-        let ns := Track.splitBeforeYAuxAux ctx.cursor.cur.cursor.y t.notes
-        let ns := ns.map (fun n => if n.loc.y > ctx.cursor.cur.cursor.y then n.moveUpOne else n)
-        let t := t.resolveWithPushDown ns
+        let ns := ns.map? (fun n => if n.toSpanY.containsLoc cursor then n.decreaseSteps else n)
+        let ns := ns.map (fun n => if n.loc.y > cursor.y then n.moveUpOne else n)
+        let t := t.trySetNotes ns
         t
       )
+    -- cursor := ctx.cursor.setForgettingFuture { ctx.cursor.cur with cursor := cursor' }
   }
+
 -- /--This too is subtle, because we need to split the note that crosses the y. -/
 -- @[export monodrone_ctx_newline]
 set_option trace.aesop true in
@@ -1762,7 +1765,7 @@ def RawContext.dragDownOne (ctx : @&RawContext) : RawContext :=
         let ns := t.notes
         let cursor := ctx.cursor.cur
         let ns := ns.map (fun n => if n.toSpanY.containsLoc cursor.cursor then n.increaseNSteps else n)
-        let t := t.resolveWithPushDown ns
+        let t := t.trySetNotes ns
         t
       )
   }
@@ -1779,7 +1782,7 @@ def RawContext.dragUpOne (ctx : @&RawContext) : RawContext :=
         let ns := t.notes
         let cursor := ctx.cursor.cur
         let ns := ns.map (fun n => if cursor.cursor == n.loc then n.moveUpOne.increaseNSteps else n)
-        let t := t.resolveWithPushUp ns
+        let t := t.trySetNotes ns
         t
       )
   }
