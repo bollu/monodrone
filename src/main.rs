@@ -1,12 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::ffi::OsStr;
 use egui::epaint::text::cursor;
 use egui::Key;
 use ffi::{GetScreenHeight, GetScreenWidth};
 use lean_sys::{
     lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization,
 };
+use std::path::{Path, PathBuf};
 use rand::seq::SliceRandom; // 0.7.2
 use midi::Message::Start;
 use monodroneffi::PlayerNote;
@@ -418,10 +420,62 @@ impl Easer2d {
     }
 }
 
-fn isControlKeyPressed(rl : &RaylibHandle) -> bool {
+fn isControlKeyDown(rl : &RaylibHandle) -> bool {
     rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER) ||
     rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) ||
     rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
+}
+
+#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
+struct AppFilePath {
+    path : PathBuf,
+}
+
+impl AppFilePath {
+
+    fn new_whimsical(rl : &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
+        let mut filename = whimsical_file_name();
+        filename.push_str(".drn");
+        let mut out = env::current_exe().unwrap();
+        out.push(filename);
+        AppFilePath::_format_and_set_window_title(&out.as_path(), &rl, &thread);
+        AppFilePath {
+            path: out
+        }
+    }
+
+    fn parent_dir (&self) -> &Path {
+        self.path.parent().unwrap()
+    }
+
+
+    fn file_stem (&self) -> &OsStr {
+        self.path.file_stem().unwrap()
+    }
+
+    fn set_file_path(&mut self, rl : &RaylibHandle, thread : &RaylibThread,  path : &Path) {
+        self.path = path.to_path_buf();
+        AppFilePath::_format_and_set_window_title(&path, &rl, &thread);
+    }
+
+    fn _format_and_set_window_title (path : &Path, rl : &RaylibHandle, thread : &RaylibThread)  {
+        rl.set_window_title(thread, format!("monodrone ({})", path.to_string_lossy()).as_str())
+    }
+
+    fn get_str(&self) -> &str {
+        self.path.to_str().unwrap()
+    }
+}
+
+impl AsRef<Path> for AppFilePath {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+impl Into<String> for AppFilePath {
+    fn into(self) -> String {
+        self.get_str().to_string()
+    }
 }
 
 /// Module that performs the IO for the midi sequencer inside it.
@@ -569,6 +623,10 @@ fn mainLoop() {
     rl.set_target_fps(TARGET_FPS);
     let SCREEN_HEIGHT = rl.get_screen_height();
 
+    let mut cur_filepath : AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
+    event!(Level::INFO, "initial file path: {:?} | dir: {:?} | basename: {:?}",
+        cur_filepath, cur_filepath.parent_dir(), cur_filepath.file_stem());
+
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
     let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
 
@@ -629,7 +687,7 @@ fn mainLoop() {
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
 
-            if isControlKeyPressed(&rl) {
+            if isControlKeyDown(&rl) {
                 monodrone_ctx = monodroneffi::drag_down_one(monodrone_ctx);
                 // panic!("monodrone ctx drag down one");
             }
@@ -642,7 +700,7 @@ fn mainLoop() {
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
 
-            if isControlKeyPressed(&rl) {
+            if isControlKeyDown(&rl) {
                 monodrone_ctx = monodroneffi::drag_up_one(monodrone_ctx);
             }
 
@@ -697,24 +755,24 @@ fn mainLoop() {
         } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
             monodrone_ctx = monodroneffi::newline(monodrone_ctx);
             monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyPressed(&rl)) {
+        } else if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
+            // TODO: only open this with ctrl + shift + s.
             let saver_dialog = FileDialog::new()
                 .add_filter("monodrone", &["drn"])
                 .set_can_create_directories(true)
-                .set_file_name(whimsical_file_name())
+                .set_file_name(cur_filepath.file_stem().to_string_lossy())
+                .set_directory(cur_filepath.parent_dir())
                 .set_title("Save monodrone file location");
-
-            let saver_dialog = if let Result::Ok(dir) = env::current_exe() {
-                saver_dialog.set_directory(dir)
-            } else { saver_dialog };
 
             if let Option::Some(path) = saver_dialog.save_file() {
                 let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
                 // open file and write string.
                 event!(Level::INFO, "saving file to path {path:?}");
-                match File::create(path) {
+                match File::create(path.clone()) {
                     Ok(mut file) => {
                         file.write_all(str.as_bytes()).unwrap();
+                        cur_filepath.set_file_path(&rl, &thread, &path);
+
                     }
                     Err(e) => {
                         event!(Level::ERROR, "error saving file: {:?}", e);
@@ -723,25 +781,27 @@ fn mainLoop() {
             } else {
                 event!(Level::INFO, "no path selected for save");
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && isControlKeyPressed(&rl) {
+        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && isControlKeyDown(&rl) {
             let open_dialog = FileDialog::new()
                 .add_filter("monodrone", &["drn"])
                 .set_can_create_directories(true)
-                .set_title("Open monodrone file location");
-            let open_dialog = if let Result::Ok(dir) = env::current_exe() {
-                open_dialog.set_directory(dir)
-            } else { open_dialog };
+                .set_title("Open monodrone file location")
+                .set_directory(cur_filepath.parent_dir());
 
             if let Some(path) = open_dialog.pick_file() {
                 // open path and load string.
-                event!(Level::INFO, "loading file {path:?}");
-                match File::open(path) {
+                event!(Level::INFO, "loading file {cur_filepath:?}");
+                match File::open(path.clone()) {
                     Ok(file) => {
                         let reader = std::io::BufReader::new(file);
                         let str = std::io::read_to_string(reader).unwrap();
                         event!(Level::INFO, "loaded file data: {str}");
                         monodrone_ctx = match monodroneffi::ctx_from_json_str(str) {
-                            Ok(ctx) => ctx,
+                            Ok(new_ctx) => {
+                                cur_filepath.set_file_path(&rl, &thread, &path);
+                                new_ctx
+                            }
+
                             Err(e) => {
                                 rfd::MessageDialog::new()
                                 .set_level(rfd::MessageLevel::Error)
@@ -763,7 +823,7 @@ fn mainLoop() {
             } else {
                 event!(Level::INFO, "no path selected for open");
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && isControlKeyPressed(&rl) {
+        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && isControlKeyDown(&rl) {
             break;
         }
 
