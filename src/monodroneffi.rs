@@ -19,6 +19,8 @@ extern {
     fn monodrone_ctx_select_anchor_move_left_one(ctx: *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_select_anchor_move_right_one(ctx: *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_select_anchor_move_down_one(ctx: *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_drag_down_one(ctx: *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_drag_up_one(ctx: *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object;
     // note editing.
     fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64) -> *mut lean_object;
@@ -110,6 +112,14 @@ pub fn select_anchor_move_right_one(ctx: *mut lean_object) -> *mut lean_object {
 
 pub fn select_anchor_move_down_one(ctx: *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_select_anchor_move_down_one) }
+}
+
+pub fn drag_down_one(ctx: *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_drag_down_one) }
+}
+
+pub fn drag_up_one(ctx: *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_drag_up_one) }
 }
 
 pub fn select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object {

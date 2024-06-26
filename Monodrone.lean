@@ -1568,18 +1568,28 @@ variable (resolver : (n m : Note) → (hnm  : ¬ n.toSpanY.disjoint m.toSpanY) �
  { nm : Note × Note // nm.1.disjoint nm.2 })
 
 /-- Check if all notes in 'ns' is disjoint with 'n'. -/
-def check_all_disjoint (n : Note) (ns : List Note) :
+def check_all_disjointAux (n : Note) (ns : List Note) :
     Option { ms : List Note // (∀ m ∈ ms, n.toSpanY.disjoint m.toSpanY) ∧ ms = ns } :=
   match ns with
   | [] => some ⟨[], by aesop⟩
   | m :: ms =>
     if hnm : n.toSpanY.disjoint m.toSpanY
     then
-      match hms : check_all_disjoint n ms with
+      match hms : check_all_disjointAux n ms with
       | none => none
       | some ⟨ms', hms'⟩ => some ⟨m :: ms', by aesop⟩
     else none
 
+def check_all_disjoint (ns : List Note) : Option { ms : List Note // ns.Pairwise Note.disjoint ∧ ms = ns } :=
+  match ns with
+  | [] => some ⟨[], by aesop⟩
+  | n :: ns' =>
+    match check_all_disjointAux n ns' with
+    | none => none
+    | some ⟨ns'', hns''⟩ =>
+      match check_all_disjoint ns' with
+      | none => none
+      | some ⟨ns''', hns'''⟩ => some ⟨n :: ns''', by aesop⟩
 
 /--
 We implement a DPLL style algorithm where we detect conflicts,
@@ -1605,7 +1615,7 @@ def list_note_resolve_conflict (fuel : Nat) (ns : List Note) :
       match list_note_resolve_conflict fuel (m :: ns')  with
       | none => none
       | some ⟨ms'', hms''⟩ =>
-        match check_all_disjoint n ms'' with
+        match check_all_disjointAux n ms'' with
         | none => none
         | some ⟨ms''', hms'''⟩ => some ⟨n :: ms''', by aesop⟩
 
@@ -1625,7 +1635,7 @@ def Track.splitBeforeYAuxAux (y : Nat) (ns : List Note) : List Note :=
 
 
 
-def resolver (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
+def resolverPushDown (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
     { nm : Note × Note // nm.1.disjoint nm.2 } :=
   ⟨(n, { m with loc := ⟨m.loc.x, n.loc.y + n.nsteps⟩}), by simp [SpanY.disjoint, Note.toSpanY]⟩
 
@@ -1633,7 +1643,7 @@ def resolver (n m : Note) (_hnm : ¬ n.toSpanY.disjoint m.toSpanY) :
 def Track.insertNewlineAtAux (ns : List Note) (y : Nat) : Option { ns : List Note // ns.Pairwise Note.disjoint } :=
   let ns := Track.splitBeforeYAuxAux y ns
   let ns := ns.map (fun n => if n.loc.y < y then n else n.moveDownOne)
-  QuadraticSolver.list_note_resolve_conflict resolver 100 ns
+  QuadraticSolver.list_note_resolve_conflict resolverPushDown 100 ns
 
 
 /-- TODO: Still not the right behaviour, since it does not split notes at the cursor. -/
@@ -1648,10 +1658,21 @@ def RawContext.newlineSolver (ctx : @&RawContext) : RawContext :=
       )
   }
 
-def Track.mkWithQuadraticSolver  (default : Track) (ns : List Note) (fuel : Nat := ns.length * 2) : Track :=
-  match QuadraticSolver.list_note_resolve_conflict resolver fuel ns with
+
+def Track.resolveWithPushDown  (default : Track) (ns : List Note) (fuel : Nat := ns.length * 2) : Track :=
+  match QuadraticSolver.list_note_resolve_conflict resolverPushDown fuel ns with
   | none => default
   | some ⟨ns', hns'⟩ => { default with notes := ns', hdisjoint := hns' }
+
+def Track.resolveWithPushUp  (default : Track) (ns : List Note) : Track :=
+  match QuadraticSolver.check_all_disjoint ns with
+  | none => default
+  | some ⟨ns', hns'⟩ => { default with notes := ns', hdisjoint := by aesop }
+
+def Track.trySetNotes  (default : Track) (ns : List Note) : Track :=
+  match QuadraticSolver.check_all_disjoint ns with
+  | none => default
+  | some ⟨ns', hns'⟩ => { default with notes := ns', hdisjoint := by aesop }
 
 abbrev MAX_WIDTH : Nat := 100 -- TODO: make all width a Fin MAX_WIDTH.
 
@@ -1679,7 +1700,7 @@ def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
         let t := t.modifyInSpan (Span.atYSpanningX ctx.cursor.cur.cursor.y) (fun n => n.decreaseSteps) (fun n n' s hs hn' => by simp [Note.contains_of_decreaseSteps n n' hn'])
         let ns := Track.splitBeforeYAuxAux ctx.cursor.cur.cursor.y t.notes
         let ns := ns.map (fun n => if n.loc.y > ctx.cursor.cur.cursor.y then n.moveUpOne else n)
-        let t := t.mkWithQuadraticSolver ns
+        let t := t.resolveWithPushDown ns
         t
       )
   }
@@ -1730,6 +1751,41 @@ def RawContext.newlineVerified (ctx : @&RawContext) : RawContext :=
   }
 
 end Newline
+
+section DragDown
+
+@[export monodrone_ctx_drag_down_one]
+def RawContext.dragDownOne (ctx : @&RawContext) : RawContext :=
+  { ctx with
+    track := ctx.track.modifyForgettingFuture
+      (fun t =>
+        let ns := t.notes
+        let cursor := ctx.cursor.cur
+        let ns := ns.map (fun n => if n.toSpanY.containsLoc cursor.cursor then n.increaseNSteps else n)
+        let t := t.resolveWithPushDown ns
+        t
+      )
+  }
+
+end DragDown
+
+section DragUp
+
+@[export monodrone_ctx_drag_up_one]
+def RawContext.dragUpOne (ctx : @&RawContext) : RawContext :=
+  { ctx with
+    track := ctx.track.modifyForgettingFuture
+      (fun t =>
+        let ns := t.notes
+        let cursor := ctx.cursor.cur
+        let ns := ns.map (fun n => if cursor.cursor == n.loc then n.moveUpOne.increaseNSteps else n)
+        let t := t.resolveWithPushUp ns
+        t
+      )
+  }
+
+end DragUp
+
 
 @[export monodrone_ctx_set_pitch]
 def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=

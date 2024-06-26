@@ -329,6 +329,12 @@ impl Easer2d {
     }
 }
 
+fn isControlKeyPressed(rl : &RaylibHandle) -> bool {
+    rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER) ||
+    rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) ||
+    rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
+}
+
 /// Module that performs the IO for the midi sequencer inside it.
 /// Furthermore, it allows the track for the MIDI sequencer to be changed,
 /// as well as changing playback settings (e.g. part of sequencer to loop).
@@ -475,6 +481,7 @@ fn mainLoop() {
     let SCREEN_HEIGHT = rl.get_screen_height();
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
+    let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
 
     let mut cameraYEaser = Easer::new(0.0);
     let mut nowPlayingYEaser = Easer::new(0.0);
@@ -484,6 +491,7 @@ fn mainLoop() {
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
         debounceMovement.add_time_elapsed(time_elapsed);
+        debounceUndo.add_time_elapsed(time_elapsed);
 
         // Step 2: Get stuff to render
         if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
@@ -531,12 +539,24 @@ fn mainLoop() {
                 sequencer_io.restart(start_instant, (end_instant + 1), is_looping);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
+
+            if isControlKeyPressed(&rl) {
+                monodrone_ctx = monodroneffi::drag_down_one(monodrone_ctx);
+                // panic!("monodrone ctx drag down one");
+            }
+
+
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
+
+            if isControlKeyPressed(&rl) {
+                monodrone_ctx = monodroneffi::drag_up_one(monodrone_ctx);
+            }
+
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::select_anchor_move_up_one(monodrone_ctx);
             } else {
@@ -568,18 +588,13 @@ fn mainLoop() {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::A);
         } else if (rl.is_key_pressed(KeyboardKey::KEY_B)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)) {
-            if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
-            } else {
-                monodrone_ctx = monodroneffi::delete(monodrone_ctx);
-            }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_Z)) {
+        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_BACKSPACE))) {
+            monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
+        } else if (debounceUndo.debounce(rl.is_key_down(KeyboardKey::KEY_Z))) {
             // TODO: figure out how to get control key.
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
                 monodrone_ctx = monodroneffi::redo_action(monodrone_ctx);
             } else {
-                println!("undo");
                 monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
             }
         } else if (rl.is_key_pressed(KeyboardKey::KEY_THREE)) {
