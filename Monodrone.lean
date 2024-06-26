@@ -24,7 +24,7 @@ instance : ToJson Unit where
   instance : FromJson Unit where
     fromJson? j := match j with
     | Json.null => Except.ok ()
-    | _ => Except.error "expected null"
+    | _ => Except.error s!"expected null for unit, found {j}"
 /-
 Step: The smallest unit of time in a sequencer. Each step can be assigned a sound.
 Pattern: A sequence of steps forming a repeating musical phrase or loop.
@@ -46,9 +46,6 @@ def Pitch.raiseWhole (p : Pitch) : Pitch := { pitch := p.pitch + 2 }
 def Pitch.lowerWhole (p : Pitch) : Pitch := { pitch := p.pitch - 2 }
 
 def Note.lastNoteIx : Nat := 9999
-
-instance : ToJson Nat where
-  toJson n := toJson s!"{n}"
 
 structure Loc where
   x : Nat
@@ -2036,10 +2033,10 @@ def RawContext.redoMovement (ctx : @&RawContext) : RawContext :=
 def RawContext.toJsonStr (ctx : @&RawContext) : String :=
   s!"{ToJson.toJson ctx}"
 
-@[export monodrone_ctx_from_json]
-def RawContext.fromJson (s : @&String) : Except String RawContext :=
+@[export monodrone_ctx_from_json_str]
+def RawContext.fromJson (s : @&String) : RawContext :=
   match FromJson.fromJson? s with
-  | Except.ok ctx => .ok ctx
-  | Except.error e => .error e
+  | Except.ok ctx => ctx
+  | Except.error e => panic!(s!"unable to load, error: '{e}'. Raw JSON file: '{s}'")
 
 end ffi

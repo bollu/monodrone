@@ -1,6 +1,7 @@
 
 use std::collections::HashMap;
-use lean_sys::{lean_io_mark_end_initialization, lean_initialize_runtime_module, lean_box, lean_inc_ref, lean_object};
+use lean_sys::{lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object};
+use lean_sys;
 
 extern {
     pub fn initialize_Monodrone(builtin : u8, world : *mut lean_object) -> lean_object;
@@ -69,6 +70,8 @@ extern {
     fn monodrone_ctx_undo_movement (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_redo_movement (ctx : *mut lean_object) -> *mut lean_object;
 
+    fn monodrone_ctx_to_json_str (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_from_json_str (json_str : *mut lean_object) -> *mut lean_object;
 }
 
 /// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
@@ -182,6 +185,36 @@ pub fn newline (ctx : *mut lean_object) -> *mut lean_object {
 
 pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_line) }
+}
+
+
+// consumes the string.
+pub fn lean_str_to_String (lean_str : *mut lean_object) -> String {
+    let c_str = unsafe { lean_sys::lean_string_cstr(lean_str) };
+    let str = unsafe { std::ffi::CStr::from_ptr(c_str as *const i8).to_str().unwrap().to_string() };
+    unsafe { lean_sys::lean_dec_ref(lean_str); }
+    str
+}
+
+pub fn String_to_lean_str (string : String) -> *mut lean_object {
+    let c_str = std::ffi::CString::new(string).unwrap();
+    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
+}
+
+
+pub fn ctx_to_json_str (ctx : *mut lean_object) -> String {
+    unsafe {
+        let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
+        let str = lean_str_to_String(lean_str);
+        return str;
+    }
+}
+
+// TODO: implement Result.
+pub fn ctx_from_json_str (string : String) -> *mut lean_object {
+    let lean_str = String_to_lean_str(string);
+    let ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
+    ctx
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

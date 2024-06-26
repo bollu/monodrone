@@ -7,17 +7,21 @@ use ffi::{GetScreenHeight, GetScreenWidth};
 use lean_sys::{
     lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization,
 };
+use rand::seq::SliceRandom; // 0.7.2
 use midi::Message::Start;
 use monodroneffi::PlayerNote;
 use raylib::prelude::*;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
+use rfd::FileDialog;
+
 
 const GOLDEN_RATIO: f32 = 1.61803398875;
 
@@ -31,6 +35,91 @@ mod monodroneffi;
 
 use std::cmp::{self, max};
 
+
+fn whimsical_file_name() -> String {
+    let cool_nouns = vec![
+        "griffin",
+        "chimera",
+        "phoenix",
+        "dragon",
+        "unicorn",
+        "pegasus",
+        "sphinx",
+        "minotaur",
+        "centaur",
+        "tengu",
+        "kappa",
+        "kitsune",
+        "oni",
+        "yamauba",
+        "yokai",
+        "amaterasu",
+        "susano",
+    ];
+
+    let cool_adjectives = vec![
+        "golden",
+        "silver",
+        "crimson",
+        "azure",
+        "emerald",
+        "lunar",
+        "solar",
+        "celestial",
+        "earthly",
+        "mystic",
+        "fearsome",
+        "terrifying",
+        "magnificent",
+        "divine",
+        "sacred",
+        "profane",
+        "demonic",
+        "eldritch",
+        "sylvan",
+        "escathonic",
+        "cosmic",
+        "abyssal",
+        "infernal",
+    ];
+
+    // events-of-adjective-noun
+    // lighting-of-mystic-dragon
+    let events = vec![
+        "lighting",
+        "summoning",
+        "banishment",
+        "binding",
+        "unleashing",
+        "awakening",
+        "calling",
+        "sealing",
+        "unsealing",
+        "breaking",
+        "shattering",
+        "revealing",
+        "concealing",
+        "slaying",
+        "vanquishing",
+        "reanimation",
+        "resurrection",
+        "rebirth",
+        "spellcasting",
+        "hexing",
+        "cursing",
+    ];
+
+    // choose a random event, random adjective, random noun and concatenate them in kebab case
+    let mut rng = rand::thread_rng();
+    let random_event = events.choose(&mut rng).unwrap();
+    let random_adjective = cool_adjectives.choose(&mut rng).unwrap();
+    let random_noun = cool_nouns.choose(&mut rng).unwrap();
+
+    format!(
+        "{}-of-{}-{}",
+        random_event, random_adjective, random_noun
+    )
+}
 // TODO: read midi
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,17 +261,17 @@ impl MidiSequencer {
 
     fn process_and_render(&mut self, left: &mut [f32], right: &mut [f32]) {
         let new_instant = self.cur_instant + self.instant_delta;
-        event!(
-            Level::INFO,
-            "process_and_render cur({}) -> new({}) |
-             last rendered({}) | end({}) is_playing({}) | looping ({})",
-            self.cur_instant,
-            new_instant,
-            self.last_rendered_instant,
-            self.end_instant,
-            self.playing,
-            self.looping
-        );
+        // event!(
+        //     Level::INFO,
+        //     "process_and_render cur({}) -> new({}) |
+        //      last rendered({}) | end({}) is_playing({}) | looping ({})",
+        //     self.cur_instant,
+        //     new_instant,
+        //     self.last_rendered_instant,
+        //     self.end_instant,
+        //     self.playing,
+        //     self.looping
+        // );
 
         self.synthesizer.render(&mut left[0..], &mut right[0..]);
 
@@ -608,6 +697,63 @@ fn mainLoop() {
         } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
             monodrone_ctx = monodroneffi::newline(monodrone_ctx);
             monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyPressed(&rl)) {
+            let saver_dialog = FileDialog::new()
+                .add_filter("monodrone", &["drn"])
+                .set_can_create_directories(true)
+                .set_file_name(whimsical_file_name())
+                .set_title("Save monodrone file location");
+
+            let saver_dialog = if let Result::Ok(dir) = env::current_exe() {
+                saver_dialog.set_directory(dir)
+            } else { saver_dialog };
+
+            if let Option::Some(path) = saver_dialog.save_file() {
+                let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
+                // open file and write string.
+                event!(Level::INFO, "saving file to path {path:?}");
+                match File::create(path) {
+                    Ok(mut file) => {
+                        file.write_all(str.as_bytes()).unwrap();
+                    }
+                    Err(e) => {
+                        event!(Level::ERROR, "error saving file: {:?}", e);
+                    }
+                }
+            } else {
+                event!(Level::INFO, "no path selected for save");
+            }
+        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && isControlKeyPressed(&rl) {
+            let open_dialog = FileDialog::new()
+                .add_filter("monodrone", &["drn"])
+                .set_can_create_directories(true)
+                .set_title("Open monodrone file location");
+            let open_dialog = if let Result::Ok(dir) = env::current_exe() {
+                open_dialog.set_directory(dir)
+            } else { open_dialog };
+
+            if let Some(path) = open_dialog.pick_file() {
+                // open path and load string.
+                event!(Level::INFO, "loading file {path:?}");
+                match File::open(path) {
+                    Ok(file) => {
+                        let reader = std::io::BufReader::new(file);
+                        let str = std::io::read_to_string(reader).unwrap();
+                        event!(Level::INFO, "loaded file data: {str}");
+                        monodrone_ctx = monodroneffi::ctx_from_json_str(str);
+                        track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+                        selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+                        event!(Level::INFO, "loaded file!");
+                    }
+                    Err(e) => {
+                        event!(Level::ERROR, "error opening file: {:?}", e);
+                    }
+                }
+            } else {
+                event!(Level::INFO, "no path selected for open");
+            }
+        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && isControlKeyPressed(&rl) {
+            break;
         }
 
         // Step 3: Render
