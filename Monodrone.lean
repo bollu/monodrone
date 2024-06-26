@@ -19,12 +19,20 @@ open Lean Meta
 open Batteries
 
 instance : ToJson Unit where
-  toJson _ := toJson ""
+  toJson _ := Json.null
 
-  instance : FromJson Unit where
-    fromJson? j := match j with
-    | Json.null => Except.ok ()
-    | _ => Except.error s!"expected null for unit, found {j}"
+instance : FromJson Unit where
+  fromJson? j := match j with
+  | Json.null => Except.ok ()
+  | _ => Except.error s!"expected null for unit, found {j}"
+
+
+def jsonRoundtrip (α : Type) [Inhabited α] [FromJson α] [ToJson α] :=
+    (fromJson? (toJson (default : α)) : Except String α)
+
+def jsonRoundtrip' {α : Type} [Inhabited α] [FromJson α] [ToJson α] (a : α):=
+    (fromJson? (toJson (a)) : Except String α)
+
 /-
 Step: The smallest unit of time in a sequencer. Each step can be assigned a sound.
 Pattern: A sequence of steps forming a repeating musical phrase or loop.
@@ -36,7 +44,6 @@ structure Pitch where
   pitch : Nat
   junk : Unit := () -- workaround for https://github.com/leanprover/lean4/issues/4278
 deriving Inhabited, DecidableEq, Repr, ToJson, FromJson
-
 
 
 def Pitch.middleC : Pitch := { pitch := 60 }
@@ -53,6 +60,7 @@ structure Loc where
 deriving DecidableEq, Repr, Inhabited, ToJson, FromJson
 
 
+
 structure Span where
   topLeft : Loc
   width : Nat
@@ -60,11 +68,6 @@ structure Span where
   hwidth : width > 0
   hheight : height > 0
 deriving DecidableEq, Repr
-
-instance : ToJson Span where
-  toJson o :=
-    let data := (o.topLeft, o.width, o.height)
-    toJson data
 
 axiom json_parsing_is_safe {p : Prop} : p
 
@@ -79,24 +82,12 @@ instance : FromJson Span where
         hheight := json_parsing_is_safe
       }
 
+
 structure SpanY where
   x : Nat
   y : Nat
   height : Nat
   hheight : height > 0
-
-instance : ToJson SpanY where
-  toJson o := toJson (o.x, o.y, o.height)
-
-instance : FromJson SpanY where
-  fromJson? j :=
-    let data : Except String (Nat × Nat × Nat) := fromJson? j
-    data.map fun (x, y, h) => {
-        x := x,
-        y := y,
-        height := h,
-        hheight := json_parsing_is_safe
-      }
 
 def SpanY.toSpan (s : SpanY) : Span :=
   { topLeft := { x := s.x, y := s.y },
@@ -178,6 +169,7 @@ instance : Decidable (SpanY.containsLoc s ix) := by
   infer_instance
 
 
+
 def Loc.toSpanY (l : Loc) : SpanY := { x := l.x, y := l.y, height := 1, hheight := by decide }
 
 @[simp]
@@ -251,7 +243,7 @@ structure UserPitch where
   pitchName : PitchName
   accidental : Accidental
   octave : Nat
-deriving DecidableEq, Repr, ToJson, FromJson
+deriving DecidableEq, Repr, ToJson, FromJson, Inhabited
 
 def UserPitch.toPitch (p : UserPitch) : Pitch :=
   let pitch := match p.pitchName with
@@ -290,6 +282,7 @@ def UserPitch.ofPitchName (n : PitchName) : UserPitch := {
   octave := 4
 }
 
+
 /-- A Note with a location. -/
 structure Note where
   /-- the x axis location of the note. -/
@@ -304,7 +297,8 @@ deriving DecidableEq, Repr
 
 instance : ToJson Note where
   toJson o :=
-    toJson (o.loc, o.userPitch, o.nsteps)
+    let data : Loc × UserPitch × Nat := (o.loc, o.userPitch, o.nsteps)
+    toJson data
 
 instance : FromJson Note where
   fromJson? j :=
@@ -845,6 +839,7 @@ instance : LawfulDiffable α (NaiveDiff α) where
   vadd_reverse_reverse := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
   reverse_vsub := by simp [(· -ᵥ ·), (· +ᵥ ·), VAdd.vadd, Patchable.reverse]
 
+
 /--
 A data structure which maintains the history of a given type.
 past₂ ←p-  past₁ ←p- cur  -n→ c₁ -n→ c₂ ... -/
@@ -858,14 +853,16 @@ structure HistoryStack (α : Type) (δ : Type) where
   -- hninserts : ninserts ≥ historyPrev.length + historyNext.length + 1
 deriving Inhabited, Repr, ToJson, FromJson
 
-instance [Repr α] [Repr δ] : Repr (HistoryStack α δ) where
-  reprPrec h _ := "HistoryStack.mk " ++ repr h.historyPrev ++ " " ++ repr h.cur ++ " " ++ repr h.historyNext
 
 def HistoryStack.init {α : Type} (a : α) : HistoryStack α δ where
   historyPrev := []
   cur := a
   historyNext := []
   ninserts := 1
+
+-- #eval (FromJson.fromJson? (toJson (Foo.init : Foo Float (NaiveDiff Float))) : Except String (Foo Float (NaiveDiff Float)))
+-- #eval (FromJson.fromJson? (toJson (HistoryStack.init (40 : Float) (δ := NaiveDiff Float))) : Except String (HistoryStack Float (NaiveDiff Float)))
+
 
 def HistoryStack.prev (h : HistoryStack α δ) [Patchable α δ] : HistoryStack α δ :=
   match h.historyPrev with
@@ -1327,6 +1324,14 @@ structure RawContext where
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
 deriving Inhabited, Repr, ToJson, FromJson
 
+def interestingRawContext : RawContext where
+  track :=
+    HistoryStack.init (Track.addNoteAtLoc Track.empty PitchName.C { x := 0, y := 0 }) |>.setForgettingFuture
+      (Track.addNoteAtLoc (Track.addNoteAtLoc Track.empty PitchName.C { x := 0, y := 1 }) PitchName.C { x := 0, y := 2 })
+  clipboard := Clipboard.empty
+  cursor := HistoryStack.init Selection.atbegin
+  renderX := Eased.atDesired 10.0
+  renderY := Eased.atDesired 20.0
 
 @[simp]
 theorem Note.topLeft_toSpanY_eq_loc (n : Note) :
@@ -2034,8 +2039,8 @@ def RawContext.toJsonStr (ctx : @&RawContext) : String :=
   s!"{ToJson.toJson ctx}"
 
 @[export monodrone_ctx_from_json_str]
-def RawContext.fromJson (s : @&String) : RawContext :=
-  match FromJson.fromJson? s with
+def RawContext.fromJson (s : String) : RawContext :=
+  match Json.parse s >>= fromJson?  with
   | Except.ok ctx => ctx
   | Except.error e => panic!(s!"unable to load, error: '{e}'. Raw JSON file: '{s}'")
 
