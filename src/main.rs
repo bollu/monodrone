@@ -431,6 +431,7 @@ struct AppFilePath {
     path : PathBuf,
 }
 
+
 impl AppFilePath {
 
     fn new_whimsical(rl : &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
@@ -476,6 +477,30 @@ impl AsRef<Path> for AppFilePath {
 impl Into<String> for AppFilePath {
     fn into(self) -> String {
         self.to_string()
+    }
+}
+
+struct SequenceNumbered<T> {
+    seq: u64,
+    value: T,
+}
+
+impl <T> SequenceNumbered<T> {
+    fn new(value: T) -> Self {
+        Self {
+            seq: 0,
+            value: value,
+        }
+    }
+
+    fn update_seq(&mut self, seq : u64) -> bool {
+        let updated = seq != self.seq;
+        self.seq = seq;
+        return updated;
+    }
+
+    fn set_value(&mut self, value : T) {
+        self.value = value;
     }
 }
 
@@ -530,18 +555,10 @@ impl MidiSequencerIO {
         self.sequencer.lock().as_mut().unwrap().stop();
     }
 
-    fn increase_playback_rate(&mut self) {
+    fn set_playback_rate (&mut self, instant_delta : f32) {
         let mut seq_changer = self.sequencer.lock().unwrap();
-        seq_changer.instant_delta += 0.1;
-    }
+        seq_changer.instant_delta = instant_delta;
 
-    fn reduce_playback_rate(&mut self) {
-        let mut seq_changer = self.sequencer.lock().unwrap();
-        seq_changer.instant_delta -= 0.1;
-    }
-
-    fn get_playback_speed(&self) -> f32 {
-        self.sequencer.lock().as_ref().unwrap().instant_delta
     }
 
     fn restart(&mut self, start_instant: u64, end_instant: u64, looping: bool) {
@@ -585,13 +602,6 @@ fn mainLoop() {
         lean_io_mark_end_initialization();
     }
 
-    event!(Level::INFO, "creating context");
-    let mut monodrone_ctx = monodroneffi::new_context();
-
-    let mut track = monodroneffi::UITrack::from_lean(monodrone_ctx);
-    event!(Level::INFO, "track: {:?}", track);
-    let mut selection = monodroneffi::Selection::from_lean(monodrone_ctx);
-    event!(Level::INFO, "selection: {:?}", selection);
 
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
@@ -633,9 +643,18 @@ fn mainLoop() {
     rl.set_target_fps(TARGET_FPS);
     let SCREEN_HEIGHT = rl.get_screen_height();
 
+    event!(Level::INFO, "creating context");
     let mut cur_filepath : AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
     event!(Level::INFO, "initial file path: {:?} | dir: {:?} | basename: {:?}",
         cur_filepath, cur_filepath.parent_dir(), cur_filepath.file_stem());
+
+    let mut monodrone_ctx = monodroneffi::new_context(&cur_filepath.to_string());
+
+    let mut track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+    event!(Level::INFO, "track: {:?}", track);
+    let mut selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+    event!(Level::INFO, "selection: {:?}", selection);
+
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
     let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
@@ -644,6 +663,8 @@ fn mainLoop() {
     let mut nowPlayingYEaser = Easer::new(0.0);
     let mut cursorEaser = Easer2d::new(0.0, 0.0);
     let mut selectAnchorEaser = Easer2d::new(0.0, 0.0);
+
+    let mut sequencerPlaybackSpeed = SequenceNumbered::new(1.0 as f64);
     nowPlayingYEaser.damping = 0.5;
     while !rl.window_should_close() {
         let time_elapsed = rl.get_frame_time();
@@ -653,18 +674,26 @@ fn mainLoop() {
         // Step 2: Get stuff to render
         if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
             track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+            // TODO: bundle all this state update in a single place.
             println!("-> got new track {:?}", track);
         }
 
+        // for this particular case, the pattern doesn't make much sense.
+        // Still, it's nice to establish a pattern for future use.
+        if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(monodrone_ctx)) {
+            let new_speed = monodroneffi::get_playback_speed(monodrone_ctx);
+            sequencerPlaybackSpeed.set_value(new_speed);
+            sequencer_io.set_playback_rate(new_speed as f32);
+        }
         if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
             selection = monodroneffi::Selection::from_lean(monodrone_ctx);
             println!("-> got new selection");
         }
 
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
-            sequencer_io.reduce_playback_rate();
+            monodrone_ctx = monodroneffi::decrease_playback_speed(monodrone_ctx);
         } else if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
-            sequencer_io.increase_playback_rate();
+            monodrone_ctx = monodroneffi::increase_playback_speed(monodrone_ctx);
         } else if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
             if sequencer_io.is_playing() {
                 sequencer_io.stop();
@@ -704,7 +733,7 @@ fn mainLoop() {
 
 
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
+                // monodrone_ctx = monodroneffi::select_anchor_move_down_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
             }
@@ -715,19 +744,19 @@ fn mainLoop() {
             }
 
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::select_anchor_move_up_one(monodrone_ctx);
+                // monodrone_ctx = monodroneffi::select_anchor_move_up_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_H))) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::select_anchor_move_left_one(monodrone_ctx);
+                // monodrone_ctx = monodroneffi::select_anchor_move_left_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_L))) {
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
-                monodrone_ctx = monodroneffi::select_anchor_move_right_one(monodrone_ctx);
+                // monodrone_ctx = monodroneffi::select_anchor_move_right_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
             }
@@ -950,18 +979,29 @@ fn mainLoop() {
         let bottom_right_draw_x = cursor_draw_x.max(select_anchor_draw_x);
         let bottom_right_draw_y = cursor_draw_y.max(select_anchor_draw_y);
 
+        // if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
+        //     d.draw_rectangle(
+        //         top_left_draw_x as i32,
+        //         top_left_draw_y as i32,
+        //         logical_width_to_draw_width((cursorEaser.get().0 - selectAnchorEaser.get().0).abs() + 1.0) as i32,
+        //         logical_height_to_draw_height((cursorEaser.get().1 - selectAnchorEaser.get().1).abs() + 1.0) as i32,
+        //         BOX_SELECTED_BACKGROUND_COLOR,
+        //     );
+        // }
+
         for x in 0u64..8 {
             for y in 0u64..100 {
                 let draw_x = logical_x_to_draw_x(x as f32);
                 let draw_y = logical_y_to_draw_y(y as f32);
                 let draw_color = if x == selection.cursor_x && y == selection.cursor_y {
-                    BOX_CURSORED_COLOR
+                    // BOX_SELECTED_BACKGROUND_COLOR
+                    BOX_DESLECTED_COLOR
                 } else if top_left_draw_x <= draw_x
                     && (draw_x - bottom_right_draw_x) <= BOX_WIDTH / 5
                     && top_left_draw_y <= draw_y
                     && (draw_y - bottom_right_draw_y) <= BOX_HEIGHT / 5
                 {
-                    BOX_SELECTED_BACKGROUND_COLOR
+                    BOX_DESLECTED_COLOR
                 } else {
                     BOX_DESLECTED_COLOR
                 };
@@ -990,7 +1030,7 @@ fn mainLoop() {
         d.draw_rectangle(
             cursor_draw_x,
             cursor_draw_y,
-            BOX_WIDTH as i32,
+            (BOX_WIDTH * 2) / 10 as i32,
             BOX_HEIGHT as i32,
             BOX_CURSORED_COLOR,
         );
@@ -1041,7 +1081,7 @@ fn mainLoop() {
         );
 
         {
-            let text = format!("Playback Speed: {:.1}", sequencer_io.get_playback_speed());
+            let text = format!("Playback Speed: {:.1}", sequencerPlaybackSpeed.value);
             let width = d.measure_text(text.as_str(), 20);
             d.draw_text(
                 &text,

@@ -1279,7 +1279,7 @@ theorem List.mem?_concatMap {α β : Type} {f : α → List β} {b : β} {as : L
         right
         exact ih
 
-/-- Ask Alex what the correct coinductive theorem statement is. -/
+/-- Ask Alex what the correct coineuctive theorem statement is. -/
 theorem List.pairwise_concatMap_of_pairwise {α β : Type} {R : α → α → Prop} {S : β → β → Prop}
     {l : List α} {f : α → List β}
     (hfintra : ∀ {a : α}, Pairwise S (f a))
@@ -1315,7 +1315,27 @@ deriving Inhabited, Repr, ToJson, FromJson
 
 def Clipboard.empty : Clipboard := { notes := [] }
 
+
+structure SequenceNumbered (α : Type) where
+  val : α
+  sequenceNumber : Nat
+  junk : Unit := ()
+deriving Inhabited, Repr, ToJson, FromJson
+
+def SequenceNumbered.new (val : α) : SequenceNumbered α :=
+  { val := val, sequenceNumber := 42 }
+
+def SequenceNumbered.modify (s : SequenceNumbered α) (f : α → α) : SequenceNumbered α :=
+  { s with val := f s.val, sequenceNumber := s.sequenceNumber + 1 }
+
+def SequenceNumbered.get (s : SequenceNumbered α) : α := s.val
+
+instance : Coe (SequenceNumbered α) α where
+  coe s := s.val
+
 structure RawContext where
+  playbackSpeed : SequenceNumbered Float
+  filepath : String
   track : HistoryStack Track (NaiveDiff Track)
   clipboard : Clipboard
   cursor : HistoryStack Selection (NaiveDiff Selection)
@@ -1324,14 +1344,6 @@ structure RawContext where
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
 deriving Inhabited, Repr, ToJson, FromJson
 
-def interestingRawContext : RawContext where
-  track :=
-    HistoryStack.init (Track.addNoteAtLoc Track.empty PitchName.C { x := 0, y := 0 }) |>.setForgettingFuture
-      (Track.addNoteAtLoc (Track.addNoteAtLoc Track.empty PitchName.C { x := 0, y := 1 }) PitchName.C { x := 0, y := 2 })
-  clipboard := Clipboard.empty
-  cursor := HistoryStack.init Selection.atbegin
-  renderX := Eased.atDesired 10.0
-  renderY := Eased.atDesired 20.0
 
 @[simp]
 theorem Note.topLeft_toSpanY_eq_loc (n : Note) :
@@ -1366,21 +1378,6 @@ def Track.cut (t : Track) (s : Selection) : Clipboard × Track :=
   let t := t.deleteNotesContainedInSpan s.toSpan
   (c, t)
 
-/-- Makes space for the clipboard, and pastes notes at that location. -/
--- def Track.paste (t : Track) (c : Clipboard) (l : Loc) : Track :=
---   let ns := c.notes.map (fun n =>
---     { n with loc := n.loc + l }
---   )
-  -- { t with notes := t.notes ++ ns }
-
-def RawContext.empty : RawContext := {
-    track := HistoryStack.init Track.empty,
-    clipboard := Clipboard.empty,
-    cursor := HistoryStack.init Selection.atbegin,
-    renderX := Eased.atDesired 0.0,
-    renderY := Eased.atDesired 0.0,
-}
-
 def RawContext.step (ctx : RawContext) : RawContext :=
   { ctx with
     track := ctx.track.next,
@@ -1405,7 +1402,38 @@ We follow [json-c](https://json-c.github.io/json-c/json-c-0.17/doc/html/json__ob
 
 /-# Ctx -/
 @[export monodrone_ctx_new]
-def newContext (_ : Unit) : RawContext := RawContext.empty
+def newContext (filepath : String) : RawContext := {
+    track := HistoryStack.init Track.empty,
+    clipboard := Clipboard.empty,
+    cursor := HistoryStack.init Selection.atbegin,
+    renderX := Eased.atDesired 0.0,
+    renderY := Eased.atDesired 0.0,
+    filepath := filepath,
+    playbackSpeed := SequenceNumbered.new 0.5
+}
+
+/- # Filepath -/
+def monodrone_ctx_set_file_path (ctx : @&RawContext) (filepath : String) : RawContext :=
+  { ctx with filepath := filepath }
+def monodrone_ctx_get_file_path (ctx : @&RawContext) : String := ctx.filepath
+
+/- # Playback Speed -/
+
+@[export monodrone_ctx_get_playback_speed]
+def monodrone_ctx_get_playback_speed (ctx : @&RawContext) : Float :=
+  ctx.playbackSpeed
+
+@[export monodrone_ctx_decrease_playback_speed]
+def monodrone_ctx_decrease_playback_speed (ctx : @&RawContext) : RawContext :=
+  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => max 0.1 (v - 0.1)) }
+
+@[export monodrone_ctx_increase_playback_speed]
+def monodrone_ctx_increase_playback_speed (ctx : @&RawContext) : RawContext :=
+  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => min 0.1 (v + 0.1)) }
+
+@[export monodrone_ctx_get_playback_speed_sequence_number]
+def monodrone_ctx_get_playback_speed_sequence_number (ctx : @&RawContext) : UInt64 :=
+  ctx.playbackSpeed.sequenceNumber.toUInt64
 
 /-# Cursor Movement. -/
 
@@ -1779,16 +1807,21 @@ theorem Note.contains_of_decreaseSteps (n m : Note) (hm : m ∈ n.decreaseSteps)
 def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
   let cursor := ctx.cursor.cur.cursor
   let ns := ctx.track.cur.notes
-  -- let cursor' := if ns.any (fun n => n.toSpanY.containsLoc cursor) then cursor.moveUpOne else cursor
+  let deleted? := ns.any (fun n => n.toSpanY.containsLoc cursor)
+  let ns' := ns.filter (fun n => ¬ n.toSpanY.containsLoc cursor)
+  let cursor' := if deleted? then cursor else cursor.moveUpOne
   { ctx with
-    track := ctx.track.modifyForgettingFuture
-      (fun t =>
-        let ns := ns.map? (fun n => if n.toSpanY.containsLoc cursor then n.decreaseSteps else n)
-        let ns := ns.map (fun n => if n.loc.y > cursor.y then n.moveUpOne else n)
-        let t := t.trySetNotes ns
-        t
-      )
-    -- cursor := ctx.cursor.setForgettingFuture { ctx.cursor.cur with cursor := cursor' }
+    track := ctx.track.setForgettingFuture
+        { ctx.track.cur with
+          notes := ns'
+          hdisjoint := by
+            simp [ns', ns]
+            apply List.Pairwise.filter
+            apply ctx.track.cur.hdisjoint
+        }
+    cursor := ctx.cursor.setForgettingFuture
+      ({ ctx.cursor.cur with cursor := cursor' })
+
   }
 
 -- /--This too is subtle, because we need to split the note that crosses the y. -/

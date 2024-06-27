@@ -1,13 +1,13 @@
 
 use std::collections::HashMap;
-use lean_sys::{lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object};
+use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object, lean_unbox_float};
 use lean_sys;
 
 extern {
     pub fn initialize_Monodrone(builtin : u8, world : *mut lean_object) -> lean_object;
 
     // ctx.
-    fn monodrone_ctx_new (unit : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_new (path : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_step (ctx : *mut lean_object) -> *mut lean_object;
 
     // cursor movement.
@@ -73,6 +73,12 @@ extern {
     fn monodrone_ctx_to_json_str (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_from_json_str (json_str : *mut lean_object) -> *mut lean_object;
 
+
+    fn monodrone_ctx_get_playback_speed_sequence_number (ctx : *mut lean_object) -> u64;
+    fn monodrone_ctx_get_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
+
     fn lean_io_error_to_string (io_obj : *mut lean_object) -> *mut lean_object;
 }
 
@@ -84,12 +90,31 @@ pub fn monodrone_ctx_run_linear_fn<T> (ctx : *mut lean_object, f : unsafe extern
     }
 }
 
+// consumes the string.
+pub fn lean_str_to_String (lean_str : *mut lean_object) -> String {
+    let c_str = unsafe { lean_sys::lean_string_cstr(lean_str) };
+    let str = unsafe { std::ffi::CStr::from_ptr(c_str as *const i8).to_str().unwrap().to_string() };
+    unsafe { lean_sys::lean_dec_ref(lean_str); }
+    str
+}
+
+pub fn String_to_lean_str (string : String) -> *mut lean_object {
+    let c_str = std::ffi::CString::new(string).unwrap();
+    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
+}
+
+pub fn str_to_lean_str (string : &str) -> *mut lean_object {
+    let c_str = std::ffi::CString::new(string).unwrap();
+    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
+}
+
+
 // # Ctx function wrappers.
 pub fn initialize() -> () {
     unsafe { initialize_Monodrone(1, lean_box(0)) };
 }
-pub fn new_context() -> *mut lean_object {
-    unsafe { monodrone_ctx_new(lean_box(0)) }
+pub fn new_context(path : &str) -> *mut lean_object {
+    unsafe { monodrone_ctx_new(str_to_lean_str(path)) }
 }
 
 // cursor movement.
@@ -190,20 +215,6 @@ pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
 }
 
 
-// consumes the string.
-pub fn lean_str_to_String (lean_str : *mut lean_object) -> String {
-    let c_str = unsafe { lean_sys::lean_string_cstr(lean_str) };
-    let str = unsafe { std::ffi::CStr::from_ptr(c_str as *const i8).to_str().unwrap().to_string() };
-    unsafe { lean_sys::lean_dec_ref(lean_str); }
-    str
-}
-
-pub fn String_to_lean_str (string : String) -> *mut lean_object {
-    let c_str = std::ffi::CString::new(string).unwrap();
-    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
-}
-
-
 pub fn ctx_to_json_str (ctx : *mut lean_object) -> String {
     unsafe {
         let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
@@ -230,6 +241,31 @@ pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
         }
     }
 }
+
+pub fn get_playback_speed_sequence_number (ctx : *mut lean_object) -> u64 {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_playback_speed_sequence_number) }
+}
+
+pub fn get_playback_speed (ctx : *mut lean_object) -> f64 {
+    unsafe {
+        let obj =  monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_playback_speed);
+        let out = lean_unbox_float(obj);
+        lean_dec_ref(obj);
+        out
+    }
+
+}
+pub fn increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_playback_speed) }
+
+
+}
+pub fn decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_playback_speed) }
+
+
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerNote {
