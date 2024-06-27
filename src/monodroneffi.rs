@@ -1,7 +1,10 @@
 
 use std::collections::HashMap;
 use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object, lean_unbox_float};
+use midly;
 use lean_sys;
+
+use crate::{track_get_note_events_at_time, NoteEvent};
 
 extern {
     pub fn initialize_Monodrone(builtin : u8, world : *mut lean_object) -> lean_object;
@@ -307,6 +310,8 @@ impl PlayerTrack {
 
 }
 
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackBuilder {
     notes: Vec<PlayerNote>,
@@ -350,6 +355,129 @@ impl TrackBuilder {
 impl From<TrackBuilder> for PlayerTrack {
     fn from(builder: TrackBuilder) -> Self {
         PlayerTrack { notes: builder.notes }
+    }
+}
+
+// MIDI_sample from wikimedia.
+// https://en.wikipedia.org/wiki/File:MIDI_sample.mid?qsrc=3044
+// >>> mid = mido.MidiFile("MIDI_sample.mid")
+// >>> mid
+// MidiFile(type=1, ticks_per_beat=480, tracks=[
+//   MidiTrack([
+//     MetaMessage('track_name', name='Wikipedia MIDI (extended)', time=0),
+//     MetaMessage('set_tempo', tempo=500000, time=0),
+//     MetaMessage('time_signature', numerator=4, denominator=4, clocks_per_click=24, notated_32nd_notes_per_beat=8, time=0),
+//     MetaMessage('end_of_track', time=0)]),
+//   MidiTrack([
+//     MetaMessage('track_name', name='Bass', time=0),
+//     Message('control_change', channel=0, control=0, value=121, time=0),
+//     Message('control_change', channel=0, control=32, value=0, time=0),
+//     Message('program_change', channel=0, program=33, time=0),
+//     Message('note_on', channel=0, note=45, velocity=78, time=0),
+//     Message('note_off', channel=0, note=45, velocity=64, time=256),
+//     ...
+// Message('note_on', channel=2, note=64, velocity=0, time=26),
+// Message('note_on', channel=2, note=57, velocity=0, time=515),
+// MetaMessage('end_of_track', time=0)])//
+
+impl PlayerTrack {
+    pub fn to_smf(&self) -> (midly::Header, Vec<midly::Track>) {
+        let header = midly::Header {
+            format: midly::Format::Parallel,
+            timing: midly::Timing::Metrical(midly::num::u15::from_int_lossy(480)),
+        };
+
+        let mut meta_track = midly::Track::new();
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName("Wikipedia MIDI (extended)".as_bytes())),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(midly::num::u24::from_int_lossy(500000))),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TimeSignature(
+                4, // numerator: 4,
+                4, // denominator: 4,
+                24, // metronome: 24,
+                8, // thirty_seconds: 8,
+            )),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
+        });
+
+        // TODO: consider adding a track that has metadata.
+        let mut track = midly::Track::new();
+
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName("Bass".as_bytes())),
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::Controller {
+                    controller: 0.into(), // select patch.
+                    value: 121.into(),
+                },
+            },
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::Controller {
+                    controller: 32.into(), // controller LSB?
+                    value: 0.into(),
+                },
+            },
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::ProgramChange {
+                    program: 0.into(), // grand piano
+                },
+            },
+        });
+
+
+        let mut max_time = 0;
+        for note in &self.notes {
+            let start = note.start;
+            let end = note.start + note.nsteps;
+            max_time = max_time.max(end);
+        }
+        let TIME_DELTA : u32 = 120;
+        for t in 0..max_time+1 {
+            let player_notes = track_get_note_events_at_time(&self, t);
+            // vv why does it think it's borrowed lol?
+            // TODO: figure out why I need a clone()
+            for (i, player_note) in player_notes.iter().enumerate() {
+                let time_delta = (if i == 0 { TIME_DELTA } else { 0 }).into();
+                let midi_message = player_note.to_midi_message();
+                let midi_note = midly::TrackEventKind::Midi {
+                    channel : 0.into(),
+                    message : midi_message
+                };
+                track.push(midly::TrackEvent {
+                    delta: time_delta,
+                    kind: midi_note
+                });
+            }
+        };
+
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
+        });
+        return (header.clone(), vec![meta_track, track]);
     }
 }
 

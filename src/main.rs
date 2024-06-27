@@ -1,31 +1,33 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use std::ffi::OsStr;
+use directories::{BaseDirs, ProjectDirs, UserDirs};
 use egui::epaint::text::cursor;
 use egui::Key;
 use ffi::{GetScreenHeight, GetScreenWidth};
 use lean_sys::{
     lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization,
 };
-use directories::{BaseDirs, UserDirs, ProjectDirs};
+use midly::Smf; // add export to midi option.
+use muda::Menu;
+use std::ffi::OsStr; // https://github.com/tauri-apps/muda
 
-use std::path::{Path, PathBuf};
-use rand::seq::SliceRandom; // 0.7.2
 use midi::Message::Start;
-use monodroneffi::PlayerNote;
+use monodroneffi::{PlayerNote, TrackBuilder};
+use rand::seq::SliceRandom; // 0.7.2
+use raylib::ffi::Image;
 use raylib::prelude::*;
+use rfd::FileDialog;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
-use rfd::FileDialog;
-use raylib::ffi::Image;
 
 const GOLDEN_RATIO: f32 = 1.61803398875;
 
@@ -38,7 +40,6 @@ use tracing_subscriber::layer::SubscriberExt;
 mod monodroneffi;
 
 use std::cmp::{self, max};
-
 
 fn whimsical_file_name() -> String {
     let cool_nouns = vec![
@@ -119,10 +120,7 @@ fn whimsical_file_name() -> String {
     let random_adjective = cool_adjectives.choose(&mut rng).unwrap();
     let random_noun = cool_nouns.choose(&mut rng).unwrap();
 
-    format!(
-        "{}-of-{}-{}",
-        random_event, random_adjective, random_noun
-    )
+    format!("{}-of-{}-{}", random_event, random_adjective, random_noun)
 }
 // TODO: read midi
 
@@ -144,6 +142,32 @@ impl NoteEvent {
         match self {
             NoteEvent::NoteOn { pitch, .. } => *pitch,
             NoteEvent::NoteOff { pitch, .. } => *pitch,
+        }
+    }
+
+    // fn to_midi_message(self) -> midly::MidiMessage {
+    //     match self {
+    //         NoteEvent::NoteOn { pitch, .. } => midly::TrackEventKind::Midi {
+    //             channel: midly::num::u4::from_int_lossy(0),
+    //             message: midly::MidiMessage::NoteOn {
+    //                 key: midly::num::u7::from_int_lossy(pitch),
+    //                 vel: midly::num::u7::from_int_lossy(100),
+    //             },
+    //         },
+    fn to_midi_message(self) -> midly::MidiMessage {
+        match self {
+            NoteEvent::NoteOn { pitch, .. } =>  {
+                midly::MidiMessage::NoteOn {
+                    key: midly::num::u7::from_int_lossy(pitch),
+                    vel: midly::num::u7::from_int_lossy(100),
+                }
+            },
+            NoteEvent::NoteOff { pitch, .. } =>  {
+                midly::MidiMessage::NoteOff {
+                    key: midly::num::u7::from_int_lossy(pitch),
+                    vel: midly::num::u7::from_int_lossy(100),
+                }
+            }
         }
     }
 }
@@ -279,7 +303,7 @@ impl MidiSequencer {
 
         self.synthesizer.render(&mut left[0..], &mut right[0..]);
 
-        if (!self.playing) {
+        if !self.playing {
             return;
         }
 
@@ -343,9 +367,7 @@ impl Debouncer {
 
     fn debounce(&mut self, val: bool) -> bool {
         let out = val && (self.time_to_next_event > self.debounce_time_sec);
-        if (out) {
-            self.time_to_next_event = 0.0;
-        }
+        if out { self.time_to_next_event = 0.0; }
         return out;
     }
 }
@@ -373,7 +395,7 @@ impl Easer {
         self.target = value;
     }
 
-    fn step(&mut self, dt: f32) {
+    fn step(&mut self, _dt: f32) {
         if (self.target - self.cur).abs() > 100.0 {
             self.cur = self.target;
         }
@@ -416,59 +438,63 @@ impl Easer2d {
         self.target_y = y;
     }
 
-    fn step(&mut self, dt: f32) {
+    fn step(&mut self, _dt: f32) {
         self.cur_x = self.cur_x + ((self.target_x - self.cur_x) * self.damping);
         self.cur_y = self.cur_y + ((self.target_y - self.cur_y) * self.damping);
     }
 }
 
-fn isControlKeyDown(rl : &RaylibHandle) -> bool {
-    rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER) ||
-    rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) ||
-    rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
+fn is_control_key_down(rl: &RaylibHandle) -> bool {
+    rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER)
+        || rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+        || rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
 }
 
-fn isShiftDown(rl : &RaylibHandle) -> bool {
-    rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) ||
-    rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT)
+fn is_shift_key_down(rl: &RaylibHandle) -> bool {
+    rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) || rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT)
 }
 
 #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 struct AppFilePath {
-    path : PathBuf,
+    path: PathBuf,
 }
 
-
 impl AppFilePath {
-
-    fn new_whimsical(rl : &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
+    fn new_whimsical(rl: &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
         let mut filename = whimsical_file_name();
         filename.push_str(".drn");
         let mut out = env::current_exe().unwrap();
         out.pop();
         out.push(filename);
         AppFilePath::_format_and_set_window_title(&out.as_path(), &rl, &thread);
-        AppFilePath {
-            path: out
-        }
+        AppFilePath { path: out }
     }
 
-    fn parent_dir (&self) -> &Path {
+    fn parent_dir(&self) -> &Path {
         self.path.parent().unwrap()
     }
 
-
-    fn file_stem (&self) -> &OsStr {
+    fn file_stem(&self) -> &OsStr {
         self.path.file_stem().unwrap()
     }
 
-    fn set_file_path(&mut self, rl : &RaylibHandle, thread : &RaylibThread,  path : &Path) {
+    fn set_file_path(&mut self, rl: &RaylibHandle, thread: &RaylibThread, path: &Path) {
         self.path = path.to_path_buf();
         AppFilePath::_format_and_set_window_title(&path, &rl, &thread);
     }
 
-    fn _format_and_set_window_title (path : &Path, rl : &RaylibHandle, thread : &RaylibThread)  {
-        rl.set_window_title(thread, format!("monodrone ({})", path.to_string_lossy()).as_str())
+    fn get_export_file_path(&self) -> PathBuf {
+        let mut out = self.path.clone();
+        out.pop();
+        out.push(self.file_stem().to_string_lossy().to_string() + ".mid");
+        out
+    }
+
+    fn _format_and_set_window_title(path: &Path, rl: &RaylibHandle, thread: &RaylibThread) {
+        rl.set_window_title(
+            thread,
+            format!("monodrone ({})", path.to_string_lossy()).as_str(),
+        )
     }
 
     fn to_string(&self) -> String {
@@ -493,7 +519,7 @@ struct SequenceNumbered<T> {
     value: T,
 }
 
-impl <T> SequenceNumbered<T> {
+impl<T> SequenceNumbered<T> {
     fn new(value: T) -> Self {
         Self {
             seq: 0,
@@ -501,17 +527,16 @@ impl <T> SequenceNumbered<T> {
         }
     }
 
-    fn update_seq(&mut self, seq : u64) -> bool {
+    fn update_seq(&mut self, seq: u64) -> bool {
         let updated = seq != self.seq;
         self.seq = seq;
         return updated;
     }
 
-    fn set_value(&mut self, value : T) {
+    fn set_value(&mut self, value: T) {
         self.value = value;
     }
 }
-
 
 /// Module that performs the IO for the midi sequencer inside it.
 /// Furthermore, it allows the track for the MIDI sequencer to be changed,
@@ -564,10 +589,9 @@ impl MidiSequencerIO {
         self.sequencer.lock().as_mut().unwrap().stop();
     }
 
-    fn set_playback_rate (&mut self, instant_delta : f32) {
+    fn set_playback_rate(&mut self, instant_delta: f32) {
         let mut seq_changer = self.sequencer.lock().unwrap();
         seq_changer.instant_delta = instant_delta;
-
     }
 
     fn restart(&mut self, start_instant: u64, end_instant: u64, looping: bool) {
@@ -611,7 +635,6 @@ fn mainLoop() {
         lean_io_mark_end_initialization();
     }
 
-
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
     // Load the SoundFont.
@@ -642,9 +665,11 @@ fn mainLoop() {
     unsafe {
         let file_data = include_bytes!("../favicon.ico");
         let filetype = "ico";
-        let ico = raylib::ffi::LoadImageFromMemory(filetype.as_ptr() as *const i8,
+        let ico = raylib::ffi::LoadImageFromMemory(
+            filetype.as_ptr() as *const i8,
             file_data.as_ptr() as *const u8,
-            file_data.len() as i32);
+            file_data.len() as i32,
+        );
         raylib::ffi::SetWindowIcon(ico);
     };
 
@@ -653,9 +678,14 @@ fn mainLoop() {
     let SCREEN_HEIGHT = rl.get_screen_height();
 
     event!(Level::INFO, "creating context");
-    let mut cur_filepath : AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
-    event!(Level::INFO, "initial file path: {:?} | dir: {:?} | basename: {:?}",
-        cur_filepath, cur_filepath.parent_dir(), cur_filepath.file_stem());
+    let mut cur_filepath: AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
+    event!(
+        Level::INFO,
+        "initial file path: {:?} | dir: {:?} | basename: {:?}",
+        cur_filepath,
+        cur_filepath.parent_dir(),
+        cur_filepath.file_stem()
+    );
 
     let mut monodrone_ctx = monodroneffi::new_context(&cur_filepath.to_string());
 
@@ -664,6 +694,37 @@ fn mainLoop() {
     let mut selection = monodroneffi::Selection::from_lean(monodrone_ctx);
     event!(Level::INFO, "selection: {:?}", selection);
 
+    // let menu = muda::Menu::new();
+    // let menu_item2 = muda::MenuItem::new("Menu item #2", false, None);
+    // let submenu = muda::Submenu::with_items(
+    //     "Submenu Outer",
+    //     true,
+    //     &[
+    //         &muda::MenuItem::new(
+    //             "Menu item #1",
+    //             true,
+    //             Some(muda::accelerator::Accelerator::new(
+    //                 Some(muda::accelerator::Modifiers::ALT),
+    //                 muda::accelerator::Code::KeyD,
+    //             )),
+    //         ),
+    //         //   &muda::MenuItemKind::Predefined::MenuItem::separator(),
+    //         &menu_item2,
+    //         &muda::MenuItem::new("Menu item #3", true, None),
+    //         //   &muda::Predefinedmuda::MenuItem::separator(),
+    //         //   &muda::Submenu::with_items("Submenu Inner", true,&[
+    //         //     &muda::MenuItem::new("Submenu item #1", true, None),
+    //         //     &muda::PredefinedMenuItem::separator(),
+    //         //     &menu_item2,
+    //         //   ])
+    //     ],
+    // );
+    // #[cfg(target_os = "windows")]
+    // menu.init_for_hwnd(window.hwnd() as isize);
+    // #[cfg(target_os = "linux")]
+    // menu.init_for_gtk_window(&gtk_window, Some(&vertical_gtk_box));
+    // #[cfg(target_os = "macos")]
+    // menu.init_for_nsapp();
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
     let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
@@ -689,7 +750,9 @@ fn mainLoop() {
 
         // for this particular case, the pattern doesn't make much sense.
         // Still, it's nice to establish a pattern for future use.
-        if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(monodrone_ctx)) {
+        if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(
+            monodrone_ctx,
+        )) {
             let new_speed = monodroneffi::get_playback_speed(monodrone_ctx);
             sequencerPlaybackSpeed.set_value(new_speed);
             sequencer_io.set_playback_rate(new_speed as f32);
@@ -707,8 +770,8 @@ fn mainLoop() {
             if sequencer_io.is_playing() {
                 sequencer_io.stop();
             } else {
-                sequencer_io.set_track(track.to_player_track().clone());
-                let is_looping = isShiftDown(&rl);
+                sequencer_io.set_track(track.clone().to_player_track());
+                let is_looping = is_shift_key_down(&rl);
 
                 let start_instant = if is_looping {
                     cmp::min(
@@ -716,7 +779,7 @@ fn mainLoop() {
                         track.get_last_instant() as u64,
                     )
                 } else {
-                    if isShiftDown(&rl) {
+                    if is_shift_key_down(&rl) {
                         selection.cursor_y as u64
                     } else {
                         0
@@ -734,8 +797,7 @@ fn mainLoop() {
                 sequencer_io.restart(start_instant, (end_instant + 1), is_looping);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
-
-            if isShiftDown(&rl) {
+            if is_shift_key_down(&rl) {
                 monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 2);
                 // monodrone_ctx = monodroneffi::drag_down_one(monodrone_ctx);
                 // panic!("monodrone ctx drag down one");
@@ -743,32 +805,29 @@ fn mainLoop() {
                 monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
-            if isShiftDown(&rl) {
+            if is_shift_key_down(&rl) {
                 monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 3);
                 // monodrone_ctx = monodroneffi::drag_up_one(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_H))) {
-            if (isShiftDown(&rl)) {
+            if (is_shift_key_down(&rl)) {
                 monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 1);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
             }
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_L))) {
-            if (isShiftDown(&rl)) {
+            if (is_shift_key_down(&rl)) {
                 monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 4);
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
             }
-        }
-        else if rl.is_key_pressed(KeyboardKey::KEY_Q){
+        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) {
             monodrone_ctx = monodroneffi::decrease_nsteps(monodrone_ctx);
-        }
-        else if rl.is_key_pressed(KeyboardKey::KEY_W) {
+        } else if rl.is_key_pressed(KeyboardKey::KEY_W) {
             monodrone_ctx = monodroneffi::increase_nsteps(monodrone_ctx);
-        }
-        else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+        } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
         } else if (rl.is_key_pressed(KeyboardKey::KEY_D)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);
@@ -783,15 +842,14 @@ fn mainLoop() {
         } else if (rl.is_key_pressed(KeyboardKey::KEY_B)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_BACKSPACE))) {
-
-            if (isShiftDown(&rl)) {
+            if (is_shift_key_down(&rl)) {
                 monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::delete_note(monodrone_ctx);
             }
         } else if (debounceUndo.debounce(rl.is_key_down(KeyboardKey::KEY_Z))) {
             // TODO: figure out how to get control key.
-            if (isShiftDown(&rl)) {
+            if (is_shift_key_down(&rl)) {
                 monodrone_ctx = monodroneffi::redo_action(monodrone_ctx);
             } else {
                 monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
@@ -807,26 +865,72 @@ fn mainLoop() {
         } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
             monodrone_ctx = monodroneffi::newline(monodrone_ctx);
             monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
-        }
-        else if (!isShiftDown(&rl) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
+        } else if (!is_shift_key_down(&rl)
+            && rl.is_key_pressed(KeyboardKey::KEY_S)
+            && is_control_key_down(&rl))
+        {
             // c-s for save.
             let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
-            event!(Level::INFO, "saving file to path {}", cur_filepath.to_string());
+            event!(Level::INFO, "saving file to path: '{}'", cur_filepath.to_string());
             match File::create(cur_filepath.path.as_path()) {
                 Ok(mut file) => {
                     file.write_all(str.as_bytes()).unwrap();
+                    event!(Level::INFO, "Successfully saved '{}'", cur_filepath.to_string());
+
                 }
                 Err(e) => {
                     event!(Level::ERROR, "Error saving file: {:?}", e);
                     rfd::MessageDialog::new()
-                    .set_level(rfd::MessageLevel::Error)
-                    .set_title(format!("Unable to save file to path '{}'.", cur_filepath.to_string()))
-                    .set_description(e.to_string())
-                    .show();
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title(format!(
+                            "Unable to save file to path '{}'.",
+                            cur_filepath.to_string()
+                        ))
+                        .set_description(e.to_string())
+                        .show();
+                }
+            };
+            let midi_filepath = cur_filepath.get_export_file_path();
+            let midi_file = match File::create(midi_filepath.clone()) {
+                Ok(file) => file,
+                Err(e) => {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title("Unable to create MIDI file")
+                        .set_description(e.to_string())
+                        .show();
+                    event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+                    return;
+                }
+            };
+            let player_track = track.to_player_track();
+            let (header, tracks) = player_track.to_smf();
+            match midly::write_std(&header, tracks.iter(), midi_file) {
+                Ok(()) => {
+                    event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
+                }
+                Err(e) => {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title("Unable to save MIDI file")
+                        .set_description(&e.to_string())
+                        .show();
+                    event!(Level::ERROR, "error writing MIDI file: {:?}", e);
                 }
             }
-        }
-        else if (isShiftDown(&rl) && rl.is_key_pressed(KeyboardKey::KEY_S) && isControlKeyDown(&rl)) {
+
+        } else if is_shift_key_down(&rl)
+            && rl.is_key_pressed(KeyboardKey::KEY_E)
+            && is_control_key_down(&rl) {
+            // TODO: export to MIDI.
+        } else if is_shift_key_down(&rl)
+            && rl.is_key_pressed(KeyboardKey::KEY_I)
+            && is_control_key_down(&rl) {
+            // TODO: import MIDI to monodrone.
+        } else if is_shift_key_down(&rl)
+            && rl.is_key_pressed(KeyboardKey::KEY_S)
+            && is_control_key_down(&rl)
+        {
             // TODO: only open this with ctrl + shift + s.
             let saver_dialog = FileDialog::new()
                 .add_filter("monodrone", &["drn"])
@@ -843,16 +947,49 @@ fn mainLoop() {
                     Ok(mut file) => {
                         file.write_all(str.as_bytes()).unwrap();
                         cur_filepath.set_file_path(&rl, &thread, &path);
-
                     }
                     Err(e) => {
-                        event!(Level::ERROR, "error saving file: {:?}", e);
+                        rfd::MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Unable to save monodrone file")
+                            .set_description(&e.to_string())
+                            .show();
+                        event!(Level::ERROR, "error saving monodrone file: {:?}", e);
+                    }
+                };
+
+                let midi_filepath = cur_filepath.get_export_file_path();
+                let midi_file = match File::create(midi_filepath.clone()) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        rfd::MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Unable to create MIDI file")
+                            .set_description(&e.to_string())
+                            .show();
+                        event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+                        return;
+                    }
+                };
+                let player_track = track.to_player_track();
+                let (header, tracks) = player_track.to_smf();
+                match midly::write_std(&header, tracks.iter(), midi_file) {
+                    Ok(()) => {
+                        event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
+                    }
+                    Err(e) => {
+                        rfd::MessageDialog::new()
+                            .set_level(rfd::MessageLevel::Error)
+                            .set_title("Unable to save MIDI file")
+                            .set_description(&e.to_string())
+                            .show();
+                        event!(Level::ERROR, "error writing MIDI file: {:?}", e);
                     }
                 }
             } else {
                 event!(Level::INFO, "no path selected for save");
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && isControlKeyDown(&rl) {
+        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && is_control_key_down(&rl) {
             let open_dialog = FileDialog::new()
                 .add_filter("monodrone", &["drn"])
                 .set_can_create_directories(true)
@@ -875,10 +1012,10 @@ fn mainLoop() {
 
                             Err(e) => {
                                 rfd::MessageDialog::new()
-                                .set_level(rfd::MessageLevel::Error)
-                                .set_title("Unable to load file, JSON parsing error.")
-                                .set_description(&e)
-                                .show();
+                                    .set_level(rfd::MessageLevel::Error)
+                                    .set_title("Unable to load file, JSON parsing error.")
+                                    .set_description(&e)
+                                    .show();
                                 event!(Level::ERROR, "error loading file: {:?}", e);
                                 monodrone_ctx
                             }
@@ -894,7 +1031,7 @@ fn mainLoop() {
             } else {
                 event!(Level::INFO, "no path selected for open");
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && isControlKeyDown(&rl) {
+        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && is_control_key_down(&rl) {
             break;
         }
 
@@ -1164,6 +1301,7 @@ fn testMidiInOpZ() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// TODO: implement file drag and drop with rl::IsFileDropped: https://github.com/raysan5/raylib/blob/master/examples/core/core_drop_files.c
 
 fn main() {
     // match testMidiInOpZ() {
