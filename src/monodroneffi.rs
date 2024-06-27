@@ -31,8 +31,8 @@ extern {
     fn monodrone_ctx_raise_octave (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_newline (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_delete_note (ctx : *mut lean_object) -> *mut lean_object;
-    // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
-    // fn monodrone_goto_begin_of_line(ctx : *mut lean_object);
+    fn monodrone_ctx_delete_line (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_set_nsteps (ctx : *mut lean_object, nsteps : u64) -> *mut lean_object;
     // fn monodrone_copy(ctx : *mut lean_object);
     // fn monodrone_paste(ctx : *mut lean_object);
 
@@ -207,6 +207,17 @@ pub fn newline (ctx : *mut lean_object) -> *mut lean_object {
 
 pub fn delete_note (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_note) }
+}
+
+pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_line) }
+}
+
+pub fn set_nsteps (ctx : *mut lean_object, nsteps : u64) -> *mut lean_object {
+    unsafe {
+        lean_inc_ref(ctx);
+        monodrone_ctx_set_nsteps(ctx, nsteps)
+    }
 }
 
 

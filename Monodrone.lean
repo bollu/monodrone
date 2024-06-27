@@ -325,6 +325,12 @@ def Note.decreaseSteps (n : Note) : Option Note :=
     some { n with nsteps := n.nsteps - 1, hnsteps := by omega }
   else none
 
+def Note.decreaseSteps' (n : Note) (hn : n.nsteps > 1 := by aesop): Note :=
+    { n with nsteps := n.nsteps - 1, hnsteps := by omega }
+
+
+def Note.setPitchName (n : Note) (p : PitchName) : Note :=
+  { n with userPitch := { n.userPitch with pitchName := p } }
 
 def Note.atIx (ix : Loc) (n : PitchName) : Note :=
   { loc := ix, userPitch := UserPitch.ofPitchName n, nsteps := 1, hnsteps := by decide }
@@ -781,7 +787,9 @@ def LocMoveAction.act (c : Loc)
 /-- Todo: show that moveDown / moveUp are a galois connection. -/
 
 def Loc.moveDownOne (c : Loc) : Loc := (LocMoveAction.down 1).act c
+def Loc.moveDown (c : Loc) (nsteps : Nat) : Loc := (LocMoveAction.down nsteps).act c
 def Loc.moveUpOne (c : Loc) : Loc := (LocMoveAction.up 1).act c
+def Loc.moveUp (c : Loc) (nsteps : Nat) : Loc := (LocMoveAction.up nsteps).act c
 def Loc.moveLeftOne (c : Loc) : Loc := (LocMoveAction.left 1).act c
 def Loc.moveRightOne (c : Loc) : Loc := (LocMoveAction.right 1).act c
 
@@ -1008,19 +1016,14 @@ theorem Loc.toSpan_disjoint {l : Loc} {s : SpanY} :
     simp [SpanY.disjoint, SpanY.containsLoc, Loc.toSpanY] <;> omega
 
 def Track.addNoteAtLoc (t : Track) (p : PitchName) (l : Loc) : Track :=
+  let collision? := t.notes.any (fun n => n.toSpanY.containsLoc l)
+  let ns := t.notes.map (fun n => if n.toSpanY.containsLoc l then n.setPitchName p else n)
   let newNote := Note.atIx l p
-  let deletedNotes := t.notes.filter (fun n => ¬ n.toSpanY.containsLoc l)
+  let ns := if collision? then ns else newNote :: t.notes
   { t with
-    notes := newNote :: deletedNotes,
+    notes := ns,
     hdisjoint := by
-      simp_all [newNote, deletedNotes]
-      constructor
-      · intros n hn
-        have hn' := List.of_mem_filter hn
-        simp_all
-      · have hnotes := t.hdisjoint
-        apply List.pairwise_filter_of_pairwise_self
-        assumption
+      sorry -- TODO:
    }
 
 
@@ -1207,7 +1210,7 @@ info: 'Track.modifyContainedInSpan' depends on axioms: [propext, Classical.choic
 #guard_msgs in #print axioms Track.modifyContainedInSpan
 
 /-- Set the pitch for each note in the span -/
-def Track.setPitchAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
+def Track.setPitchNameAtSpan (t : Track) (p : PitchName) (s : Span) : Track :=
   t.modifyOverlapSpan s (f := fun n =>
     .some { n with
       userPitch := { n.userPitch with pitchName := p }
@@ -1425,11 +1428,11 @@ def monodrone_ctx_get_playback_speed (ctx : @&RawContext) : Float :=
 
 @[export monodrone_ctx_decrease_playback_speed]
 def monodrone_ctx_decrease_playback_speed (ctx : @&RawContext) : RawContext :=
-  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => max 0.1 (v - 0.1)) }
+  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => (v - 0.2)) }
 
 @[export monodrone_ctx_increase_playback_speed]
 def monodrone_ctx_increase_playback_speed (ctx : @&RawContext) : RawContext :=
-  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => min 0.1 (v + 0.1)) }
+  { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => (v + 0.2)) }
 
 @[export monodrone_ctx_get_playback_speed_sequence_number]
 def monodrone_ctx_get_playback_speed_sequence_number (ctx : @&RawContext) : UInt64 :=
@@ -1492,6 +1495,9 @@ def RawContext.moveSelectAnchorDownOne (ctx : @&RawContext) : RawContext :=
 def Note.moveDownOne (n : Note) : Note :=
   { n with loc := n.loc.moveDownOne }
 
+def Note.moveDown (n : Note) (nsteps : Nat ): Note :=
+  { n with loc := n.loc.moveDown nsteps }
+
 def Note.moveDownOne_disjoint_of_disjoint_of_le {n m : Note}
     (hnm : n.loc.y ≤ m.loc.y)
     (hdisjoint : n.toSpanY.disjoint m.toSpanY) :
@@ -1507,6 +1513,8 @@ def Note.moveDownOne_disjoint_of_disjoint_of_le {n m : Note}
 def Note.moveUpOne (n : Note) : Note :=
   { n with loc := n.loc.moveUpOne }
 
+def Note.moveUp (n : Note) (nsteps : Nat): Note :=
+  { n with loc := n.loc.moveUp nsteps }
 
 
 def Track.splitBeforeYAux (y : Nat) (ns : List Note) : List Note :=
@@ -1804,11 +1812,11 @@ theorem Note.contains_of_decreaseSteps (n m : Note) (hm : m ∈ n.decreaseSteps)
     simp [Note.toSpanY, SpanY.containsSpanY]
 
 @[export monodrone_ctx_delete_note]
-def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
+def RawContext.deleteNote (ctx : @&RawContext) : RawContext :=
   let cursor := ctx.cursor.cur.cursor
   let ns := ctx.track.cur.notes
   let deleted? := ns.any (fun n => n.toSpanY.containsLoc cursor)
-  let ns' := ns.filter (fun n => ¬ n.toSpanY.containsLoc cursor)
+  let ns' := ns.map? (fun n => if n.toSpanY.containsLoc cursor then n.decreaseSteps else n)
   let cursor' := if deleted? then cursor else cursor.moveUpOne
   { ctx with
     track := ctx.track.setForgettingFuture
@@ -1816,13 +1824,35 @@ def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
           notes := ns'
           hdisjoint := by
             simp [ns', ns]
-            apply List.Pairwise.filter
-            apply ctx.track.cur.hdisjoint
+            apply List.Pairwise_map?_of_pairwise (hl := ctx.track.cur.hdisjoint)
+            intros n m n' m' hn' hm' hnm
+            simp
+            sorry -- case analysis
+
         }
     cursor := ctx.cursor.setForgettingFuture
       ({ ctx.cursor.cur with cursor := cursor' })
 
   }
+
+@[export monodrone_ctx_delete_line]
+def RawContext.deleteLine (ctx : @&RawContext) : RawContext :=
+  let cursor := ctx.cursor.cur.cursor
+  let ns := ctx.track.cur.notes
+  let deleted? := ns.any (fun n => n.toSpanY.containsLoc cursor)
+  let ns := ns.map? (fun n => if n.toSpanY.containsLoc cursor then n.decreaseSteps else n)
+  let ns :=
+    if ¬ deleted?
+    then ns.map (fun n => if n.loc.x == cursor.x && n.loc.y > cursor.y then n.moveUpOne else n)
+    else ns
+  let cursor' := if deleted? then cursor else cursor.moveUpOne
+  { ctx with
+    track := ctx.track.setForgettingFuture (ctx.track.cur.trySetNotes ns)
+    cursor := ctx.cursor.setForgettingFuture
+      ({ ctx.cursor.cur with cursor := cursor' })
+
+  }
+
 
 -- /--This too is subtle, because we need to split the note that crosses the y. -/
 -- @[export monodrone_ctx_newline]
@@ -1872,20 +1902,35 @@ def RawContext.newlineVerified (ctx : @&RawContext) : RawContext :=
 
 end Newline
 
+
 section DragDown
 
 @[export monodrone_ctx_drag_down_one]
 def RawContext.dragDownOne (ctx : @&RawContext) : RawContext :=
-  { ctx with
-    track := ctx.track.modifyForgettingFuture
-      (fun t =>
-        let ns := t.notes
-        let cursor := ctx.cursor.cur
-        let ns := ns.map (fun n => if n.toSpanY.containsLoc cursor.cursor then n.increaseNSteps else n)
-        let t := t.trySetNotes ns
-        t
-      )
-  }
+  let cursor := ctx.cursor.cur.cursor
+  let cursor' := cursor.moveDownOne
+  if cursor = cursor'
+  then ctx
+  else
+    { ctx with
+      track := ctx.track.modifyForgettingFuture
+        (fun t =>
+          let ns := t.notes
+          let ns := ns.map (fun n =>
+            if n.toSpanY.containsLoc cursor
+            then
+              if n.loc == cursor
+              then
+                if hnsteps1 : n.nsteps = 1
+                then n.increaseNSteps
+                else n.decreaseSteps' (by have h₁ := n.hnsteps; omega) |>.moveDownOne
+              else n.increaseNSteps
+            else n)
+          let t := t.trySetNotes ns
+          t
+        )
+      cursor := ctx.cursor.modifyForgettingFuture (fun s => { s with cursor := cursor' })
+    }
 
 end DragDown
 
@@ -1893,25 +1938,84 @@ section DragUp
 
 @[export monodrone_ctx_drag_up_one]
 def RawContext.dragUpOne (ctx : @&RawContext) : RawContext :=
-  { ctx with
-    track := ctx.track.modifyForgettingFuture
-      (fun t =>
-        let ns := t.notes
-        let cursor := ctx.cursor.cur
-        let ns := ns.map (fun n => if cursor.cursor == n.loc then n.moveUpOne.increaseNSteps else n)
-        let t := t.trySetNotes ns
-        t
-      )
-  }
+  let cursor := ctx.cursor.cur.cursor
+  let cursor' := cursor.moveUpOne
+  if cursor = cursor'
+  then ctx
+  else
+    { ctx with
+      track := ctx.track.modifyForgettingFuture
+        (fun t =>
+          let ns := t.notes
+          let ns := ns.map (fun n =>
+            if n.toSpanY.containsLoc n.loc
+            then
+              if cursor == n.loc
+              then n.moveUpOne.increaseNSteps
+              else
+                n -- TODO: fix !
+                -- if hn : n.hnsteps > 1
+                -- then n.decreaseSteps' (by have h₁ := n.hnsteps; omega) |>.moveUpOne
+                -- else n.increaseNSteps
+            else n)
+          let t := t.trySetNotes ns
+          t
+        )
+      cursor := ctx.cursor.modifyForgettingFuture (fun s => { s with cursor := cursor' })
+
+    }
 
 end DragUp
 
+def Loc.aboveLocWithSameX (l1 l2 : Loc) : Prop := l1.y < l2.y && l1.x = l2.x
+
+instance : Decidable (Loc.aboveLocWithSameX l1 l2) := by
+  simp [Loc.aboveLocWithSameX]
+  infer_instance
+
+def Loc.belowLocWithSameX (l1 l2 : Loc) : Prop := l1.y > l2.y && l1.x = l2.x
+
+instance : Decidable (Loc.belowLocWithSameX l1 l2) := by
+  simp [Loc.belowLocWithSameX]
+  infer_instance
+
+def Note.setNSteps (n : Note) (nsteps : Nat) (hnsteps : nsteps > 0 := by omega): Note :=
+  { n with nsteps := nsteps, hnsteps := hnsteps }
+
+def Note.moveDown' (n : Note) (delta : Int) : Note :=
+  { n with loc := { n.loc with y := ((Int.ofNat n.loc.y)  + delta).toNat } }
+
+def Track.setNSteps (t : Track) (cursor : Loc) (nsteps : Nat) (hnsteps : nsteps > 0 := by omega) : Track :=
+  let n? := t.notes.find? (fun n => n.toSpanY.containsLoc cursor)
+  { t with
+    notes := t.notes.map (fun n =>
+      if n.toSpanY.containsLoc cursor
+      then n.setNSteps nsteps
+      else
+        match n? with
+        | .none => n
+        | .some n' =>
+            if n.toSpanY.topLeft.belowLocWithSameX cursor
+            then n.moveDown' (((Int.ofNat nsteps) - (Int.ofNat n'.nsteps)) : Int)
+            else n)
+    hdisjoint := sorry
+  }
+
+@[export monodrone_ctx_set_nsteps]
+def RawContext.setNSteps (ctx : @&RawContext) (nsteps : UInt64) : RawContext :=
+  let nsteps := nsteps.toNat
+  if hnsteps : nsteps = 0
+  then ctx else
+    let cursor := ctx.cursor.cur.cursor
+    { ctx with
+      track := ctx.track.modifyForgettingFuture fun t => t.setNSteps cursor nsteps
+    }
 
 @[export monodrone_ctx_set_pitch]
-def RawContext.setPitch (ctx : @&RawContext) (p : UInt64) : RawContext :=
+def RawContext.setPitchName (ctx : @&RawContext) (p : UInt64) : RawContext :=
   { ctx with track :=
     ctx.track.modifyForgettingFuture fun t =>
-      t.addNotesAtSpan (PitchName.ofUInt64 p) ctx.cursor.cur.toSpan
+      t.addNoteAtLoc (PitchName.ofUInt64 p) ctx.cursor.cur.topLeft
   }
 
 @[note_omega]

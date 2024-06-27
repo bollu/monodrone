@@ -8,6 +8,7 @@ description = "Formally Verified Music Synth"
 
 [dependencies]
 debug_panic = "0.2.1"
+directories = "5.0.1"
 eframe = "0.27.2"
 egui = "0.27.2"
 env_logger = "0.11.3"
