@@ -699,7 +699,6 @@ fn mainLoop() {
             selection = monodroneffi::Selection::from_lean(monodrone_ctx);
             println!("-> got new selection");
         }
-
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
             monodrone_ctx = monodroneffi::decrease_playback_speed(monodrone_ctx);
         } else if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
@@ -762,7 +761,14 @@ fn mainLoop() {
             } else {
                 monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
             }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+        }
+        else if rl.is_key_pressed(KeyboardKey::KEY_Q){
+            monodrone_ctx = monodroneffi::decrease_nsteps(monodrone_ctx);
+        }
+        else if rl.is_key_pressed(KeyboardKey::KEY_W) {
+            monodrone_ctx = monodroneffi::increase_nsteps(monodrone_ctx);
+        }
+        else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
         } else if (rl.is_key_pressed(KeyboardKey::KEY_D)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);

@@ -1979,18 +1979,20 @@ instance : Decidable (Loc.belowLocWithSameX l1 l2) := by
   simp [Loc.belowLocWithSameX]
   infer_instance
 
-def Note.setNSteps (n : Note) (nsteps : Nat) (hnsteps : nsteps > 0 := by omega): Note :=
-  { n with nsteps := nsteps, hnsteps := hnsteps }
+def Note.setNSteps? (n : Note) (nsteps : Nat) : Option Note :=
+  if hnsteps : nsteps = 0
+  then none
+  else some { n with nsteps := nsteps, hnsteps := by omega }
 
 def Note.moveDown' (n : Note) (delta : Int) : Note :=
   { n with loc := { n.loc with y := ((Int.ofNat n.loc.y)  + delta).toNat } }
 
-def Track.setNSteps (t : Track) (cursor : Loc) (nsteps : Nat) (hnsteps : nsteps > 0 := by omega) : Track :=
+def Track.setNSteps (t : Track) (cursor : Loc) (nsteps : Nat) : Track :=
   let n? := t.notes.find? (fun n => n.toSpanY.containsLoc cursor)
   { t with
-    notes := t.notes.map (fun n =>
+    notes := t.notes.map? (fun n =>
       if n.toSpanY.containsLoc cursor
-      then n.setNSteps nsteps
+      then n.setNSteps? nsteps
       else
         match n? with
         | .none => n
@@ -2003,13 +2005,39 @@ def Track.setNSteps (t : Track) (cursor : Loc) (nsteps : Nat) (hnsteps : nsteps 
 
 @[export monodrone_ctx_set_nsteps]
 def RawContext.setNSteps (ctx : @&RawContext) (nsteps : UInt64) : RawContext :=
-  let nsteps := nsteps.toNat
-  if hnsteps : nsteps = 0
-  then ctx else
-    let cursor := ctx.cursor.cur.cursor
-    { ctx with
-      track := ctx.track.modifyForgettingFuture fun t => t.setNSteps cursor nsteps
-    }
+  let cursor := ctx.cursor.cur.cursor
+  { ctx with
+    track := ctx.track.modifyForgettingFuture fun t => t.setNSteps cursor nsteps.toNat
+  }
+
+def Track.increaseNSteps (t : Track) (l : Loc) : Track :=
+  let n? : Option Note := t.notes.find? (fun n => n.toSpanY.containsLoc l)
+  match n? with
+  | none => t
+  | some n =>
+    t.setNSteps l (n.nsteps + 1)
+
+@[export monodrone_ctx_increase_nsteps]
+def RawContext.increaseNSteps (ctx : @&RawContext) : RawContext :=
+  let cursor := ctx.cursor.cur.cursor
+  { ctx with
+    track := ctx.track.modifyForgettingFuture fun t => t.increaseNSteps cursor
+  }
+
+def Track.decreaseNSteps (t : Track) (l : Loc) : Track :=
+  let n? : Option Note := t.notes.find? (fun n => n.toSpanY.containsLoc l)
+  match n? with
+  | none => t
+  | some n =>
+    t.setNSteps l (n.nsteps - 1)
+
+@[export monodrone_ctx_decrease_nsteps]
+def RawContext.decreaseNSteps (ctx : @&RawContext) : RawContext :=
+  let cursor := ctx.cursor.cur.cursor
+  { ctx with
+    track := ctx.track.modifyForgettingFuture fun t => t.decreaseNSteps cursor
+  }
+
 
 @[export monodrone_ctx_set_pitch]
 def RawContext.setPitchName (ctx : @&RawContext) (p : UInt64) : RawContext :=
