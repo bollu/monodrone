@@ -25,13 +25,12 @@ extern {
     fn monodrone_ctx_select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object;
     // note editing.
     fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64) -> *mut lean_object;
-    fn monodrone_ctx_delete(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_toggle_sharp(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_toggle_flat(ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_lower_octave (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_raise_octave (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_newline (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_delete_line (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_delete_note (ctx : *mut lean_object) -> *mut lean_object;
     // fn monodrone_goto_end_of_line(ctx : *mut lean_object);
     // fn monodrone_goto_begin_of_line(ctx : *mut lean_object);
     // fn monodrone_copy(ctx : *mut lean_object);
@@ -162,10 +161,6 @@ pub fn set_pitch(ctx : *mut lean_object, pitch : PitchName) -> *mut lean_object 
     unsafe { monodrone_ctx_set_pitch(ctx, pitch.to_lean() ) }
 }
 
-pub fn delete(ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete) }
-
-}
 pub fn toggle_sharp (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_sharp) }
 }
@@ -210,8 +205,8 @@ pub fn newline (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_newline) }
 }
 
-pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_line) }
+pub fn delete_note (ctx : *mut lean_object) -> *mut lean_object {
+    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_note) }
 }
 
 

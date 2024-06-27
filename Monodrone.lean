@@ -1803,7 +1803,7 @@ theorem Note.contains_of_decreaseSteps (n m : Note) (hm : m ∈ n.decreaseSteps)
     subst hm
     simp [Note.toSpanY, SpanY.containsSpanY]
 
-@[export monodrone_ctx_delete_line]
+@[export monodrone_ctx_delete_note]
 def RawContext.deleteLineSolver (ctx : @&RawContext) : RawContext :=
   let cursor := ctx.cursor.cur.cursor
   let ns := ctx.track.cur.notes

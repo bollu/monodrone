@@ -775,7 +775,7 @@ fn mainLoop() {
         } else if (rl.is_key_pressed(KeyboardKey::KEY_B)) {
             monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
         } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_BACKSPACE))) {
-            monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
+            monodrone_ctx = monodroneffi::delete_note(monodrone_ctx);
         } else if (debounceUndo.debounce(rl.is_key_down(KeyboardKey::KEY_Z))) {
             // TODO: figure out how to get control key.
             if (rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)) {
