@@ -4,7 +4,6 @@
 use directories::{BaseDirs, ProjectDirs, UserDirs};
 use egui::epaint::text::cursor;
 use egui::Key;
-use ffi::{GetScreenHeight, GetScreenWidth};
 use lean_sys::{
     lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization,
 };
@@ -15,8 +14,6 @@ use std::ffi::OsStr; // https://github.com/tauri-apps/muda
 use midi::Message::Start;
 use monodroneffi::{PlayerNote, TrackBuilder};
 use rand::seq::SliceRandom; // 0.7.2
-use raylib::ffi::Image;
-use raylib::prelude::*;
 use rfd::FileDialog;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -28,6 +25,8 @@ use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
+use eframe::egui;
+use egui::*;
 
 const GOLDEN_RATIO: f32 = 1.61803398875;
 
@@ -444,15 +443,15 @@ impl Easer2d {
     }
 }
 
-fn is_control_key_down(rl: &RaylibHandle) -> bool {
-    rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER)
-        || rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
-        || rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
-}
-
-fn is_shift_key_down(rl: &RaylibHandle) -> bool {
-    rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) || rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT)
-}
+// fn is_control_key_down(rl: &RaylibHandle) -> bool {
+//     rl.is_key_down(KeyboardKey::KEY_LEFT_SUPER)
+//         || rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL)
+//         || rl.is_key_down(KeyboardKey::KEY_RIGHT_CONTROL)
+// }
+//
+// fn is_shift_key_down(rl: &RaylibHandle) -> bool {
+//     rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) || rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT)
+// }
 
 #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 struct AppFilePath {
@@ -460,13 +459,14 @@ struct AppFilePath {
 }
 
 impl AppFilePath {
-    fn new_whimsical(rl: &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
+    //fn new_whimsical(rl: &RaylibHandle, thread: &RaylibThread) -> AppFilePath {
+    fn new_whimsical() -> AppFilePath {
         let mut filename = whimsical_file_name();
         filename.push_str(".drn");
         let mut out = env::current_exe().unwrap();
         out.pop();
         out.push(filename);
-        AppFilePath::_format_and_set_window_title(&out.as_path(), &rl, &thread);
+        // AppFilePath::_format_and_set_window_title(&out.as_path(), &rl, &thread);
         AppFilePath { path: out }
     }
 
@@ -478,9 +478,10 @@ impl AppFilePath {
         self.path.file_stem().unwrap()
     }
 
-    fn set_file_path(&mut self, rl: &RaylibHandle, thread: &RaylibThread, path: &Path) {
+    // fn set_file_path(&mut self, rl: &RaylibHandle, thread: &RaylibThread, path: &Path) {
+    fn set_file_path(&mut self, path: &Path) {
         self.path = path.to_path_buf();
-        AppFilePath::_format_and_set_window_title(&path, &rl, &thread);
+        // AppFilePath::_format_and_set_window_title(&path, &rl, &thread);
     }
 
     fn get_export_file_path(&self) -> PathBuf {
@@ -490,12 +491,12 @@ impl AppFilePath {
         out
     }
 
-    fn _format_and_set_window_title(path: &Path, rl: &RaylibHandle, thread: &RaylibThread) {
-        rl.set_window_title(
-            thread,
-            format!("monodrone ({})", path.to_string_lossy()).as_str(),
-        )
-    }
+    // fn _format_and_set_window_title(path: &Path, rl: &RaylibHandle, thread: &RaylibThread) {
+    //     rl.set_window_title(
+    //         thread,
+    //         format!("monodrone ({})", path.to_string_lossy()).as_str(),
+    //     )
+    // }
 
     fn to_string(&self) -> String {
         self.path.to_string_lossy().to_string()
@@ -653,32 +654,41 @@ fn mainLoop() {
         MidiSequencerIO::new(MidiSequencer::new(synthesizer), params);
 
     event!(Level::INFO, "Starting up");
-    let SCREEN_WIDTH = unsafe { GetScreenWidth() };
-    let SCREEN_HEIGHT = unsafe { GetScreenHeight() };
-    let (mut rl, thread) = raylib::init()
-        .size(SCREEN_WIDTH, SCREEN_HEIGHT)
-        .title("monodrone")
-        .build();
+    // let SCREEN_WIDTH = unsafe { GetScreenWidth() };
+    // let SCREEN_HEIGHT = unsafe { GetScreenHeight() };
 
-    rl.set_window_size(rl.get_screen_width(), rl.get_screen_height());
-
-    unsafe {
-        let file_data = include_bytes!("../favicon.ico");
-        let filetype = "ico";
-        let ico = raylib::ffi::LoadImageFromMemory(
-            filetype.as_ptr() as *const i8,
-            file_data.as_ptr() as *const u8,
-            file_data.len() as i32,
-        );
-        raylib::ffi::SetWindowIcon(ico);
+    let SCREEN_WIDTH = 800;
+    let SCREEN_HEIGHT = 600;
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32]),
+        ..Default::default()
     };
 
+
+
+    // let (mut rl, thread) = raylib::init()
+    //     .size(SCREEN_WIDTH, SCREEN_HEIGHT)
+    //     .title("monodrone")
+    //     .build();
+
+    // rl.set_window_size(rl.get_screen_width(), rl.get_screen_height());
+
+    // unsafe {
+    //     let file_data = include_bytes!("../favicon.ico");
+    //     let filetype = "ico";
+    //     let ico = raylib::ffi::LoadImageFromMemory(
+    //         filetype.as_ptr() as *const i8,
+    //         file_data.as_ptr() as *const u8,
+    //         file_data.len() as i32,
+    //     );
+    //     raylib::ffi::SetWindowIcon(ico);
+    // };
+
     let TARGET_FPS = 60;
-    rl.set_target_fps(TARGET_FPS);
-    let SCREEN_HEIGHT = rl.get_screen_height();
 
     event!(Level::INFO, "creating context");
-    let mut cur_filepath: AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
+    let mut cur_filepath = AppFilePath::new_whimsical();
+    // let mut cur_filepath: AppFilePath = AppFilePath::new_whimsical(&rl, &thread);
     event!(
         Level::INFO,
         "initial file path: {:?} | dir: {:?} | basename: {:?}",
@@ -736,512 +746,764 @@ fn mainLoop() {
 
     let mut sequencerPlaybackSpeed = SequenceNumbered::new(1.0 as f64);
     nowPlayingYEaser.damping = 0.5;
-    while !rl.window_should_close() {
-        let time_elapsed = rl.get_frame_time();
-        debounceMovement.add_time_elapsed(time_elapsed);
-        debounceUndo.add_time_elapsed(time_elapsed);
 
-        // Step 2: Get stuff to render
-        if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
-            track = monodroneffi::UITrack::from_lean(monodrone_ctx);
-            // TODO: bundle all this state update in a single place.
-            println!("-> got new track {:?}", track);
-        }
+    let mut tweak : u8 =100;
+    let _ = eframe::run_simple_native("monodrone", options, move |ctx, _frame| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // let time_elapsed = rl.get_frame_time();
+            let time_elapsed = 10.0; // TODO: fix this!
+            debounceMovement.add_time_elapsed(time_elapsed);
+            debounceUndo.add_time_elapsed(time_elapsed);
 
-        // for this particular case, the pattern doesn't make much sense.
-        // Still, it's nice to establish a pattern for future use.
-        if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(
-            monodrone_ctx,
-        )) {
-            let new_speed = monodroneffi::get_playback_speed(monodrone_ctx);
-            sequencerPlaybackSpeed.set_value(new_speed);
-            sequencer_io.set_playback_rate(new_speed as f32);
-            print!("-> got new playback speed: {:?}", sequencerPlaybackSpeed);
-        }
-        if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
-            selection = monodroneffi::Selection::from_lean(monodrone_ctx);
-            println!("-> got new selection");
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
-            monodrone_ctx = monodroneffi::decrease_playback_speed(monodrone_ctx);
-        } else if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
-            monodrone_ctx = monodroneffi::increase_playback_speed(monodrone_ctx);
-        } else if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            if sequencer_io.is_playing() {
-                sequencer_io.stop();
-            } else {
-                sequencer_io.set_track(track.clone().to_player_track());
-                let is_looping = is_shift_key_down(&rl);
-
-                let start_instant = if is_looping {
-                    cmp::min(
-                        cmp::min(selection.cursor_y, selection.anchor_y) as u64,
-                        track.get_last_instant() as u64,
-                    )
-                } else {
-                    if is_shift_key_down(&rl) {
-                        selection.cursor_y as u64
-                    } else {
-                        0
-                    }
-                };
-
-                let end_instant = if is_looping {
-                    cmp::max(
-                        cmp::max(selection.cursor_y, selection.anchor_y) as u64,
-                        track.get_last_instant() as u64,
-                    )
-                } else {
-                    track.get_last_instant() as u64
-                };
-                sequencer_io.restart(start_instant, (end_instant + 1), is_looping);
-            }
-        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
-            if is_shift_key_down(&rl) {
-                monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 2);
-                // monodrone_ctx = monodroneffi::drag_down_one(monodrone_ctx);
-                // panic!("monodrone ctx drag down one");
-            } else {
-                monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
-            }
-        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
-            if is_shift_key_down(&rl) {
-                monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 3);
-                // monodrone_ctx = monodroneffi::drag_up_one(monodrone_ctx);
-            } else {
-                monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
-            }
-        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_H))) {
-            if (is_shift_key_down(&rl)) {
-                monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 1);
-            } else {
-                monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
-            }
-        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_L))) {
-            if (is_shift_key_down(&rl)) {
-                monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 4);
-            } else {
-                monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
-            }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) {
-            monodrone_ctx = monodroneffi::decrease_nsteps(monodrone_ctx);
-        } else if rl.is_key_pressed(KeyboardKey::KEY_W) {
-            monodrone_ctx = monodroneffi::increase_nsteps(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_D)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_E)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::E);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_F)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::F);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_G)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::G);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_A)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::A);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_B)) {
-            monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
-        } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_BACKSPACE))) {
-            if (is_shift_key_down(&rl)) {
-                monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
-            } else {
-                monodrone_ctx = monodroneffi::delete_note(monodrone_ctx);
-            }
-        } else if (debounceUndo.debounce(rl.is_key_down(KeyboardKey::KEY_Z))) {
-            // TODO: figure out how to get control key.
-            if (is_shift_key_down(&rl)) {
-                monodrone_ctx = monodroneffi::redo_action(monodrone_ctx);
-            } else {
-                monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
-            }
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_THREE)) {
-            monodrone_ctx = monodroneffi::toggle_sharp(monodrone_ctx);
-        } else if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-            monodrone_ctx = monodroneffi::toggle_flat(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_COMMA)) {
-            monodrone_ctx = monodroneffi::lower_octave(monodrone_ctx);
-        } else if (rl.is_key_pressed(KeyboardKey::KEY_PERIOD)) {
-            monodrone_ctx = monodroneffi::raise_octave(monodrone_ctx);
-        } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
-            monodrone_ctx = monodroneffi::newline(monodrone_ctx);
-            monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
-        } else if (!is_shift_key_down(&rl)
-            && rl.is_key_pressed(KeyboardKey::KEY_S)
-            && is_control_key_down(&rl))
-        {
-            // c-s for save.
-            let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
-            event!(Level::INFO, "saving file to path: '{}'", cur_filepath.to_string());
-            match File::create(cur_filepath.path.as_path()) {
-                Ok(mut file) => {
-                    file.write_all(str.as_bytes()).unwrap();
-                    event!(Level::INFO, "Successfully saved '{}'", cur_filepath.to_string());
-
-                }
-                Err(e) => {
-                    event!(Level::ERROR, "Error saving file: {:?}", e);
-                    rfd::MessageDialog::new()
-                        .set_level(rfd::MessageLevel::Error)
-                        .set_title(format!(
-                            "Unable to save file to path '{}'.",
-                            cur_filepath.to_string()
-                        ))
-                        .set_description(e.to_string())
-                        .show();
-                }
-            };
-            let midi_filepath = cur_filepath.get_export_file_path();
-            let midi_file = match File::create(midi_filepath.clone()) {
-                Ok(file) => file,
-                Err(e) => {
-                    rfd::MessageDialog::new()
-                        .set_level(rfd::MessageLevel::Error)
-                        .set_title("Unable to create MIDI file")
-                        .set_description(e.to_string())
-                        .show();
-                    event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-                    return;
-                }
-            };
-            let player_track = track.to_player_track();
-            let (header, tracks) = player_track.to_smf();
-            match midly::write_std(&header, tracks.iter(), midi_file) {
-                Ok(()) => {
-                    event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
-                }
-                Err(e) => {
-                    rfd::MessageDialog::new()
-                        .set_level(rfd::MessageLevel::Error)
-                        .set_title("Unable to save MIDI file")
-                        .set_description(&e.to_string())
-                        .show();
-                    event!(Level::ERROR, "error writing MIDI file: {:?}", e);
-                }
+            // Step 2: Get stuff to render
+            if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
+                track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+                // TODO: bundle all this state update in a single place.
+                println!("-> got new track {:?}", track);
             }
 
-        } else if is_shift_key_down(&rl)
-            && rl.is_key_pressed(KeyboardKey::KEY_E)
-            && is_control_key_down(&rl) {
-            // TODO: export to MIDI.
-        } else if is_shift_key_down(&rl)
-            && rl.is_key_pressed(KeyboardKey::KEY_I)
-            && is_control_key_down(&rl) {
-            // TODO: import MIDI to monodrone.
-        } else if is_shift_key_down(&rl)
-            && rl.is_key_pressed(KeyboardKey::KEY_S)
-            && is_control_key_down(&rl)
-        {
-            // TODO: only open this with ctrl + shift + s.
-            let saver_dialog = FileDialog::new()
-                .add_filter("monodrone", &["drn"])
-                .set_can_create_directories(true)
-                .set_file_name(cur_filepath.file_stem().to_string_lossy())
-                .set_directory(cur_filepath.parent_dir())
-                .set_title("Save monodrone file location");
-
-            if let Option::Some(path) = saver_dialog.save_file() {
-                let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
-                // open file and write string.
-                event!(Level::INFO, "saving-as file to path {path:?}");
-                match File::create(path.clone()) {
-                    Ok(mut file) => {
-                        file.write_all(str.as_bytes()).unwrap();
-                        cur_filepath.set_file_path(&rl, &thread, &path);
-                    }
-                    Err(e) => {
-                        rfd::MessageDialog::new()
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_title("Unable to save monodrone file")
-                            .set_description(&e.to_string())
-                            .show();
-                        event!(Level::ERROR, "error saving monodrone file: {:?}", e);
-                    }
-                };
-
-                let midi_filepath = cur_filepath.get_export_file_path();
-                let midi_file = match File::create(midi_filepath.clone()) {
-                    Ok(file) => file,
-                    Err(e) => {
-                        rfd::MessageDialog::new()
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_title("Unable to create MIDI file")
-                            .set_description(&e.to_string())
-                            .show();
-                        event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-                        return;
-                    }
-                };
-                let player_track = track.to_player_track();
-                let (header, tracks) = player_track.to_smf();
-                match midly::write_std(&header, tracks.iter(), midi_file) {
-                    Ok(()) => {
-                        event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
-                    }
-                    Err(e) => {
-                        rfd::MessageDialog::new()
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_title("Unable to save MIDI file")
-                            .set_description(&e.to_string())
-                            .show();
-                        event!(Level::ERROR, "error writing MIDI file: {:?}", e);
-                    }
-                }
-            } else {
-                event!(Level::INFO, "no path selected for save");
+            // for this particular case, the pattern doesn't make much sense.
+            // Still, it's nice to establish a pattern for future use.
+            if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(
+                monodrone_ctx,
+            )) {
+                let new_speed = monodroneffi::get_playback_speed(monodrone_ctx);
+                sequencerPlaybackSpeed.set_value(new_speed);
+                sequencer_io.set_playback_rate(new_speed as f32);
+                event!(Level::INFO, "new playback speed: {:?}", sequencerPlaybackSpeed);
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_O) && is_control_key_down(&rl) {
-            let open_dialog = FileDialog::new()
-                .add_filter("monodrone", &["drn"])
-                .set_can_create_directories(true)
-                .set_title("Open monodrone file location")
-                .set_directory(cur_filepath.parent_dir());
-
-            if let Some(path) = open_dialog.pick_file() {
-                // open path and load string.
-                event!(Level::INFO, "loading file {cur_filepath:?}");
-                match File::open(path.clone()) {
-                    Ok(file) => {
-                        let reader = std::io::BufReader::new(file);
-                        let str = std::io::read_to_string(reader).unwrap();
-                        event!(Level::INFO, "loaded file data: {str}");
-                        monodrone_ctx = match monodroneffi::ctx_from_json_str(str) {
-                            Ok(new_ctx) => {
-                                cur_filepath.set_file_path(&rl, &thread, &path);
-                                new_ctx
-                            }
-
-                            Err(e) => {
-                                rfd::MessageDialog::new()
-                                    .set_level(rfd::MessageLevel::Error)
-                                    .set_title("Unable to load file, JSON parsing error.")
-                                    .set_description(&e)
-                                    .show();
-                                event!(Level::ERROR, "error loading file: {:?}", e);
-                                monodrone_ctx
-                            }
-                        };
-                        track = monodroneffi::UITrack::from_lean(monodrone_ctx);
-                        selection = monodroneffi::Selection::from_lean(monodrone_ctx);
-                        event!(Level::INFO, "loaded file!");
-                    }
-                    Err(e) => {
-                        event!(Level::ERROR, "error opening file: {:?}", e);
-                    }
-                }
-            } else {
-                event!(Level::INFO, "no path selected for open");
+            if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
+                selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+                event!(Level::INFO, "new selection {:?}", selection);
             }
-        } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && is_control_key_down(&rl) {
-            break;
-        }
 
-        // Step 3: Render
-        let mut d = rl.begin_drawing(&thread);
 
-        d.clear_background(Color::new(33, 33, 33, 255));
-        // d.clear_background(Color::new(38, 50, 56, 255));
-        let BOX_HEIGHT = 40;
-        let BOX_WIDTH = 40;
-        let BOX_WIDTH_PADDING_LEFT = 5;
-        let BOX_WINDOW_CORNER_PADDING_LEFT = BOX_WIDTH_PADDING_LEFT;
-        let BOX_WIDTH_PADDING_RIGHT = 5;
-        let BOX_HEIGHT_PADDING_TOP = 5;
-        let BOX_WINDOW_CORNER_PADDING_TOP = BOX_HEIGHT_PADDING_TOP;
-        let BOX_NOW_PLAYING_SUGAR_WIDTH = 5;
+            if ctx.input(|i| i.key_pressed(Key::C)) {
+                monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
+            }
+            if ctx.input(|i| i.key_pressed(Key::D)) {
+                monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);
+            }
 
-        let BOX_HEIGHT_PADDING_BOTTOM = 5;
-        let BOX_DESLECTED_COLOR = Color::new(66, 66, 66, 255);
-        let BOX_SELECTED_BACKGROUND_COLOR = Color::new(255, 0, 100, 255);
-        let BOX_CURSORED_COLOR = Color::new(99, 99, 99, 255);
-        let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
-        let TEXT_COLOR_LEADING = Color::new(207, 216, 220, 255);
-        let TEXT_COLLOR_FOLLOWING = Color::new(99, 99, 99, 255);
-        let PLAYBACK_SPEED_TEXT_COLOR = Color::new(97, 97, 97, 255);
 
-        let PLAYBACK_SPEED_INFO_Y = BOX_WINDOW_CORNER_PADDING_TOP;
+            // if ctx.input(|i| i.key_pressed(Key::B) && i.modifiers.shift) {
+            //     tweak += 10;
+            // };
 
-        cameraYEaser.set(
-            ((selection.anchor_y as f32
-                * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
-                - SCREEN_HEIGHT as f32 * 0.5)
-                .max(0.0),
-        );
-        cameraYEaser.step(time_elapsed);
 
-        cursorEaser.set(selection.cursor_x as f32, selection.cursor_y as f32);
-        cursorEaser.damping = 0.3;
-        cursorEaser.step(time_elapsed);
+            let size = Vec2::splat(10000.0);
+            let (response, painter) = ui.allocate_painter(size, Sense::hover());
+            // let rect = response.rect;
+            // let c = rect.center();
+            // let r = rect.width() / 2.0 - 1.0;
+            // let color = Color32::from_gray(tweak);
+            // let stroke = Stroke::new(1.0, color);
+            // painter.circle_stroke(c, r, stroke);
+            // painter.line_segment([c - vec2(0.0, r), c + vec2(0.0, r)], stroke);
+            // painter.line_segment([c, c + r * Vec2::angled(3.14 * 2.0 * 1.0 / 8.0)], stroke);
+            // painter.line_segment([c, c + r * Vec2::angled(3.14 * 2.0 * 3.0 / 8.0)], stroke);
 
-        selectAnchorEaser.set(selection.anchor_x as f32, selection.anchor_y as f32);
-        selectAnchorEaser.damping = 0.2;
-        selectAnchorEaser.step(time_elapsed);
+            let BOX_HEIGHT = 40.;
+            let BOX_WIDTH = 40.;
+            let BOX_WIDTH_PADDING_LEFT = 5.;
+            let BOX_WINDOW_CORNER_PADDING_LEFT = BOX_WIDTH_PADDING_LEFT;
+            let BOX_WIDTH_PADDING_RIGHT = 5.;
+            let BOX_HEIGHT_PADDING_TOP = 5.;
+            let BOX_WINDOW_CORNER_PADDING_TOP = BOX_HEIGHT_PADDING_TOP;
+            let BOX_NOW_PLAYING_SUGAR_WIDTH = 5.;
 
-        // draw tracker.
-        {
-            let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
-            let now_playing_box_y = ((cur_instant as i32 - 1) as i32);
+            let BOX_HEIGHT_PADDING_BOTTOM = 5.;
+            let BOX_DESLECTED_COLOR = egui::Color32::from_rgb(66, 66, 66);
+            let BOX_SELECTED_BACKGROUND_COLOR = egui::Color32::from_rgb(255, 0, 100);
+            let BOX_CURSORED_COLOR = egui::Color32::from_rgb(99, 99, 99);
+            let BOX_NOW_PLAYING_COLOR = egui::Color32::from_rgb(255, 143, 0);
+            let TEXT_COLOR_LEADING = egui::Color32::from_rgb(207, 216, 220);
+            let TEXT_COLLOR_FOLLOWING = egui::Color32::from_rgb(99, 99, 99);
+            let PLAYBACK_SPEED_TEXT_COLOR = egui::Color32::from_rgb(97, 97, 97);
 
-            nowPlayingYEaser.set(
-                (BOX_WINDOW_CORNER_PADDING_TOP
-                    + now_playing_box_y
-                        * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM))
-                    as f32,
+            let PLAYBACK_SPEED_INFO_Y = BOX_WINDOW_CORNER_PADDING_TOP;
+
+            cameraYEaser.set(
+                ((selection.anchor_y as f32
+                    * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
+                    - SCREEN_HEIGHT as f32 * 0.5)
+                    .max(0.0),
             );
-            nowPlayingYEaser.step(time_elapsed);
-        }
+            cameraYEaser.step(time_elapsed);
 
-        let logical_x_to_draw_x = |ix: f32| -> i32 {
-            BOX_WINDOW_CORNER_PADDING_LEFT
-                + (ix * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) as f32)
-                    as i32
-                + BOX_WIDTH_PADDING_LEFT
-        };
+            cursorEaser.set(selection.cursor_x as f32, selection.cursor_y as f32);
+            cursorEaser.damping = 0.3;
+            cursorEaser.step(time_elapsed);
 
-        let logical_y_to_draw_y = |iy: f32| -> i32 {
-            BOX_WINDOW_CORNER_PADDING_TOP
-                + (iy * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
-                    as i32
-                + BOX_HEIGHT_PADDING_TOP
-                - cameraYEaser.get() as i32
-        };
+            selectAnchorEaser.set(selection.anchor_x as f32, selection.anchor_y as f32);
+            selectAnchorEaser.damping = 0.2;
+            selectAnchorEaser.step(time_elapsed);
 
-        let logical_width_to_draw_width = |width: f32| -> i32 {
-            (width * (BOX_WIDTH) as f32
-                + (width - 1.0) * (BOX_WIDTH_PADDING_LEFT as f32 + BOX_WIDTH_PADDING_RIGHT as f32))
-                as i32
-        };
+            // now playing.
+            {
+                let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
+                let now_playing_box_y = (cur_instant as i32 - 1) as f32;
 
-        let logical_height_to_draw_height = |height: f32| -> i32 {
-            (height * (BOX_HEIGHT) as f32
-                + (height - 1.0)
-                    * (BOX_HEIGHT_PADDING_TOP as f32 + BOX_HEIGHT_PADDING_BOTTOM as f32))
-                as i32
-        };
-
-        let cursor_draw_x = logical_x_to_draw_x(cursorEaser.get().0);
-        let cursor_draw_y = logical_y_to_draw_y(cursorEaser.get().1);
-
-        let select_anchor_draw_x = logical_x_to_draw_x(selectAnchorEaser.get().0);
-        let select_anchor_draw_y = logical_y_to_draw_y(selectAnchorEaser.get().1);
-
-        let top_left_draw_x = cursor_draw_x.min(select_anchor_draw_x);
-        let top_left_draw_y = cursor_draw_y.min(select_anchor_draw_y);
-        let bottom_right_draw_x = cursor_draw_x.max(select_anchor_draw_x);
-        let bottom_right_draw_y = cursor_draw_y.max(select_anchor_draw_y);
-
-        // if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
-        //     d.draw_rectangle(
-        //         top_left_draw_x as i32,
-        //         top_left_draw_y as i32,
-        //         logical_width_to_draw_width((cursorEaser.get().0 - selectAnchorEaser.get().0).abs() + 1.0) as i32,
-        //         logical_height_to_draw_height((cursorEaser.get().1 - selectAnchorEaser.get().1).abs() + 1.0) as i32,
-        //         BOX_SELECTED_BACKGROUND_COLOR,
-        //     );
-        // }
-
-        for x in 0u64..8 {
-            for y in 0u64..100 {
-                let draw_x = logical_x_to_draw_x(x as f32);
-                let draw_y = logical_y_to_draw_y(y as f32);
-                let draw_color = if x == selection.cursor_x && y == selection.cursor_y {
-                    // BOX_SELECTED_BACKGROUND_COLOR
-                    BOX_DESLECTED_COLOR
-                } else if top_left_draw_x <= draw_x
-                    && (draw_x - bottom_right_draw_x) <= BOX_WIDTH / 5
-                    && top_left_draw_y <= draw_y
-                    && (draw_y - bottom_right_draw_y) <= BOX_HEIGHT / 5
-                {
-                    BOX_DESLECTED_COLOR
-                } else {
-                    BOX_DESLECTED_COLOR
-                };
-
-                d.draw_rectangle(
-                    draw_x as i32,
-                    draw_y as i32,
-                    BOX_WIDTH as i32,
-                    BOX_HEIGHT as i32,
-                    draw_color,
+                nowPlayingYEaser.set(
+                    (BOX_WINDOW_CORNER_PADDING_TOP
+                        + now_playing_box_y
+                            * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM))
+                        as f32,
                 );
+                nowPlayingYEaser.step(time_elapsed);
             }
-        }
 
-        // selection is distinct from cursor, so draw it.
-        if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
-            d.draw_rectangle(
-                select_anchor_draw_x as i32,
-                select_anchor_draw_y as i32,
-                BOX_WIDTH as i32,
-                BOX_HEIGHT as i32,
-                BOX_SELECTED_BACKGROUND_COLOR,
-            );
-        }
+            let logical_x_to_draw_x = |ix: f32| -> f32 {
+                BOX_WINDOW_CORNER_PADDING_LEFT
+                    + (ix * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) as f32)
+                    + BOX_WIDTH_PADDING_LEFT
+            };
 
-        d.draw_rectangle(
-            cursor_draw_x,
-            cursor_draw_y,
-            (BOX_WIDTH * 2) / 10 as i32,
-            BOX_HEIGHT as i32,
-            BOX_CURSORED_COLOR,
-        );
+            let logical_y_to_draw_y = |iy: f32| -> f32 {
+                BOX_WINDOW_CORNER_PADDING_TOP
+                    + (iy * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
+                    + BOX_HEIGHT_PADDING_TOP
+                    - cameraYEaser.get()
+            };
 
-        for x in 0u64..8 {
-            for y in 0u64..100 {
-                let draw_x = logical_x_to_draw_x(x as f32);
-                let draw_y = logical_y_to_draw_y(y as f32);
+            let logical_width_to_draw_width = |width: f32| -> f32 {
+                (width * (BOX_WIDTH) as f32
+                    + (width - 1.0) * (BOX_WIDTH_PADDING_LEFT as f32 + BOX_WIDTH_PADDING_RIGHT as f32))
+            };
 
-                match track.get_note_from_coord(x, y) {
-                    Some(note) => {
-                        let text_color = if (note.x == x && note.y == y) {
-                            TEXT_COLOR_LEADING
-                        } else {
-                            TEXT_COLLOR_FOLLOWING
-                        };
-                        d.draw_text(
-                            &format!("{}", note.to_str()),
-                            draw_x as i32 + 5,
-                            draw_y as i32 + 5,
-                            20,
-                            text_color,
-                        );
+            let logical_height_to_draw_height = |height: f32| -> f32 {
+                (height * (BOX_HEIGHT) as f32
+                    + (height - 1.0)
+                        * (BOX_HEIGHT_PADDING_TOP as f32 + BOX_HEIGHT_PADDING_BOTTOM as f32))
+            };
 
-                        let OCTAVE_TEXT_HEIGHT = 10;
-                        let OCTAVE_TEXT_PADDING = 2;
-                        let octave_text_len =
-                            d.measure_text(&format!("{}", note.octave), OCTAVE_TEXT_HEIGHT);
-                        d.draw_text(
-                            &format!("{}", note.octave),
-                            draw_x as i32 + BOX_WIDTH - octave_text_len - OCTAVE_TEXT_PADDING,
-                            draw_y as i32 + BOX_HEIGHT - OCTAVE_TEXT_HEIGHT - OCTAVE_TEXT_PADDING,
-                            OCTAVE_TEXT_HEIGHT,
-                            Color::new(100, 255, 0, 255),
-                        );
-                    }
-                    None => (),
-                };
+            let cursor_draw_x = logical_x_to_draw_x(cursorEaser.get().0);
+            let cursor_draw_y = logical_y_to_draw_y(cursorEaser.get().1);
+
+            let select_anchor_draw_x = logical_x_to_draw_x(selectAnchorEaser.get().0);
+            let select_anchor_draw_y = logical_y_to_draw_y(selectAnchorEaser.get().1);
+
+            let top_left_draw_x = cursor_draw_x.min(select_anchor_draw_x);
+            let top_left_draw_y = cursor_draw_y.min(select_anchor_draw_y);
+            let bottom_right_draw_x = cursor_draw_x.max(select_anchor_draw_x);
+            let bottom_right_draw_y = cursor_draw_y.max(select_anchor_draw_y);
+
+
+            // painter.rect_filled (Rect::from_min_size(Pos2::new(10., 10.),
+            //     Vec2::new(32., 32.)),
+            //     Rounding::default(),
+            //     BOX_DESLECTED_COLOR);
+
+            // painter.rect_filled (Rect::from_min_size(Pos2::new(64., 64.),
+            //     Vec2::new(32., 32.)),
+            //     Rounding::default(),
+            //     BOX_DESLECTED_COLOR);
+
+
+            for x in 0u64..8 {
+                for y in 0u64..100 {
+                    let draw_x = logical_x_to_draw_x(x  as f32);
+                    let draw_y = logical_y_to_draw_y(y  as f32);
+                    painter.rect_filled (Rect::from_min_size(Pos2::new(draw_x, draw_y),
+                        Vec2::new(BOX_WIDTH, BOX_HEIGHT)),
+                        Rounding::default(),
+                        BOX_DESLECTED_COLOR);
+                    //     draw_x as i32,
+                    //     draw_y as i32,
+                    //     BOX_WIDTH as i32,
+                    //     BOX_HEIGHT as i32,
+                    //     BOX_DESLECTED_COLOR,
+                    // );
+                }
             }
-        }
 
-        d.draw_rectangle(
-            0 as i32,
-            (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
-            BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
-            BOX_HEIGHT as i32,
-            BOX_NOW_PLAYING_COLOR,
-        );
+    //     // selection is distinct from cursor, so draw it.
+    //     if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
+    //         d.draw_rectangle(
+    //             select_anchor_draw_x as i32,
+    //             select_anchor_draw_y as i32,
+    //             BOX_WIDTH as i32,
+    //             BOX_HEIGHT as i32,
+    //             BOX_SELECTED_BACKGROUND_COLOR,
+    //         );
+    //     }
 
-        {
-            let text = format!("Playback Speed: {:.1}", sequencerPlaybackSpeed.value);
-            let width = d.measure_text(text.as_str(), 20);
-            d.draw_text(
-                &text,
-                d.get_screen_width() as i32 - width as i32 - 20,
-                PLAYBACK_SPEED_INFO_Y,
-                20,
-                PLAYBACK_SPEED_TEXT_COLOR,
-            );
-        }
-    }
+    //     d.draw_rectangle(
+    //         cursor_draw_x,
+    //         cursor_draw_y,
+    //         (BOX_WIDTH * 2) / 10 as i32,
+    //         BOX_HEIGHT as i32,
+    //         BOX_CURSORED_COLOR,
+    //     );
+
+    //     for x in 0u64..8 {
+    //         for y in 0u64..100 {
+    //             let draw_x = logical_x_to_draw_x(x as f32);
+    //             let draw_y = logical_y_to_draw_y(y as f32);
+
+    //             match track.get_note_from_coord(x, y) {
+    //                 Some(note) => {
+    //                     let text_color = if (note.x == x && note.y == y) {
+    //                         TEXT_COLOR_LEADING
+    //                     } else {
+    //                         TEXT_COLLOR_FOLLOWING
+    //                     };
+    //                     d.draw_text(
+    //                         &format!("{}", note.to_str()),
+    //                         draw_x as i32 + 5,
+    //                         draw_y as i32 + 5,
+    //                         20,
+    //                         text_color,
+    //                     );
+
+    //                     let OCTAVE_TEXT_HEIGHT = 10;
+    //                     let OCTAVE_TEXT_PADDING = 2;
+    //                     let octave_text_len =
+    //                         d.measure_text(&format!("{}", note.octave), OCTAVE_TEXT_HEIGHT);
+    //                     d.draw_text(
+    //                         &format!("{}", note.octave),
+    //                         draw_x as i32 + BOX_WIDTH - octave_text_len - OCTAVE_TEXT_PADDING,
+    //                         draw_y as i32 + BOX_HEIGHT - OCTAVE_TEXT_HEIGHT - OCTAVE_TEXT_PADDING,
+    //                         OCTAVE_TEXT_HEIGHT,
+    //                         Color::new(100, 255, 0, 255),
+    //                     );
+    //                 }
+    //                 None => (),
+    //             };
+    //         }
+    //     }
+
+    //     d.draw_rectangle(
+    //         0 as i32,
+    //         (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
+    //         BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
+    //         BOX_HEIGHT as i32,
+    //         BOX_NOW_PLAYING_COLOR,
+    //     );
+
+    //     {
+    //         let text = format!("Playback Speed: {:.1}", sequencerPlaybackSpeed.value);
+    //         let width = d.measure_text(text.as_str(), 20);
+    //         d.draw_text(
+    //             &text,
+    //             d.get_screen_width() as i32 - width as i32 - 20,
+    //             PLAYBACK_SPEED_INFO_Y,
+    //             20,
+    //             PLAYBACK_SPEED_TEXT_COLOR,
+    //         );
+    //     }
+    // }
+
+
+        });
+    });
+
+    // while !rl.window_should_close() {
+    //     let time_elapsed = rl.get_frame_time();
+    //     debounceMovement.add_time_elapsed(time_elapsed);
+    //     debounceUndo.add_time_elapsed(time_elapsed);
+
+    //     // Step 2: Get stuff to render
+    //     if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
+    //         track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+    //         // TODO: bundle all this state update in a single place.
+    //         println!("-> got new track {:?}", track);
+    //     }
+
+    //     // for this particular case, the pattern doesn't make much sense.
+    //     // Still, it's nice to establish a pattern for future use.
+    //     if sequencerPlaybackSpeed.update_seq(monodroneffi::get_playback_speed_sequence_number(
+    //         monodrone_ctx,
+    //     )) {
+    //         let new_speed = monodroneffi::get_playback_speed(monodrone_ctx);
+    //         sequencerPlaybackSpeed.set_value(new_speed);
+    //         sequencer_io.set_playback_rate(new_speed as f32);
+    //         print!("-> got new playback speed: {:?}", sequencerPlaybackSpeed);
+    //     }
+    //     if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
+    //         selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+    //         println!("-> got new selection");
+    //     }
+    //     if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
+    //         monodrone_ctx = monodroneffi::decrease_playback_speed(monodrone_ctx);
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
+    //         monodrone_ctx = monodroneffi::increase_playback_speed(monodrone_ctx);
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+    //         if sequencer_io.is_playing() {
+    //             sequencer_io.stop();
+    //         } else {
+    //             sequencer_io.set_track(track.clone().to_player_track());
+    //             let is_looping = is_shift_key_down(&rl);
+
+    //             let start_instant = if is_looping {
+    //                 cmp::min(
+    //                     cmp::min(selection.cursor_y, selection.anchor_y) as u64,
+    //                     track.get_last_instant() as u64,
+    //                 )
+    //             } else {
+    //                 if is_shift_key_down(&rl) {
+    //                     selection.cursor_y as u64
+    //                 } else {
+    //                     0
+    //                 }
+    //             };
+
+    //             let end_instant = if is_looping {
+    //                 cmp::max(
+    //                     cmp::max(selection.cursor_y, selection.anchor_y) as u64,
+    //                     track.get_last_instant() as u64,
+    //                 )
+    //             } else {
+    //                 track.get_last_instant() as u64
+    //             };
+    //             sequencer_io.restart(start_instant, (end_instant + 1), is_looping);
+    //         }
+    //     } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_J))) {
+    //         if is_shift_key_down(&rl) {
+    //             monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 2);
+    //             // monodrone_ctx = monodroneffi::drag_down_one(monodrone_ctx);
+    //             // panic!("monodrone ctx drag down one");
+    //         } else {
+    //             monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
+    //         }
+    //     } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_K))) {
+    //         if is_shift_key_down(&rl) {
+    //             monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 3);
+    //             // monodrone_ctx = monodroneffi::drag_up_one(monodrone_ctx);
+    //         } else {
+    //             monodrone_ctx = monodroneffi::cursor_move_up_one(monodrone_ctx);
+    //         }
+    //     } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_H))) {
+    //         if (is_shift_key_down(&rl)) {
+    //             monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 1);
+    //         } else {
+    //             monodrone_ctx = monodroneffi::cursor_move_left_one(monodrone_ctx);
+    //         }
+    //     } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_L))) {
+    //         if (is_shift_key_down(&rl)) {
+    //             monodrone_ctx = monodroneffi::set_nsteps(monodrone_ctx, 4);
+    //         } else {
+    //             monodrone_ctx = monodroneffi::cursor_move_right_one(monodrone_ctx);
+    //         }
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_Q) {
+    //         monodrone_ctx = monodroneffi::decrease_nsteps(monodrone_ctx);
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_W) {
+    //         monodrone_ctx = monodroneffi::increase_nsteps(monodrone_ctx);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_C)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_D)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::D);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_E)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::E);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_F)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::F);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_G)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::G);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_A)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::A);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_B)) {
+    //         monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::B);
+    //     } else if (debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_BACKSPACE))) {
+    //         if (is_shift_key_down(&rl)) {
+    //             monodrone_ctx = monodroneffi::delete_line(monodrone_ctx);
+    //         } else {
+    //             monodrone_ctx = monodroneffi::delete_note(monodrone_ctx);
+    //         }
+    //     } else if (debounceUndo.debounce(rl.is_key_down(KeyboardKey::KEY_Z))) {
+    //         // TODO: figure out how to get control key.
+    //         if (is_shift_key_down(&rl)) {
+    //             monodrone_ctx = monodroneffi::redo_action(monodrone_ctx);
+    //         } else {
+    //             monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
+    //         }
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_THREE)) {
+    //         monodrone_ctx = monodroneffi::toggle_sharp(monodrone_ctx);
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
+    //         monodrone_ctx = monodroneffi::toggle_flat(monodrone_ctx);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_COMMA)) {
+    //         monodrone_ctx = monodroneffi::lower_octave(monodrone_ctx);
+    //     } else if (rl.is_key_pressed(KeyboardKey::KEY_PERIOD)) {
+    //         monodrone_ctx = monodroneffi::raise_octave(monodrone_ctx);
+    //     } else if debounceMovement.debounce(rl.is_key_down(KeyboardKey::KEY_ENTER)) {
+    //         monodrone_ctx = monodroneffi::newline(monodrone_ctx);
+    //         monodrone_ctx = monodroneffi::cursor_move_down_one(monodrone_ctx);
+    //     } else if (!is_shift_key_down(&rl)
+    //         && rl.is_key_pressed(KeyboardKey::KEY_S)
+    //         && is_control_key_down(&rl))
+    //     {
+    //         // c-s for save.
+    //         let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
+    //         event!(Level::INFO, "saving file to path: '{}'", cur_filepath.to_string());
+    //         match File::create(cur_filepath.path.as_path()) {
+    //             Ok(mut file) => {
+    //                 file.write_all(str.as_bytes()).unwrap();
+    //                 event!(Level::INFO, "Successfully saved '{}'", cur_filepath.to_string());
+
+    //             }
+    //             Err(e) => {
+    //                 event!(Level::ERROR, "Error saving file: {:?}", e);
+    //                 rfd::MessageDialog::new()
+    //                     .set_level(rfd::MessageLevel::Error)
+    //                     .set_title(format!(
+    //                         "Unable to save file to path '{}'.",
+    //                         cur_filepath.to_string()
+    //                     ))
+    //                     .set_description(e.to_string())
+    //                     .show();
+    //             }
+    //         };
+    //         let midi_filepath = cur_filepath.get_export_file_path();
+    //         let midi_file = match File::create(midi_filepath.clone()) {
+    //             Ok(file) => file,
+    //             Err(e) => {
+    //                 rfd::MessageDialog::new()
+    //                     .set_level(rfd::MessageLevel::Error)
+    //                     .set_title("Unable to create MIDI file")
+    //                     .set_description(e.to_string())
+    //                     .show();
+    //                 event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+    //                 return;
+    //             }
+    //         };
+    //         let player_track = track.to_player_track();
+    //         let (header, tracks) = player_track.to_smf();
+    //         match midly::write_std(&header, tracks.iter(), midi_file) {
+    //             Ok(()) => {
+    //                 event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
+    //             }
+    //             Err(e) => {
+    //                 rfd::MessageDialog::new()
+    //                     .set_level(rfd::MessageLevel::Error)
+    //                     .set_title("Unable to save MIDI file")
+    //                     .set_description(&e.to_string())
+    //                     .show();
+    //                 event!(Level::ERROR, "error writing MIDI file: {:?}", e);
+    //             }
+    //         }
+
+    //     } else if is_shift_key_down(&rl)
+    //         && rl.is_key_pressed(KeyboardKey::KEY_E)
+    //         && is_control_key_down(&rl) {
+    //         // TODO: export to MIDI.
+    //     } else if is_shift_key_down(&rl)
+    //         && rl.is_key_pressed(KeyboardKey::KEY_I)
+    //         && is_control_key_down(&rl) {
+    //         // TODO: import MIDI to monodrone.
+    //     } else if is_shift_key_down(&rl)
+    //         && rl.is_key_pressed(KeyboardKey::KEY_S)
+    //         && is_control_key_down(&rl)
+    //     {
+    //         // TODO: only open this with ctrl + shift + s.
+    //         let saver_dialog = FileDialog::new()
+    //             .add_filter("monodrone", &["drn"])
+    //             .set_can_create_directories(true)
+    //             .set_file_name(cur_filepath.file_stem().to_string_lossy())
+    //             .set_directory(cur_filepath.parent_dir())
+    //             .set_title("Save monodrone file location");
+
+    //         if let Option::Some(path) = saver_dialog.save_file() {
+    //             let str = monodroneffi::ctx_to_json_str(monodrone_ctx);
+    //             // open file and write string.
+    //             event!(Level::INFO, "saving-as file to path {path:?}");
+    //             match File::create(path.clone()) {
+    //                 Ok(mut file) => {
+    //                     file.write_all(str.as_bytes()).unwrap();
+    //                     cur_filepath.set_file_path(&rl, &thread, &path);
+    //                 }
+    //                 Err(e) => {
+    //                     rfd::MessageDialog::new()
+    //                         .set_level(rfd::MessageLevel::Error)
+    //                         .set_title("Unable to save monodrone file")
+    //                         .set_description(&e.to_string())
+    //                         .show();
+    //                     event!(Level::ERROR, "error saving monodrone file: {:?}", e);
+    //                 }
+    //             };
+
+    //             let midi_filepath = cur_filepath.get_export_file_path();
+    //             let midi_file = match File::create(midi_filepath.clone()) {
+    //                 Ok(file) => file,
+    //                 Err(e) => {
+    //                     rfd::MessageDialog::new()
+    //                         .set_level(rfd::MessageLevel::Error)
+    //                         .set_title("Unable to create MIDI file")
+    //                         .set_description(&e.to_string())
+    //                         .show();
+    //                     event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+    //                     return;
+    //                 }
+    //             };
+    //             let player_track = track.to_player_track();
+    //             let (header, tracks) = player_track.to_smf();
+    //             match midly::write_std(&header, tracks.iter(), midi_file) {
+    //                 Ok(()) => {
+    //                     event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
+    //                 }
+    //                 Err(e) => {
+    //                     rfd::MessageDialog::new()
+    //                         .set_level(rfd::MessageLevel::Error)
+    //                         .set_title("Unable to save MIDI file")
+    //                         .set_description(&e.to_string())
+    //                         .show();
+    //                     event!(Level::ERROR, "error writing MIDI file: {:?}", e);
+    //                 }
+    //             }
+    //         } else {
+    //             event!(Level::INFO, "no path selected for save");
+    //         }
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_O) && is_control_key_down(&rl) {
+    //         let open_dialog = FileDialog::new()
+    //             .add_filter("monodrone", &["drn"])
+    //             .set_can_create_directories(true)
+    //             .set_title("Open monodrone file location")
+    //             .set_directory(cur_filepath.parent_dir());
+
+    //         if let Some(path) = open_dialog.pick_file() {
+    //             // open path and load string.
+    //             event!(Level::INFO, "loading file {cur_filepath:?}");
+    //             match File::open(path.clone()) {
+    //                 Ok(file) => {
+    //                     let reader = std::io::BufReader::new(file);
+    //                     let str = std::io::read_to_string(reader).unwrap();
+    //                     event!(Level::INFO, "loaded file data: {str}");
+    //                     monodrone_ctx = match monodroneffi::ctx_from_json_str(str) {
+    //                         Ok(new_ctx) => {
+    //                             cur_filepath.set_file_path(&rl, &thread, &path);
+    //                             new_ctx
+    //                         }
+
+    //                         Err(e) => {
+    //                             rfd::MessageDialog::new()
+    //                                 .set_level(rfd::MessageLevel::Error)
+    //                                 .set_title("Unable to load file, JSON parsing error.")
+    //                                 .set_description(&e)
+    //                                 .show();
+    //                             event!(Level::ERROR, "error loading file: {:?}", e);
+    //                             monodrone_ctx
+    //                         }
+    //                     };
+    //                     track = monodroneffi::UITrack::from_lean(monodrone_ctx);
+    //                     selection = monodroneffi::Selection::from_lean(monodrone_ctx);
+    //                     event!(Level::INFO, "loaded file!");
+    //                 }
+    //                 Err(e) => {
+    //                     event!(Level::ERROR, "error opening file: {:?}", e);
+    //                 }
+    //             }
+    //         } else {
+    //             event!(Level::INFO, "no path selected for open");
+    //         }
+    //     } else if rl.is_key_pressed(KeyboardKey::KEY_Q) && is_control_key_down(&rl) {
+    //         break;
+    //     }
+
+    //     // Step 3: Render
+    //     let mut d = rl.begin_drawing(&thread);
+
+    //     d.clear_background(Color::new(33, 33, 33, 255));
+    //     // d.clear_background(Color::new(38, 50, 56, 255));
+    //     let BOX_HEIGHT = 40;
+    //     let BOX_WIDTH = 40;
+    //     let BOX_WIDTH_PADDING_LEFT = 5;
+    //     let BOX_WINDOW_CORNER_PADDING_LEFT = BOX_WIDTH_PADDING_LEFT;
+    //     let BOX_WIDTH_PADDING_RIGHT = 5;
+    //     let BOX_HEIGHT_PADDING_TOP = 5;
+    //     let BOX_WINDOW_CORNER_PADDING_TOP = BOX_HEIGHT_PADDING_TOP;
+    //     let BOX_NOW_PLAYING_SUGAR_WIDTH = 5;
+
+    //     let BOX_HEIGHT_PADDING_BOTTOM = 5;
+    //     let BOX_DESLECTED_COLOR = Color::new(66, 66, 66, 255);
+    //     let BOX_SELECTED_BACKGROUND_COLOR = Color::new(255, 0, 100, 255);
+    //     let BOX_CURSORED_COLOR = Color::new(99, 99, 99, 255);
+    //     let BOX_NOW_PLAYING_COLOR = Color::new(255, 143, 0, 255);
+    //     let TEXT_COLOR_LEADING = Color::new(207, 216, 220, 255);
+    //     let TEXT_COLLOR_FOLLOWING = Color::new(99, 99, 99, 255);
+    //     let PLAYBACK_SPEED_TEXT_COLOR = Color::new(97, 97, 97, 255);
+
+    //     let PLAYBACK_SPEED_INFO_Y = BOX_WINDOW_CORNER_PADDING_TOP;
+
+    //     cameraYEaser.set(
+    //         ((selection.anchor_y as f32
+    //             * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
+    //             - SCREEN_HEIGHT as f32 * 0.5)
+    //             .max(0.0),
+    //     );
+    //     cameraYEaser.step(time_elapsed);
+
+    //     cursorEaser.set(selection.cursor_x as f32, selection.cursor_y as f32);
+    //     cursorEaser.damping = 0.3;
+    //     cursorEaser.step(time_elapsed);
+
+    //     selectAnchorEaser.set(selection.anchor_x as f32, selection.anchor_y as f32);
+    //     selectAnchorEaser.damping = 0.2;
+    //     selectAnchorEaser.step(time_elapsed);
+
+    //     // draw tracker.
+    //     {
+    //         let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
+    //         let now_playing_box_y = ((cur_instant as i32 - 1) as i32);
+
+    //         nowPlayingYEaser.set(
+    //             (BOX_WINDOW_CORNER_PADDING_TOP
+    //                 + now_playing_box_y
+    //                     * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM))
+    //                 as f32,
+    //         );
+    //         nowPlayingYEaser.step(time_elapsed);
+    //     }
+
+    //     let logical_x_to_draw_x = |ix: f32| -> i32 {
+    //         BOX_WINDOW_CORNER_PADDING_LEFT
+    //             + (ix * (BOX_WIDTH + BOX_WIDTH_PADDING_LEFT + BOX_WIDTH_PADDING_RIGHT) as f32)
+    //                 as i32
+    //             + BOX_WIDTH_PADDING_LEFT
+    //     };
+
+    //     let logical_y_to_draw_y = |iy: f32| -> i32 {
+    //         BOX_WINDOW_CORNER_PADDING_TOP
+    //             + (iy * (BOX_HEIGHT + BOX_HEIGHT_PADDING_TOP + BOX_HEIGHT_PADDING_BOTTOM) as f32)
+    //                 as i32
+    //             + BOX_HEIGHT_PADDING_TOP
+    //             - cameraYEaser.get() as i32
+    //     };
+
+    //     let logical_width_to_draw_width = |width: f32| -> i32 {
+    //         (width * (BOX_WIDTH) as f32
+    //             + (width - 1.0) * (BOX_WIDTH_PADDING_LEFT as f32 + BOX_WIDTH_PADDING_RIGHT as f32))
+    //             as i32
+    //     };
+
+    //     let logical_height_to_draw_height = |height: f32| -> i32 {
+    //         (height * (BOX_HEIGHT) as f32
+    //             + (height - 1.0)
+    //                 * (BOX_HEIGHT_PADDING_TOP as f32 + BOX_HEIGHT_PADDING_BOTTOM as f32))
+    //             as i32
+    //     };
+
+    //     let cursor_draw_x = logical_x_to_draw_x(cursorEaser.get().0);
+    //     let cursor_draw_y = logical_y_to_draw_y(cursorEaser.get().1);
+
+    //     let select_anchor_draw_x = logical_x_to_draw_x(selectAnchorEaser.get().0);
+    //     let select_anchor_draw_y = logical_y_to_draw_y(selectAnchorEaser.get().1);
+
+    //     let top_left_draw_x = cursor_draw_x.min(select_anchor_draw_x);
+    //     let top_left_draw_y = cursor_draw_y.min(select_anchor_draw_y);
+    //     let bottom_right_draw_x = cursor_draw_x.max(select_anchor_draw_x);
+    //     let bottom_right_draw_y = cursor_draw_y.max(select_anchor_draw_y);
+
+    //     // if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
+    //     //     d.draw_rectangle(
+    //     //         top_left_draw_x as i32,
+    //     //         top_left_draw_y as i32,
+    //     //         logical_width_to_draw_width((cursorEaser.get().0 - selectAnchorEaser.get().0).abs() + 1.0) as i32,
+    //     //         logical_height_to_draw_height((cursorEaser.get().1 - selectAnchorEaser.get().1).abs() + 1.0) as i32,
+    //     //         BOX_SELECTED_BACKGROUND_COLOR,
+    //     //     );
+    //     // }
+
+    //     for x in 0u64..8 {
+    //         for y in 0u64..100 {
+    //             let draw_x = logical_x_to_draw_x(x as f32);
+    //             let draw_y = logical_y_to_draw_y(y as f32);
+    //             let draw_color = if x == selection.cursor_x && y == selection.cursor_y {
+    //                 // BOX_SELECTED_BACKGROUND_COLOR
+    //                 BOX_DESLECTED_COLOR
+    //             } else if top_left_draw_x <= draw_x
+    //                 && (draw_x - bottom_right_draw_x) <= BOX_WIDTH / 5
+    //                 && top_left_draw_y <= draw_y
+    //                 && (draw_y - bottom_right_draw_y) <= BOX_HEIGHT / 5
+    //             {
+    //                 BOX_DESLECTED_COLOR
+    //             } else {
+    //                 BOX_DESLECTED_COLOR
+    //             };
+
+    //             d.draw_rectangle(
+    //                 draw_x as i32,
+    //                 draw_y as i32,
+    //                 BOX_WIDTH as i32,
+    //                 BOX_HEIGHT as i32,
+    //                 draw_color,
+    //             );
+    //         }
+    //     }
+
+    //     // selection is distinct from cursor, so draw it.
+    //     if selection.cursor_x != selection.anchor_x || selection.cursor_y != selection.anchor_y {
+    //         d.draw_rectangle(
+    //             select_anchor_draw_x as i32,
+    //             select_anchor_draw_y as i32,
+    //             BOX_WIDTH as i32,
+    //             BOX_HEIGHT as i32,
+    //             BOX_SELECTED_BACKGROUND_COLOR,
+    //         );
+    //     }
+
+    //     d.draw_rectangle(
+    //         cursor_draw_x,
+    //         cursor_draw_y,
+    //         (BOX_WIDTH * 2) / 10 as i32,
+    //         BOX_HEIGHT as i32,
+    //         BOX_CURSORED_COLOR,
+    //     );
+
+    //     for x in 0u64..8 {
+    //         for y in 0u64..100 {
+    //             let draw_x = logical_x_to_draw_x(x as f32);
+    //             let draw_y = logical_y_to_draw_y(y as f32);
+
+    //             match track.get_note_from_coord(x, y) {
+    //                 Some(note) => {
+    //                     let text_color = if (note.x == x && note.y == y) {
+    //                         TEXT_COLOR_LEADING
+    //                     } else {
+    //                         TEXT_COLLOR_FOLLOWING
+    //                     };
+    //                     d.draw_text(
+    //                         &format!("{}", note.to_str()),
+    //                         draw_x as i32 + 5,
+    //                         draw_y as i32 + 5,
+    //                         20,
+    //                         text_color,
+    //                     );
+
+    //                     let OCTAVE_TEXT_HEIGHT = 10;
+    //                     let OCTAVE_TEXT_PADDING = 2;
+    //                     let octave_text_len =
+    //                         d.measure_text(&format!("{}", note.octave), OCTAVE_TEXT_HEIGHT);
+    //                     d.draw_text(
+    //                         &format!("{}", note.octave),
+    //                         draw_x as i32 + BOX_WIDTH - octave_text_len - OCTAVE_TEXT_PADDING,
+    //                         draw_y as i32 + BOX_HEIGHT - OCTAVE_TEXT_HEIGHT - OCTAVE_TEXT_PADDING,
+    //                         OCTAVE_TEXT_HEIGHT,
+    //                         Color::new(100, 255, 0, 255),
+    //                     );
+    //                 }
+    //                 None => (),
+    //             };
+    //         }
+    //     }
+
+    //     d.draw_rectangle(
+    //         0 as i32,
+    //         (nowPlayingYEaser.get() - cameraYEaser.get()) as i32,
+    //         BOX_NOW_PLAYING_SUGAR_WIDTH as i32,
+    //         BOX_HEIGHT as i32,
+    //         BOX_NOW_PLAYING_COLOR,
+    //     );
+
+    //     {
+    //         let text = format!("Playback Speed: {:.1}", sequencerPlaybackSpeed.value);
+    //         let width = d.measure_text(text.as_str(), 20);
+    //         d.draw_text(
+    //             &text,
+    //             d.get_screen_width() as i32 - width as i32 - 20,
+    //             PLAYBACK_SPEED_INFO_Y,
+    //             20,
+    //             PLAYBACK_SPEED_TEXT_COLOR,
+    //         );
+    //     }
+    // }
 }
 
 fn testMidiInOpZ() -> Result<(), Box<dyn Error>> {
