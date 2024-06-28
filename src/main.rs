@@ -509,7 +509,7 @@ impl MidiSequencerIO {
     }
 }
 
-fn save (monodrone_ctx : &monodroneffi::Context) {
+fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
     let str = monodrone_ctx.to_json_string();
     let file_path_str = monodrone_ctx.file_path().to_string_lossy();
     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
@@ -517,7 +517,7 @@ fn save (monodrone_ctx : &monodroneffi::Context) {
         Ok(mut file) => {
             file.write_all(str.as_bytes()).unwrap();
             event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
-
+            egui_ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
         }
         Err(e) => {
             event!(Level::ERROR, "Error saving file: {:?}", e);
@@ -593,7 +593,10 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
                 };
                 event!(Level::INFO, "loaded file!");
                 // TODO: figure out how to sync this properly.
-                ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.file_path().to_string_lossy().to_string()));
+                // There is an annoying cyclic dependency: we can only send a viewport command
+                // after we have a context, but we must create a global monodrone_ctx before we
+                // get our hands on a real context object.
+                ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
                 Option::Some(monodrone_ctx)
             }
             Err(e) => {
@@ -671,7 +674,6 @@ fn mainLoop() {
     let mut playback_speed = 1.0 as f64;
     nowPlayingEaser.damping = 0.1;
 
-    let mut show_metadata : bool = false;
     let mut time_signature = (4, 4);
     let mut artist : String = "monodrone".to_string();
     let mut song_name : String = "aria".to_string();
@@ -700,20 +702,17 @@ fn mainLoop() {
 
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
+                if ui.button("New").clicked() {
+                    monodrone_ctx = monodroneffi::Context::new(launch_file_path());
+                    ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
+                }
                 if ui.button("Open").clicked() {
                     if let Some(new_ctx) = open(&ctx, &monodrone_ctx) {
                         monodrone_ctx = new_ctx;
                     }
-                    sequencer_io.set_playback_speed(playback_speed as f32); // TODO: make this lazy
                 }
                 if ui.button("Save").clicked() {
-                    save(&monodrone_ctx);
-                }
-                if ui.button("Save As").clicked() {
-                    panic!("TODO: port save as implementation.")
-                }
-                if ui.button("Metadata").clicked() {
-                    show_metadata = true;
+                    save(&ctx, &monodrone_ctx);
                 }
             });
         });
@@ -723,22 +722,6 @@ fn mainLoop() {
             let time_elapsed = 0.01; // TODO: fix this!
             debounceMovement.add_time_elapsed(time_elapsed);
             debounceUndo.add_time_elapsed(time_elapsed);
-
-            // Step 2: Get stuff to render
-            // This is automatically managed by Context
-            // if monodroneffi::get_track_sync_index(monodrone_ctx) != track.sync_index {
-            //     track = monodroneffi::UITrack::from_lean(monodrone_ctx);
-            //     save(monodrone_ctx, &track, &cur_filepath);
-            //     println!("-> got new track {:?}", track);
-
-            // }
-
-            // // for this particular case, the pattern doesn't make much sense.
-            // // Still, it's nice to establish a pattern for future use.
-            // if monodroneffi::get_cursor_sync_index(monodrone_ctx) != selection.sync_index {
-            //     selection = monodroneffi::Selection::from_lean(monodrone_ctx);
-            //     event!(Level::INFO, "new selection {:?}", selection);
-            // }
 
             // TODO: refactor into a widget that requests focus.
             if ctx.input(|i| i.key_pressed(Key::C)) {
@@ -776,13 +759,15 @@ fn mainLoop() {
 
 
             if ctx.input(|i| i.key_pressed(Key::H)) {
-                monodrone_ctx.cursor_move_left_one();
-            }
-            if ctx.input(|i| i.key_pressed(Key::J)) {
-                if ctx.input(|i| i.modifiers.shift) {
+                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
                     monodrone_ctx.lower_octave();
                 }
-                else if ctx.input(|i| i.modifiers.command) {
+                else {
+                    monodrone_ctx.cursor_move_left_one();
+                }
+            }
+            if ctx.input(|i| i.key_pressed(Key::J)) {
+                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
                     monodrone_ctx.increase_nsteps();
                 }
                 else {
@@ -790,10 +775,7 @@ fn mainLoop() {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::K)) {
-                if ctx.input(|i| i.modifiers.shift) {
-                    monodrone_ctx.raise_octave();
-                }
-                else if ctx.input(|i| i.modifiers.command) {
+                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
                     monodrone_ctx.decrease_nsteps();
                 }
                 else {
@@ -801,7 +783,11 @@ fn mainLoop() {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::L)) {
-                monodrone_ctx.cursor_move_right_one();
+                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
+                    monodrone_ctx.raise_octave();
+                } else {
+                    monodrone_ctx.cursor_move_right_one();
+                }
             }
             if ctx.input(|i| i.key_pressed(Key::Backspace)) {
                 if ctx.input(|i| i.modifiers.shift) {
@@ -811,7 +797,7 @@ fn mainLoop() {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
-                save(&monodrone_ctx);
+                save(&ctx, &monodrone_ctx);
             }
             if ctx.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
                 if let Some(new_ctx) = open(&ctx, &monodrone_ctx) {
@@ -915,10 +901,6 @@ fn mainLoop() {
                 Rounding::default().at_least(4.0),
                 box_now_playing_color);
             ctx.request_repaint();
-        });
-
-        egui::Window::new("Edit MIDI metadata").open(&mut show_metadata).show(ctx, |ui| {
-
         });
 
     });

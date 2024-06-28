@@ -457,15 +457,12 @@ impl PlayerTrack {
 
         let mut max_time = 0;
         for note in &self.notes {
-            let start = note.start;
             let end = note.start + note.nsteps;
             max_time = max_time.max(end);
         }
         let TIME_DELTA : u32 = 120;
         for t in 0..max_time+1 {
             let player_notes = track_get_note_events_at_time(&self, t);
-            // vv why does it think it's borrowed lol?
-            // TODO: figure out why I need a clone()
             for (i, player_note) in player_notes.iter().enumerate() {
                 let time_delta = (if i == 0 { TIME_DELTA } else { 0 }).into();
                 let midi_message = player_note.to_midi_message();
@@ -487,7 +484,6 @@ impl PlayerTrack {
         return (header.clone(), vec![meta_track, track]);
     }
 }
-
 
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -752,7 +748,7 @@ impl Context {
         event!(Level::INFO, "track: {:?}", track);
         event!(Level::INFO, "selection: {:?}", selection);
         Context {
-            file_path: PathBuf::new(), // TODO: store state on Lean side.
+            file_path: file_path, // TODO: store state on Lean side.
             ctx,
             track,
             selection,
@@ -873,6 +869,9 @@ impl Context {
 
     pub fn redo_action (&mut self) {
         self.run_ctx_fn(|ctx| redo_action(ctx))
+    }
+    pub fn get_app_title(&self) -> String {
+        format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy().to_string())
     }
 
 }
