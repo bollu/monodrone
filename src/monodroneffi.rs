@@ -1,11 +1,11 @@
 
 use std::{collections::HashMap, path::PathBuf};
-use lean_sys::{lean_box, lean_dec_ref, lean_inc, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object, lean_unbox_float};
-use midly;
-use lean_sys;
+use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
+
+
 use tracing::{event, Level};
 
-use crate::{track_get_note_events_at_time, NoteEvent};
+use crate::{track_get_note_events_at_time};
 
 extern {
     pub fn initialize_Monodrone(builtin : u8, world : *mut lean_object) -> lean_object;
@@ -117,7 +117,7 @@ pub fn str_to_lean_str (string : &str) -> *mut lean_object {
 
 
 // # Ctx function wrappers.
-pub fn initialize() -> () {
+pub fn initialize() {
     unsafe { initialize_Monodrone(1, lean_box(0)) };
 }
 pub fn new_context(path : &str) -> *mut lean_object {
@@ -243,8 +243,8 @@ pub fn decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object {
 pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
     unsafe {
         let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
-        let str = lean_str_to_string(lean_str);
-        return str;
+        
+        lean_str_to_string(lean_str)
     }
 }
 
@@ -252,17 +252,17 @@ pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
 pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
     let lean_str = String_to_lean_str(string);
     let io_ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
-    print!("io_ctx: {:p}\n", io_ctx);
+    println!("io_ctx: {:p}", io_ctx);
     unsafe {
         lean_inc_ref(io_ctx);
         if lean_sys::lean_io_result_is_ok(io_ctx) {
             let ctx = lean_sys::lean_io_result_get_value(io_ctx);
-            print!("ctx: {:p}\n", ctx);
-            return Ok(ctx);
+            println!("ctx: {:p}", ctx);
+            Ok(ctx)
         } else {
             let err = lean_io_result_get_error(io_ctx);
             let err_str = lean_str_to_string(lean_io_error_to_string(err));
-            return Err(err_str);
+            Err(err_str)
         }
     }
 }
@@ -310,6 +310,12 @@ pub struct PlayerTrack {
     pub notes: Vec<PlayerNote>, // sorted by start
 }
 
+impl Default for PlayerTrack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlayerTrack {
     pub fn new() -> PlayerTrack {
         PlayerTrack { notes: Vec::new() }
@@ -324,6 +330,12 @@ pub struct TrackBuilder {
     notes: Vec<PlayerNote>,
     time : u64,
 }
+impl Default for TrackBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrackBuilder {
     pub fn new() -> TrackBuilder {
         TrackBuilder { notes: Vec::new(), time: 0 }
@@ -462,7 +474,7 @@ impl PlayerTrack {
         }
         let TIME_DELTA : u32 = 120;
         for t in 0..max_time+1 {
-            let player_notes = track_get_note_events_at_time(&self, t);
+            let player_notes = track_get_note_events_at_time(self, t);
             for (i, player_note) in player_notes.iter().enumerate() {
                 let time_delta = (if i == 0 { TIME_DELTA } else { 0 }).into();
                 let midi_message = player_note.to_midi_message();
@@ -481,7 +493,7 @@ impl PlayerTrack {
             delta: 0.into(),
             kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
         });
-        return (header.clone(), vec![meta_track, track]);
+        (header, vec![meta_track, track])
     }
 }
 
@@ -618,7 +630,7 @@ impl UINote {
         let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
         UINote { pitch_name: PitchName::of_lean(pitch_name),
             accidental: Accidental::of_lean(accidental),
-            octave : octave,
+            octave,
             x, y,
             nsteps }
     }
@@ -725,7 +737,7 @@ pub struct Context {
 impl Context {
     // TODO: take egui context to set title.
     pub fn new(file_path : PathBuf) -> Context {
-        let ctx = new_context(&file_path.as_path().to_str().unwrap());
+        let ctx = new_context(file_path.as_path().to_str().unwrap());
         Context::from_raw_ctx(ctx, file_path)
     }
 
@@ -735,7 +747,7 @@ impl Context {
         event!(Level::INFO, "track: {:?}", track);
         event!(Level::INFO, "selection: {:?}", selection);
         Context {
-            file_path: file_path, // TODO: store state on Lean side.
+            file_path, // TODO: store state on Lean side.
             ctx,
             track,
             selection,
@@ -795,66 +807,66 @@ impl Context {
     }
 
     pub fn cursor_move_left_one (&mut self) {
-        self.run_ctx_fn(|ctx| cursor_move_left_one(ctx))
+        self.run_ctx_fn(cursor_move_left_one)
     }
 
     pub fn cursor_move_right_one (&mut self) {
-        self.run_ctx_fn(|ctx| cursor_move_right_one(ctx))
+        self.run_ctx_fn(cursor_move_right_one)
     }
 
     pub fn cursor_move_down_one (&mut self) {
-        self.run_ctx_fn(|ctx| cursor_move_down_one(ctx))
+        self.run_ctx_fn(cursor_move_down_one)
     }
 
     pub fn cursor_move_up_one (&mut self) {
-        self.run_ctx_fn(|ctx| cursor_move_up_one(ctx))
+        self.run_ctx_fn(cursor_move_up_one)
     }
 
     pub fn toggle_sharp (&mut self) {
-        self.run_ctx_fn(|ctx| toggle_sharp(ctx))
+        self.run_ctx_fn(toggle_sharp)
     }
 
     pub fn toggle_flat (&mut self) {
-        self.run_ctx_fn(|ctx| toggle_flat(ctx))
+        self.run_ctx_fn(toggle_flat)
     }
 
     pub fn newline (&mut self) {
-        self.run_ctx_fn(|ctx| newline(ctx))
+        self.run_ctx_fn(newline)
     }
 
     pub fn delete_line (&mut self) {
-        self.run_ctx_fn(|ctx| delete_line(ctx))
+        self.run_ctx_fn(delete_line)
     }
 
     pub fn delete_note (&mut self) {
-        self.run_ctx_fn(|ctx| delete_note(ctx))
+        self.run_ctx_fn(delete_note)
     }
 
     pub fn lower_octave (&mut self) {
-        self.run_ctx_fn(|ctx| lower_octave(ctx))
+        self.run_ctx_fn(lower_octave)
     }
 
     pub fn raise_octave (&mut self) {
-        self.run_ctx_fn(|ctx| raise_octave(ctx))
+        self.run_ctx_fn(raise_octave)
     }
 
     pub fn increase_nsteps (&mut self) {
-        self.run_ctx_fn(|ctx| increase_nsteps(ctx))
+        self.run_ctx_fn(increase_nsteps)
     }
 
     pub fn decrease_nsteps (&mut self) {
-        self.run_ctx_fn(|ctx| decrease_nsteps(ctx))
+        self.run_ctx_fn(decrease_nsteps)
     }
 
     pub fn undo_action (&mut self) {
-        self.run_ctx_fn(|ctx| undo_action(ctx))
+        self.run_ctx_fn(undo_action)
     }
 
     pub fn redo_action (&mut self) {
-        self.run_ctx_fn(|ctx| redo_action(ctx))
+        self.run_ctx_fn(redo_action)
     }
     pub fn get_app_title(&self) -> String {
-        format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy().to_string())
+        format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy())
     }
 
 }

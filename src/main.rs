@@ -1,23 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use directories::{BaseDirs, ProjectDirs, UserDirs};
-use egui::epaint::text::cursor;
+
+
 use egui::Key;
 use lean_sys::{
-    lean_box, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization,
+    lean_initialize_runtime_module, lean_io_mark_end_initialization,
 };
-use std::ffi::OsStr; // https://github.com/tauri-apps/muda
+ // https://github.com/tauri-apps/muda
 
-use midi::Message::Start;
-use monodroneffi::{PlayerNote, Selection, TrackBuilder, UITrack};
+
+
 use rand::seq::SliceRandom; // 0.7.2
 use rfd::FileDialog;
 use std::collections::HashMap;
-use std::env;
+
 use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::path::{PathBuf};
+
 use std::sync::Mutex;
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
@@ -26,17 +26,17 @@ use eframe::egui;
 use egui::*;
 
 
-const GOLDEN_RATIO: f32 = 1.61803398875;
+const GOLDEN_RATIO: f32 = 1.618_034;
 
 use midir::{Ignore, MidiInput};
-use rustysynth::{MidiFile, MidiFileSequencer, SoundFont, Synthesizer, SynthesizerSettings};
+use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
 use std::io::{stdin, stdout, Write};
 use tracing::{event, Level};
 use tracing_subscriber::layer::SubscriberExt;
 
 mod monodroneffi;
 
-use std::cmp::{self, max};
+
 
 fn whimsical_file_name() -> String {
     let cool_nouns = vec![
@@ -205,7 +205,7 @@ fn track_get_note_events_at_time(
     for note in track.notes.iter() {
         ix2pitches
             .entry(note.start)
-            .or_insert(Vec::new())
+            .or_default()
             .push(note.pitch);
     }
     // only emit a note off if there is no same note in the next time step.
@@ -215,7 +215,7 @@ fn track_get_note_events_at_time(
         if (note.start + note.nsteps) == instant {
             let off_event = NoteEvent::NoteOff {
                 pitch: note.pitch as u8,
-                instant: instant as u64,
+                instant,
             };
             match ix2pitches.get(&(note.start + note.nsteps)) {
                 Some(next_notes) => {
@@ -231,7 +231,7 @@ fn track_get_note_events_at_time(
         if note.start == instant {
             note_events.push(NoteEvent::NoteOn {
                 pitch: note.pitch as u8,
-                instant: instant as u64,
+                instant,
             });
         }
     }
@@ -376,7 +376,7 @@ impl Debouncer {
     fn debounce(&mut self, val: bool) -> bool {
         let out = val && (self.time_to_next_event > self.debounce_time_sec);
         if out { self.time_to_next_event = 0.0; }
-        return out;
+        out
     }
 }
 
@@ -422,14 +422,14 @@ impl<T> SequenceNumbered<T> {
     fn new(value: T) -> Self {
         Self {
             seq: 0,
-            value: value,
+            value,
         }
     }
 
     fn update_seq(&mut self, seq: u64) -> bool {
         let updated = seq != self.seq;
         self.seq = seq;
-        return updated;
+        updated
     }
 
     fn set_value(&mut self, value: T) {
@@ -453,7 +453,7 @@ impl MidiSequencerIO {
         // The output buffer (3 seconds).
         let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
         let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
-        let mut t = 0;
+        let _t = 0;
         let device: Box<dyn BaseAudioOutputDevice> = run_output_device(params, {
             let sequencer = sequencer.clone();
             move |data| {
@@ -476,8 +476,8 @@ impl MidiSequencerIO {
         .unwrap();
         MidiSequencerIO {
             sequencer: sequencer.clone(),
-            params: params,
-            device: device,
+            params,
+            device,
         }
     }
 
@@ -525,7 +525,7 @@ fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
                 .set_level(rfd::MessageLevel::Error)
                 .set_title(format!(
                     "Unable to save file to path '{}'.",
-                    file_path_str.to_string()
+                    file_path_str
                 ))
                 .set_description(e.to_string())
                 .show();
@@ -554,7 +554,7 @@ fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
             rfd::MessageDialog::new()
                 .set_level(rfd::MessageLevel::Error)
                 .set_title("Unable to save MIDI file")
-                .set_description(&e.to_string())
+                .set_description(e.to_string())
                 .show();
             event!(Level::ERROR, "error writing MIDI file: {:?}", e);
         }
@@ -671,7 +671,7 @@ fn mainLoop() {
     let mut nowPlayingEaser = Easer::new(Pos2::ZERO);
     let mut cursorEaser = Easer::new(Pos2::ZERO);
 
-    let mut playback_speed = 1.0 as f64;
+    let mut playback_speed = 1.0_f64;
     nowPlayingEaser.damping = 0.1;
 
     let mut time_signature = (4, 4);
@@ -688,11 +688,9 @@ fn mainLoop() {
                     event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
                 }
                 ui.label("Time Signature");
-                if ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed() {
-                }
+                ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed();
                 ui.label("/");
-                if ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed() {
-                }
+                ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed();
                 ui.label("Artist");
                 ui.text_edit_singleline(&mut artist);
                 ui.label("Title");
@@ -707,12 +705,12 @@ fn mainLoop() {
                     ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
                 }
                 if ui.button("Open").clicked() {
-                    if let Some(new_ctx) = open(&ctx, &monodrone_ctx) {
+                    if let Some(new_ctx) = open(ctx, &monodrone_ctx) {
                         monodrone_ctx = new_ctx;
                     }
                 }
                 if ui.button("Save").clicked() {
-                    save(&ctx, &monodrone_ctx);
+                    save(ctx, &monodrone_ctx);
                 }
             });
         });
@@ -797,10 +795,10 @@ fn mainLoop() {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
-                save(&ctx, &monodrone_ctx);
+                save(ctx, &monodrone_ctx);
             }
             if ctx.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
-                if let Some(new_ctx) = open(&ctx, &monodrone_ctx) {
+                if let Some(new_ctx) = open(ctx, &monodrone_ctx) {
                     monodrone_ctx = new_ctx;
                 }
             }
@@ -832,7 +830,7 @@ fn mainLoop() {
             let avail_rect = ui.available_rect_before_wrap();
 
             let box_deselected_color = egui::Color32::from_rgb(66, 66, 66);
-            let box_selected_background_color = egui::Color32::from_rgb(255, 0, 100);
+            let _box_selected_background_color = egui::Color32::from_rgb(255, 0, 100);
             let box_cursored_color = egui::Color32::from_rgb(99, 99, 99);
             let box_now_playing_color = egui::Color32::from_rgb(255, 143, 0);
             let text_color_leading = egui::Color32::from_rgb(207, 216, 220);
@@ -847,8 +845,8 @@ fn mainLoop() {
 
             // now playing.
             let logical_to_draw_min = |logical: egui::Pos2| -> egui::Pos2 {
-                return avail_rect.min + window_padding +
-                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get();
+                avail_rect.min + window_padding +
+                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get()
             };
 
 
