@@ -1,8 +1,9 @@
 
-use std::collections::HashMap;
-use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object, lean_unbox_float};
+use std::{collections::HashMap, path::PathBuf};
+use lean_sys::{lean_box, lean_dec_ref, lean_inc, lean_inc_ref, lean_initialize_runtime_module, lean_io_mark_end_initialization, lean_io_result_get_error, lean_io_result_get_value, lean_io_result_is_error, lean_mk_io_user_error, lean_object, lean_unbox_float};
 use midly;
 use lean_sys;
+use tracing::{event, Level};
 
 use crate::{track_get_note_events_at_time, NoteEvent};
 
@@ -239,7 +240,7 @@ pub fn decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object {
 }
 
 
-pub fn ctx_to_json_str (ctx : *mut lean_object) -> String {
+pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
     unsafe {
         let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
         let str = lean_str_to_String(lean_str);
@@ -264,10 +265,6 @@ pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
             return Err(err_str);
         }
     }
-}
-
-pub fn get_playback_speed_sequence_number (ctx : *mut lean_object) -> u64 {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_playback_speed_sequence_number) }
 }
 
 pub fn get_playback_speed (ctx : *mut lean_object) -> f64 {
@@ -729,5 +726,153 @@ impl Selection {
     //     x >= min_x && x <= max_x && y >= min_y && y <= max_y
     // }
 
+
+}
+
+
+pub struct Context {
+    // file_path : AppFilePath,
+    file_path : PathBuf,
+    ctx : *mut lean_object,
+    track : UITrack,
+    selection : Selection,
+    playback_speed : f64,
+}
+
+impl Context {
+    // TODO: take egui context to set title.
+    pub fn new(file_path : PathBuf) -> Context {
+        let ctx = new_context(&file_path.as_path().to_str().unwrap());
+        Context::from_raw_ctx(ctx, file_path)
+    }
+
+    pub fn from_raw_ctx (ctx : *mut lean_object, file_path : PathBuf) -> Context {
+        let track = UITrack::from_lean(ctx);
+        let selection = Selection::from_lean(ctx);
+        event!(Level::INFO, "track: {:?}", track);
+        event!(Level::INFO, "selection: {:?}", selection);
+        Context {
+            file_path: PathBuf::new(), // TODO: store state on Lean side.
+            ctx,
+            track,
+            selection,
+            playback_speed: get_playback_speed(ctx),
+         }
+    }
+
+    pub fn run_ctx_fn<F> (&mut self, f : F) where F : FnOnce(*mut lean_object) -> *mut lean_object {
+        self.ctx = unsafe {
+            lean_inc_ref(self.ctx);
+            f(self.ctx)
+        };
+
+        if self.track.sync_index != unsafe { monodrone_ctx_run_linear_fn(self.ctx, monodrone_ctx_get_track_sync_index) } {
+            self.track = UITrack::from_lean(self.ctx);
+        }
+
+        if self.selection.sync_index != unsafe { monodrone_ctx_run_linear_fn(self.ctx, monodrone_ctx_get_cursor_sync_index) } {
+            self.selection = Selection::from_lean(self.ctx);
+        }
+
+        self.playback_speed = get_playback_speed(self.ctx);
+    }
+
+
+    pub fn track(&self) -> &UITrack {
+        &self.track
+    }
+
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    pub fn playback_speed(&self) -> f64 {
+        self.playback_speed
+    }
+
+    pub fn file_path(&self) -> &PathBuf {
+        &self.file_path
+    }
+
+    pub fn set_playback_speed(&mut self, value : f64) {
+        unsafe {
+            self.ctx = set_playback_speed(self.ctx, value);
+        }
+    }
+
+    pub fn to_json_string(&self) -> String {
+        ctx_to_json_string(self.ctx)
+    }
+
+    pub fn get_midi_export_file_path(&self) -> PathBuf {
+        let mut out = self.file_path.clone();
+        out.pop();
+        out.push(out.as_path().file_stem().unwrap().to_string_lossy().to_string() + ".mid");
+        out
+    }
+
+    pub fn set_pitch (&mut self, pitch : PitchName) {
+        self.run_ctx_fn(|ctx| set_pitch(ctx, pitch))
+    }
+
+    pub fn cursor_move_left_one (&mut self) {
+        self.run_ctx_fn(|ctx| cursor_move_left_one(ctx))
+    }
+
+    pub fn cursor_move_right_one (&mut self) {
+        self.run_ctx_fn(|ctx| cursor_move_right_one(ctx))
+    }
+
+    pub fn cursor_move_down_one (&mut self) {
+        self.run_ctx_fn(|ctx| cursor_move_down_one(ctx))
+    }
+
+    pub fn cursor_move_up_one (&mut self) {
+        self.run_ctx_fn(|ctx| cursor_move_up_one(ctx))
+    }
+
+    pub fn toggle_sharp (&mut self) {
+        self.run_ctx_fn(|ctx| toggle_sharp(ctx))
+    }
+
+    pub fn toggle_flat (&mut self) {
+        self.run_ctx_fn(|ctx| toggle_flat(ctx))
+    }
+
+    pub fn newline (&mut self) {
+        self.run_ctx_fn(|ctx| newline(ctx))
+    }
+
+    pub fn delete_line (&mut self) {
+        self.run_ctx_fn(|ctx| delete_line(ctx))
+    }
+
+    pub fn delete_note (&mut self) {
+        self.run_ctx_fn(|ctx| delete_note(ctx))
+    }
+
+    pub fn lower_octave (&mut self) {
+        self.run_ctx_fn(|ctx| lower_octave(ctx))
+    }
+
+    pub fn raise_octave (&mut self) {
+        self.run_ctx_fn(|ctx| raise_octave(ctx))
+    }
+
+    pub fn increase_nsteps (&mut self) {
+        self.run_ctx_fn(|ctx| increase_nsteps(ctx))
+    }
+
+    pub fn decrease_nsteps (&mut self) {
+        self.run_ctx_fn(|ctx| decrease_nsteps(ctx))
+    }
+
+    pub fn undo_action (&mut self) {
+        self.run_ctx_fn(|ctx| undo_action(ctx))
+    }
+
+    pub fn redo_action (&mut self) {
+        self.run_ctx_fn(|ctx| redo_action(ctx))
+    }
 
 }
