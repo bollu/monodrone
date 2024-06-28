@@ -949,8 +949,13 @@ fn mainLoop() {
                     monodrone_ctx = monodroneffi::undo_action(monodrone_ctx);
                 }
             }
+            if ctx.input (|i| i.key_pressed(Key::Num2)) {
+                monodrone_ctx = monodroneffi::toggle_flat(monodrone_ctx);
+            }
+            if ctx.input (|i| i.key_pressed(Key::Num3)) {
+                monodrone_ctx = monodroneffi::toggle_sharp(monodrone_ctx);
+            }
 
-            let size = Vec2::splat(1000.0); // TODO: this should be max of width and height.
             // let (response, painter) = ui.allocate_painter(size, Sense::hover());
             let painter = ui.painter_at(ui.available_rect_before_wrap());
             let child_rect = ui.available_rect_before_wrap(); // TODO: Refactor code to use this rect.
@@ -1041,7 +1046,7 @@ fn mainLoop() {
                     let draw_y = logical_y_to_draw_y(y  as f32);
                     painter.rect_filled (Rect::from_min_size(Pos2::new(draw_x, draw_y),
                         Vec2::new(BOX_WIDTH, BOX_HEIGHT)),
-                        Rounding::default(),
+                        egui::Rounding::default().at_least(4.0),
                         BOX_DESLECTED_COLOR);
                 }
             }
@@ -1093,15 +1098,6 @@ fn mainLoop() {
                 Vec2::new(BOX_WIDTH * 0.1, BOX_HEIGHT)),
                 Rounding::default().at_least(4.0),
                 BOX_NOW_PLAYING_COLOR);
-
-            {
-                let text = format!("Playback Speed: {:.1}", sequencerPlaybackSpeed.value);
-                let text_galley = painter.layout_no_wrap(text,
-                FontId::monospace(15.),
-                PLAYBACK_SPEED_TEXT_COLOR);
-                painter.galley(Pos2::new(SCREEN_WIDTH as f32 - text_galley.rect.width() - 20.0 , text_galley.rect.height() + 5.0),
-                    text_galley, PLAYBACK_SPEED_TEXT_COLOR);
-            }
             ctx.request_repaint();
         });
 
