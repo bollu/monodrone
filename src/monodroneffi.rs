@@ -81,6 +81,7 @@ extern {
 
     fn monodrone_ctx_get_playback_speed_sequence_number (ctx : *mut lean_object) -> u64;
     fn monodrone_ctx_get_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_set_playback_speed (ctx : *mut lean_object, speed : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
 
@@ -278,6 +279,15 @@ pub fn get_playback_speed (ctx : *mut lean_object) -> f64 {
     }
 
 }
+
+pub fn set_playback_speed (ctx : *mut lean_object, value : f64) -> *mut lean_object {
+    unsafe {
+        lean_inc_ref(ctx);
+        monodrone_ctx_set_playback_speed(ctx, lean_sys::lean_box_float(value))
+    }
+
+}
+
 pub fn increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
     unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_playback_speed) }
 
@@ -684,44 +694,40 @@ impl UITrack {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
     pub sync_index: u64,
-    pub anchor_x: u64,
-    pub anchor_y: u64,
-    pub cursor_x: u64,
-    pub cursor_y: u64,
+    pub cursor : egui::Pos2,
 }
 
 impl Selection {
     pub fn from_lean (ctx : *mut lean_object) -> Selection {
+
+        let cursor = egui::Pos2::new(unsafe {
+            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_x)
+        } as f32,
+        unsafe {
+            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_y)
+        } as f32);
+
+        let sync_index = unsafe {
+            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_sync_index)
+         };
+
         Selection {
-            sync_index: unsafe {
-                monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_sync_index)
-             },
-            anchor_x: unsafe {
-                monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_select_anchor_x)
-             },
-            anchor_y: unsafe {
-                monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_select_anchor_y)
-             },
-            cursor_x: unsafe {
-                monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_x)
-             },
-            cursor_y: unsafe {
-                monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_y)
-             },
+            sync_index,
+             cursor
         }
     }
 
-    pub fn is_cursored(&self, x: u64, y: u64) -> bool {
-        self.cursor_x == x && self.cursor_y == y
+    pub fn is_cursored(&self, pos : egui::Pos2) -> bool {
+        pos == self.cursor
     }
 
-    pub fn is_selected (&self, x : u64, y : u64) -> bool {
-        let min_x = self.anchor_x.min(self.cursor_x);
-        let max_x = self.anchor_x.max(self.cursor_x);
-        let min_y = self.anchor_y.min(self.cursor_y);
-        let max_y = self.anchor_y.max(self.cursor_y);
-        x >= min_x && x <= max_x && y >= min_y && y <= max_y
-    }
+    // pub fn is_selected (&self, x : u64, y : u64) -> bool {
+    //     let min_x = self.anchor_x.min(self.cursor_x);
+    //     let max_x = self.anchor_x.max(self.cursor_x);
+    //     let min_y = self.anchor_y.min(self.cursor_y);
+    //     let max_y = self.anchor_y.max(self.cursor_y);
+    //     x >= min_x && x <= max_x && y >= min_y && y <= max_y
+    // }
 
 
 }

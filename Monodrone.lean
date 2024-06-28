@@ -1426,6 +1426,10 @@ def monodrone_ctx_get_file_path (ctx : @&RawContext) : String := ctx.filepath
 def monodrone_ctx_get_playback_speed (ctx : @&RawContext) : Float :=
   ctx.playbackSpeed
 
+@[export monodrone_ctx_set_playback_speed]
+def monodrone_ctx_set_playback_speed (ctx : @&RawContext) (val : Float) : RawContext :=
+  { ctx with playbackSpeed := SequenceNumbered.new val }
+
 @[export monodrone_ctx_decrease_playback_speed]
 def monodrone_ctx_decrease_playback_speed (ctx : @&RawContext) : RawContext :=
   { ctx with playbackSpeed := ctx.playbackSpeed.modify (fun v => (v - 0.2)) }
