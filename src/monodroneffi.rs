@@ -98,7 +98,7 @@ pub fn monodrone_ctx_run_linear_fn<T> (ctx : *mut lean_object, f : unsafe extern
 }
 
 // consumes the string.
-pub fn lean_str_to_String (lean_str : *mut lean_object) -> String {
+pub fn lean_str_to_string (lean_str : *mut lean_object) -> String {
     let c_str = unsafe { lean_sys::lean_string_cstr(lean_str) };
     let str = unsafe { std::ffi::CStr::from_ptr(c_str as *const i8).to_str().unwrap().to_string() };
     unsafe { lean_sys::lean_dec_ref(lean_str); }
@@ -243,7 +243,7 @@ pub fn decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object {
 pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
     unsafe {
         let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
-        let str = lean_str_to_String(lean_str);
+        let str = lean_str_to_string(lean_str);
         return str;
     }
 }
@@ -261,7 +261,7 @@ pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
             return Ok(ctx);
         } else {
             let err = lean_io_result_get_error(io_ctx);
-            let err_str = lean_str_to_String(lean_io_error_to_string(err));
+            let err_str = lean_str_to_string(lean_io_error_to_string(err));
             return Err(err_str);
         }
     }
@@ -565,7 +565,7 @@ impl Accidental {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct UINote {
-    pub pitchName: PitchName,
+    pub pitch_name: PitchName,
     pub accidental : Accidental,
     pub x: u64,
     pub octave : u64,
@@ -576,7 +576,7 @@ pub struct UINote {
 
 impl UINote {
     pub fn to_str (&self) -> String {
-        format!("{}{}", self.pitchName.to_str(), self.accidental.to_str())
+        format!("{}{}", self.pitch_name.to_str(), self.accidental.to_str())
     }
 }
 
@@ -584,8 +584,8 @@ fn octave_to_midi_pitch (octave : u64) -> u64 {
     12 * (octave + 1)
 }
 
-fn pitch_name_to_midi_pitch (pitchName : PitchName) -> u64 {
-    match pitchName {
+fn pitch_name_to_midi_pitch (pitch_name : PitchName) -> u64 {
+    match pitch_name {
         PitchName::C => 0,
         PitchName::D => 2,
         PitchName::E => 4,
@@ -604,19 +604,19 @@ fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
     }
 }
 
-fn ui_pitch_to_midi_pitch (pitchName : PitchName, accidental : Accidental, octave : u64) -> u64 {
-    (pitch_name_to_midi_pitch(pitchName) as i64 + accidental_to_midi_pitch(accidental)) as u64 + octave_to_midi_pitch(octave)
+fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octave : u64) -> u64 {
+    (pitch_name_to_midi_pitch(pitch_name) as i64 + accidental_to_midi_pitch(accidental)) as u64 + octave_to_midi_pitch(octave)
 }
 
 impl UINote {
     pub fn from_lean (note : *mut lean_object) -> UINote {
-        let pitchName = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_pitch_name) };
+        let pitch_name = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_pitch_name) };
         let x = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_x) };
         let y = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_y) };
         let nsteps = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_nsteps) };
         let octave = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_octave) };
         let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
-        UINote { pitchName: PitchName::of_lean(pitchName),
+        UINote { pitch_name: PitchName::of_lean(pitch_name),
             accidental: Accidental::of_lean(accidental),
             octave : octave,
             x, y,
@@ -624,7 +624,7 @@ impl UINote {
     }
 
     pub fn to_player_note (&self) -> PlayerNote {
-        PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitchName, self.accidental, self.octave) ,
+        PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitch_name, self.accidental, self.octave) ,
             start: self.y, nsteps: self.nsteps }
     }
 }
@@ -710,19 +710,6 @@ impl Selection {
         }
     }
 
-    pub fn is_cursored(&self, pos : egui::Pos2) -> bool {
-        pos == self.cursor
-    }
-
-    // pub fn is_selected (&self, x : u64, y : u64) -> bool {
-    //     let min_x = self.anchor_x.min(self.cursor_x);
-    //     let max_x = self.anchor_x.max(self.cursor_x);
-    //     let min_y = self.anchor_y.min(self.cursor_y);
-    //     let max_y = self.anchor_y.max(self.cursor_y);
-    //     x >= min_x && x <= max_x && y >= min_y && y <= max_y
-    // }
-
-
 }
 
 
@@ -780,10 +767,6 @@ impl Context {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
-    }
-
-    pub fn playback_speed(&self) -> f64 {
-        self.playback_speed
     }
 
     pub fn file_path(&self) -> &PathBuf {

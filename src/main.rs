@@ -683,7 +683,7 @@ fn mainLoop() {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
                 if ui.add(egui::DragValue::new(&mut playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
-                    monodrone_ctx.run_ctx_fn(|ctx| { monodroneffi::set_playback_speed(ctx, playback_speed) });
+                    monodrone_ctx.set_playback_speed(playback_speed);
                     sequencer_io.set_playback_speed(playback_speed as f32);
                     event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
                 }
