@@ -497,6 +497,7 @@ struct MidiSequencerIO {
     device: Box<dyn BaseAudioOutputDevice>,
 }
 
+
 impl MidiSequencerIO {
     fn new(sequencer: MidiSequencer, params: OutputDeviceParameters) -> Self {
         let sequencer = Arc::new(Mutex::new(sequencer));
@@ -732,15 +733,22 @@ fn mainLoop() {
     nowPlayingEaser.damping = 0.1;
 
     let mut show_metadata : bool = false;
+    let mut time_signature = (4, 4);
     let _ = eframe::run_simple_native(format!("monodrone({})", cur_filepath.to_string()).as_str(),
         options, move |ctx, _frame| {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
-                if ui.add(egui::Slider::new(&mut playback_speed, 0.0..=1.5).step_by(0.05)).changed() {
+                if ui.add(egui::DragValue::new(&mut playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
                     monodrone_ctx = monodroneffi::set_playback_speed(monodrone_ctx, playback_speed);
                     sequencer_io.set_playback_speed(playback_speed as f32);
                     event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
+                }
+                ui.label("Time Signature");
+                if ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed() {
+                }
+                ui.label("/");
+                if ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed() {
                 }
 
             });
