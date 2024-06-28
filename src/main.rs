@@ -610,7 +610,7 @@ fn save (monodrone_ctx : *mut lean_sys::lean_object, track : &UITrack, cur_filep
         }
     };
 }
-fn open(monodrone_ctx : *mut lean_sys::lean_object,
+fn open(ctx: &egui::Context, monodrone_ctx : *mut lean_sys::lean_object,
     track : &UITrack, selection : &Selection, playback_speed : &f64,
     cur_filepath : &mut AppFilePath) -> (*mut lean_sys::lean_object, UITrack, Selection, f64) {
     let open_dialog = FileDialog::new()
@@ -644,6 +644,7 @@ fn open(monodrone_ctx : *mut lean_sys::lean_object,
                     }
                 };
                 event!(Level::INFO, "loaded file!");
+                ctx.send_viewport_cmd(ViewportCommand::Title(cur_filepath.to_string()));
                 let track = monodroneffi::UITrack::from_lean(monodrone_ctx);
                 let selection = monodroneffi::Selection::from_lean(monodrone_ctx);
                 let playback_speed = monodroneffi::get_playback_speed(monodrone_ctx);
@@ -762,7 +763,7 @@ fn mainLoop() {
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 if ui.button("Open").clicked() {
-                    (monodrone_ctx, track, selection, playback_speed) = open(monodrone_ctx, &track, &selection,
+                    (monodrone_ctx, track, selection, playback_speed) = open(&ctx, monodrone_ctx, &track, &selection,
                             &playback_speed, &mut cur_filepath);
                     sequencer_io.set_playback_speed(playback_speed as f32); // TODO: make this lazy
                 }
@@ -799,7 +800,7 @@ fn mainLoop() {
                 event!(Level::INFO, "new selection {:?}", selection);
             }
 
-
+            // TODO: refactor into a widget that requests focus.
             if ctx.input(|i| i.key_pressed(Key::C)) {
                 monodrone_ctx = monodroneffi::set_pitch(monodrone_ctx, monodroneffi::PitchName::C);
             }
@@ -874,7 +875,7 @@ fn mainLoop() {
             }
             if ctx.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
                 (monodrone_ctx, track, selection, playback_speed) =
-                    open(monodrone_ctx, &track, &selection, &playback_speed, &mut cur_filepath);
+                    open(&ctx, monodrone_ctx, &track, &selection, &playback_speed, &mut cur_filepath);
             }
 
             if ctx.input(|i| i.key_pressed(Key::Z) && i.modifiers.command) {
