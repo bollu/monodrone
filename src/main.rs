@@ -153,15 +153,6 @@ impl NoteEvent {
         }
     }
 
-    // fn to_midi_message(self) -> midly::MidiMessage {
-    //     match self {
-    //         NoteEvent::NoteOn { pitch, .. } => midly::TrackEventKind::Midi {
-    //             channel: midly::num::u4::from_int_lossy(0),
-    //             message: midly::MidiMessage::NoteOn {
-    //                 key: midly::num::u7::from_int_lossy(pitch),
-    //                 vel: midly::num::u7::from_int_lossy(100),
-    //             },
-    //         },
     fn to_midi_message(self) -> midly::MidiMessage {
         match self {
             NoteEvent::NoteOn { pitch, .. } =>  {
@@ -544,8 +535,7 @@ fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
             return;
         }
     };
-    let player_track = monodrone_ctx.track().to_player_track();
-    let (header, tracks) = player_track.to_smf();
+    let (header, tracks) = monodrone_ctx.to_smf();
     match midly::write_std(&header, tracks.iter(), midi_file) {
         Ok(()) => {
             event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
@@ -674,9 +664,6 @@ fn mainLoop() {
     let mut playback_speed = 1.0_f64;
     nowPlayingEaser.damping = 0.1;
 
-    let mut time_signature = (4, 4);
-    let mut artist : String = "monodrone".to_string();
-    let mut song_name : String = "aria".to_string();
     let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path().to_str().unwrap()).as_str(),
         options, move |ctx, _frame| {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
@@ -688,13 +675,14 @@ fn mainLoop() {
                     event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
                 }
                 ui.label("Time Signature");
+                let mut time_signature = monodrone_ctx.get_time_signature_mut();
                 ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed();
                 ui.label("/");
                 ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed();
                 ui.label("Artist");
-                ui.text_edit_singleline(&mut artist);
+                ui.text_edit_singleline(monodrone_ctx.get_artist_mut());
                 ui.label("Title");
-                ui.text_edit_singleline(&mut song_name);
+                ui.text_edit_singleline(monodrone_ctx.get_track_name_mut());
             });
         });
 

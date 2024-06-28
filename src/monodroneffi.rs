@@ -243,7 +243,7 @@ pub fn decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object {
 pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
     unsafe {
         let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
-        
+
         lean_str_to_string(lean_str)
     }
 }
@@ -398,104 +398,6 @@ impl From<TrackBuilder> for PlayerTrack {
 // Message('note_on', channel=2, note=64, velocity=0, time=26),
 // Message('note_on', channel=2, note=57, velocity=0, time=515),
 // MetaMessage('end_of_track', time=0)])//
-
-impl PlayerTrack {
-    pub fn to_smf(&self) -> (midly::Header, Vec<midly::Track>) {
-        let header = midly::Header {
-            format: midly::Format::Parallel,
-            timing: midly::Timing::Metrical(midly::num::u15::from_int_lossy(480)),
-        };
-
-        let mut meta_track = midly::Track::new();
-        meta_track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName("Wikipedia MIDI (extended)".as_bytes())),
-        });
-        meta_track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(midly::num::u24::from_int_lossy(500000))),
-        });
-        meta_track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TimeSignature(
-                4, // numerator: 4,
-                4, // denominator: 4,
-                24, // metronome: 24,
-                8, // thirty_seconds: 8,
-            )),
-        });
-        meta_track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
-        });
-
-        // TODO: consider adding a track that has metadata.
-        let mut track = midly::Track::new();
-
-        track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName("Bass".as_bytes())),
-        });
-        track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Midi {
-                channel: 0.into(),
-                message: midly::MidiMessage::Controller {
-                    controller: 0.into(), // select patch.
-                    value: 121.into(),
-                },
-            },
-        });
-        track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Midi {
-                channel: 0.into(),
-                message: midly::MidiMessage::Controller {
-                    controller: 32.into(), // controller LSB?
-                    value: 0.into(),
-                },
-            },
-        });
-        track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Midi {
-                channel: 0.into(),
-                message: midly::MidiMessage::ProgramChange {
-                    program: 0.into(), // grand piano
-                },
-            },
-        });
-
-
-        let mut max_time = 0;
-        for note in &self.notes {
-            let end = note.start + note.nsteps;
-            max_time = max_time.max(end);
-        }
-        let TIME_DELTA : u32 = 120;
-        for t in 0..max_time+1 {
-            let player_notes = track_get_note_events_at_time(self, t);
-            for (i, player_note) in player_notes.iter().enumerate() {
-                let time_delta = (if i == 0 { TIME_DELTA } else { 0 }).into();
-                let midi_message = player_note.to_midi_message();
-                let midi_note = midly::TrackEventKind::Midi {
-                    channel : 0.into(),
-                    message : midi_message
-                };
-                track.push(midly::TrackEvent {
-                    delta: time_delta,
-                    kind: midi_note
-                });
-            }
-        };
-
-        track.push(midly::TrackEvent {
-            delta: 0.into(),
-            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
-        });
-        (header, vec![meta_track, track])
-    }
-}
 
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -732,6 +634,9 @@ pub struct Context {
     track : UITrack,
     selection : Selection,
     playback_speed : f64,
+    track_name : String,
+    artist_name : String,
+    time_signature : (u8, u8),
 }
 
 impl Context {
@@ -752,7 +657,26 @@ impl Context {
             track,
             selection,
             playback_speed: get_playback_speed(ctx),
+            track_name: "monodrone".to_string(),
+            artist_name: "monodrone".to_string(),
+            time_signature: (4, 4),
          }
+    }
+
+    pub fn get_track_name (&self) -> &str {
+        &self.track_name
+    }
+
+    pub fn get_track_name_mut (&mut self) -> &mut String {
+        &mut self.track_name
+    }
+
+    pub fn get_artist_mut (&mut self) -> &mut String {
+        &mut self.artist_name
+    }
+
+    pub fn get_time_signature_mut (&mut self) -> &mut (u8, u8) {
+        &mut self.time_signature
     }
 
     pub fn run_ctx_fn<F> (&mut self, f : F) where F : FnOnce(*mut lean_object) -> *mut lean_object {
@@ -797,8 +721,7 @@ impl Context {
 
     pub fn get_midi_export_file_path(&self) -> PathBuf {
         let mut out = self.file_path.clone();
-        out.pop();
-        out.push(out.as_path().file_stem().unwrap().to_string_lossy().to_string() + ".mid");
+        out.set_extension(".mid");
         out
     }
 
@@ -868,5 +791,106 @@ impl Context {
     pub fn get_app_title(&self) -> String {
         format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy())
     }
+
+    pub fn to_smf(&self) -> (midly::Header, Vec<midly::Track>) {
+        let header = midly::Header {
+            format: midly::Format::Parallel,
+            timing: midly::Timing::Metrical(midly::num::u15::from_int_lossy(480)),
+        };
+
+        let mut meta_track = midly::Track::new();
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(self.track_name.as_bytes())),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::Tempo(midly::num::u24::from_int_lossy(500000))),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TimeSignature(
+                self.time_signature.0.into(), // numerator: 4,
+                self.time_signature.1.into(), // denominator: 4,
+                24, // metronome: 24,
+                8, // thirty_seconds: 8,
+            )),
+        });
+        meta_track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
+        });
+
+        // TODO: consider adding a track that has metadata.
+        let mut track = midly::Track::new();
+
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(self.track_name.as_bytes())),
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::Controller {
+                    controller: 0.into(), // select patch.
+                    value: 121.into(),
+                },
+            },
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::Controller {
+                    controller: 32.into(), // controller LSB?
+                    value: 0.into(),
+                },
+            },
+        });
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Midi {
+                channel: 0.into(),
+                message: midly::MidiMessage::ProgramChange {
+                    program: 0.into(), // grand piano
+                },
+            },
+        });
+
+
+        let mut max_time = 0;
+        let player_track = self.track().to_player_track();
+        for note in player_track.notes.iter() {
+            let end = note.start + note.nsteps;
+            max_time = max_time.max(end);
+        }
+        let TIME_DELTA : u32 = 120;
+        let mut cur_time_delta = 0u32;
+        for t in 0..max_time+1 {
+            cur_time_delta += TIME_DELTA; // for this instant of time, add time.
+            let player_notes = track_get_note_events_at_time(&player_track, t);
+            for (i, player_note) in player_notes.iter().enumerate() {
+                let time_delta = cur_time_delta;
+                cur_time_delta = 0; // we've consumed the time delta for this note.
+                let midi_message = player_note.to_midi_message();
+                let midi_note = midly::TrackEventKind::Midi {
+                    channel : 0.into(),
+                    message : midi_message
+                };
+                track.push(midly::TrackEvent {
+                    delta: time_delta.into(),
+                    kind: midi_note
+                });
+            }
+        };
+
+        track.push(midly::TrackEvent {
+            delta: 0.into(),
+            kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
+        });
+        (header, vec![meta_track, track])
+    }
+
 
 }
