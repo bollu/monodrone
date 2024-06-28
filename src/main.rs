@@ -734,6 +734,8 @@ fn mainLoop() {
 
     let mut show_metadata : bool = false;
     let mut time_signature = (4, 4);
+    let mut artist : String = "monodrone".to_string();
+    let mut song_name : String = "aria".to_string();
     let _ = eframe::run_simple_native(format!("monodrone({})", cur_filepath.to_string()).as_str(),
         options, move |ctx, _frame| {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
@@ -750,7 +752,10 @@ fn mainLoop() {
                 ui.label("/");
                 if ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed() {
                 }
-
+                ui.label("Artist");
+                ui.text_edit_singleline(&mut artist);
+                ui.label("Title");
+                ui.text_edit_singleline(&mut song_name);
             });
         });
 
