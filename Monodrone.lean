@@ -1342,8 +1342,9 @@ structure RawContext where
   track : HistoryStack Track (NaiveDiff Track)
   clipboard : Clipboard
   cursor : HistoryStack Selection (NaiveDiff Selection)
-  renderX : Eased Float
-  renderY : Eased Float
+  artist_name : String
+  track_name : String
+  time_signature : Nat × Nat
   junk : Unit := () -- Workaround for: 'https://github.com/leanprover/lean4/issues/4278'
 deriving Inhabited, Repr, ToJson, FromJson
 
@@ -1385,8 +1386,6 @@ def RawContext.step (ctx : RawContext) : RawContext :=
   { ctx with
     track := ctx.track.next,
     cursor := ctx.cursor.next,
-    renderX := ctx.renderX.step,
-    renderY := ctx.renderY.step
   }
 
 section ffi
@@ -1409,10 +1408,11 @@ def newContext (filepath : String) : RawContext := {
     track := HistoryStack.init Track.empty,
     clipboard := Clipboard.empty,
     cursor := HistoryStack.init Selection.atbegin,
-    renderX := Eased.atDesired 0.0,
-    renderY := Eased.atDesired 0.0,
     filepath := filepath,
     playbackSpeed := SequenceNumbered.new 0.5
+    time_signature := (4, 4),
+    artist_name := "Monodrone",
+    track_name := "Untitled"
 }
 
 /- # Filepath -/
@@ -2212,5 +2212,31 @@ def RawContext.fromJson (s : String) : IO RawContext :=
   match Json.parse s >>= fromJson?  with
   | Except.ok ctx => return ctx
   | Except.error e => throw <| IO.userError s!"parse error: '{e}'. Raw JSON file: '{s}'"
+
+/-# Metadata getters and setters -/
+
+@[export monodrone_ctx_get_track_name]
+def RawContext.getTrackName (ctx : @&RawContext) : String := ctx.track_name
+
+@[export monodrone_ctx_get_artist_name]
+def RawContext.getArtistName (ctx : @&RawContext) : String := ctx.artist_name
+
+@[export monodrone_ctx_get_time_signature_fst]
+def RawContext.getTimeSignatureFst (ctx : @&RawContext) : UInt64 := ctx.time_signature.fst.toUInt64
+
+@[export monodrone_ctx_get_time_signature_snd]
+def RawContext.getTimeSignatureSnd (ctx : @&RawContext) : UInt64 := ctx.time_signature.snd.toUInt64
+
+@[export monodrone_ctx_set_track_name]
+def RawContext.setTrackName (ctx : @&RawContext) (str : String) : RawContext :=
+  { ctx with track_name := str }
+
+@[export monodrone_ctx_set_artist_name]
+def RawContext.setArtistName (ctx : @&RawContext) (str : String) : RawContext :=
+  { ctx with artist_name := str }
+
+@[export monodrone_ctx_set_time_signature]
+def RawContext.setTimeSignature (ctx : @&RawContext) (fst snd : UInt64) : RawContext :=
+  { ctx with time_signature := (fst.toNat, snd.toNat) }
 
 end ffi

@@ -675,14 +675,22 @@ fn mainLoop() {
                     event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
                 }
                 ui.label("Time Signature");
-                let mut time_signature = monodrone_ctx.get_time_signature_mut();
-                ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed();
+                let mut time_signature = monodrone_ctx.get_time_signature_mut().clone();
+                if ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed() {
+                    monodrone_ctx.push_time_signature_to_lean();
+                }
                 ui.label("/");
-                ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed();
+                if ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed() {
+                    monodrone_ctx.push_time_signature_to_lean();
+                }
                 ui.label("Artist");
-                ui.text_edit_singleline(monodrone_ctx.get_artist_mut());
+               if  ui.text_edit_singleline(monodrone_ctx.get_artist_mut()).changed() {
+                    monodrone_ctx.push_artist_name_to_lean();
+               }
                 ui.label("Title");
-                ui.text_edit_singleline(monodrone_ctx.get_track_name_mut());
+                if ui.text_edit_singleline(monodrone_ctx.get_track_name_mut()).changed() {
+                    monodrone_ctx.push_track_name_to_lean();
+                }
             });
         });
 
