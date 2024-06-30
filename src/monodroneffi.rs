@@ -296,6 +296,38 @@ pub fn decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
 
 }
 
+pub struct LeanPtr {
+    ptr : *mut lean_object,
+}
+
+impl LeanPtr {
+    // take ownership of lean pointer.
+    pub fn take (ptr : *mut lean_object) -> LeanPtr {
+        LeanPtr { ptr }
+    }
+    pub fn run<F, O> (&mut self, f : F) -> O where F : FnOnce(*mut lean_object) -> O {
+        unsafe {
+            lean_inc_ref(self.ptr);
+        }
+        f(self.ptr)
+    }
+
+    // consumes this pointer and returns a new one, with the value updated according to the function.
+    pub fn update<F> (self, f : F) -> LeanPtr where F : FnOnce(*mut lean_object) -> *mut lean_object{
+        LeanPtr {
+            ptr : f(self.ptr)
+        }
+    }
+}
+
+impl Drop for LeanPtr {
+    fn drop(&mut self) {
+        unsafe {
+            lean_dec_ref(self.ptr);
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerNote {
@@ -477,7 +509,7 @@ impl Accidental {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UINote {
     pub pitch_name: PitchName,
     pub accidental : Accidental,
@@ -485,6 +517,7 @@ pub struct UINote {
     pub octave : u64,
     pub y: u64,
     pub nsteps: u64,
+    raw: *mut lean_object,
 
 }
 
@@ -531,6 +564,7 @@ impl UINote {
         let octave = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_octave) };
         let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
         UINote { pitch_name: PitchName::of_lean(pitch_name),
+            raw : note,
             accidental: Accidental::of_lean(accidental),
             octave,
             x, y,
@@ -541,6 +575,15 @@ impl UINote {
         PlayerNote { pitch: ui_pitch_to_midi_pitch(self.pitch_name, self.accidental, self.octave) ,
             start: self.y, nsteps: self.nsteps }
     }
+}
+
+impl Drop for UINote {
+    fn drop(&mut self) {
+        unsafe {
+            lean_dec_ref(self.raw);
+        }
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -891,6 +934,12 @@ impl Context {
         });
         (header, vec![meta_track, track])
     }
+}
 
-
+impl Drop for Context {
+    fn drop(&mut self) {
+        unsafe {
+            lean_dec_ref(self.ctx);
+        }
+    }
 }

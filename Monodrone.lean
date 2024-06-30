@@ -273,7 +273,7 @@ def UserPitch.lowerOctave (p : UserPitch) : UserPitch :=
 def UserPitch.middleC : UserPitch := {
   pitchName := PitchName.C,
   accidental := Accidental.natural,
-  octave := 4 -- middle C is 60 in MIDI pitch, which is 6 * (12 = length of scale in semitones).
+  octave := 3 -- middle C is 60 in MIDI pitch, which is 6 * (12 = length of scale in semitones).
 }
 
 def UserPitch.ofPitchName (n : PitchName) : UserPitch := {
