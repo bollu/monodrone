@@ -91,8 +91,6 @@ extern {
     fn monodrone_ctx_set_artist_name (ctx : *mut lean_object, str : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_set_time_signature (ctx : *mut lean_object, fst : u64, snd : u64) -> *mut lean_object;
     fn lean_io_error_to_string (io_obj : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
 }
 
 /// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
@@ -749,18 +747,20 @@ impl Context {
         unsafe {
             lean_inc_ref(self.ctx);
             let lean_str = String_to_lean_str(self.track_name.clone());
-           monodrone_ctx_set_track_name(self.ctx, lean_str);
+            self.ctx = monodrone_ctx_set_track_name(self.ctx, lean_str);
         };
     }
 
+    // TODO: switch to using run_ctx_fn.
     pub fn push_artist_name_to_lean (&mut self) {
         unsafe {
             lean_inc_ref(self.ctx);
             let lean_str = String_to_lean_str(self.artist_name.clone());
-            monodrone_ctx_set_artist_name(self.ctx, lean_str);
+            self.ctx = monodrone_ctx_set_artist_name(self.ctx, lean_str);
         };
     }
 
+    // TODO: switch to using run_ctx_fn.
     pub fn push_time_signature_to_lean (&mut self) {
         unsafe {
             lean_inc_ref(self.ctx);

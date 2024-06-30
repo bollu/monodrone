@@ -2228,11 +2228,11 @@ def RawContext.getTimeSignatureFst (ctx : @&RawContext) : UInt64 := ctx.time_sig
 def RawContext.getTimeSignatureSnd (ctx : @&RawContext) : UInt64 := ctx.time_signature.snd.toUInt64
 
 @[export monodrone_ctx_set_track_name]
-def RawContext.setTrackName (ctx : @&RawContext) (str : String) : RawContext :=
+def RawContext.setTrackName (ctx : @&RawContext) (str : @&String) : RawContext :=
   { ctx with track_name := str }
 
 @[export monodrone_ctx_set_artist_name]
-def RawContext.setArtistName (ctx : @&RawContext) (str : String) : RawContext :=
+def RawContext.setArtistName (ctx : @&RawContext) (str : @&String) : RawContext :=
   { ctx with artist_name := str }
 
 @[export monodrone_ctx_set_time_signature]
