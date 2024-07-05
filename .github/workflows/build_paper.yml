@@ -27,10 +27,10 @@ jobs:
       with:
         root_file: paper/paper.tex
 
-    # - name: Compile submission
-    #   uses: xu-cheng/latex-action@master
-    #   with:
-    #     root_file: submission.tex
+    - name: Compile submission
+      uses: xu-cheng/latex-action@master
+      with:
+        root_file: submission.tex
 
     # - name: Format Python files with yapf
     #   id: autoyapf
@@ -49,3 +49,4 @@ jobs:
         tag_name: release-${{ github.run_number }}
         files: |
           paper/paper.pdf
+          paper/submission.pdf
