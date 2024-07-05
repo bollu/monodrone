@@ -25,11 +25,13 @@ jobs:
     - name: Compile paper
       uses: xu-cheng/latex-action@master
       with:
-        root_file: paper/paper.tex
+        working_directory: paper/
+        root_file: paper.tex
 
     - name: Compile submission
       uses: xu-cheng/latex-action@master
       with:
+        working_directory: paper/
         root_file: submission.tex
 
     # - name: Format Python files with yapf
