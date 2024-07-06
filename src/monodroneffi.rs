@@ -91,6 +91,8 @@ extern {
     fn monodrone_ctx_set_artist_name (ctx : *mut lean_object, str : *mut lean_object) -> *mut lean_object;
     fn monodrone_ctx_set_time_signature (ctx : *mut lean_object, fst : u64, snd : u64) -> *mut lean_object;
     fn lean_io_error_to_string (io_obj : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
+    fn monodrone_ctx_decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
 }
 
 /// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
@@ -109,7 +111,7 @@ pub fn lean_str_to_string (lean_str : *mut lean_object) -> String {
     str
 }
 
-pub fn String_to_lean_str (string : String) -> *mut lean_object {
+pub fn string_to_lean_str (string : String) -> *mut lean_object {
     let c_str = std::ffi::CString::new(string).unwrap();
     unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
 }
@@ -254,7 +256,7 @@ pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
 
 // TODO: implement Result.
 pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
-    let lean_str = String_to_lean_str(string);
+    let lean_str = string_to_lean_str(string);
     let io_ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
     println!("io_ctx: {:p}", io_ctx);
     unsafe {
@@ -349,6 +351,14 @@ impl Drop for LeanPtr {
     }
 }
 
+impl Clone for LeanPtr {
+    fn clone(&self) -> Self {
+        unsafe {
+            lean_inc_ref(self.ptr);
+        }
+        LeanPtr { ptr : self.ptr }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerNote {
@@ -530,7 +540,7 @@ impl Accidental {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct UINote {
     pub pitch_name: PitchName,
     pub accidental : Accidental,
@@ -605,6 +615,21 @@ impl Drop for UINote {
         }
     }
 
+}
+
+impl Clone for UINote {
+    fn clone(&self) -> Self {
+        unsafe {
+            lean_inc_ref(self.raw);
+        }
+        UINote { pitch_name: self.pitch_name,
+            accidental: self.accidental,
+            x: self.x,
+            octave: self.octave,
+            y: self.y,
+            nsteps: self.nsteps,
+            raw: self.raw }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -746,7 +771,7 @@ impl Context {
     pub fn push_track_name_to_lean (&mut self) {
         unsafe {
             lean_inc_ref(self.ctx);
-            let lean_str = String_to_lean_str(self.track_name.clone());
+            let lean_str = string_to_lean_str(self.track_name.clone());
             self.ctx = monodrone_ctx_set_track_name(self.ctx, lean_str);
         };
     }
@@ -755,7 +780,7 @@ impl Context {
     pub fn push_artist_name_to_lean (&mut self) {
         unsafe {
             lean_inc_ref(self.ctx);
-            let lean_str = String_to_lean_str(self.artist_name.clone());
+            let lean_str = string_to_lean_str(self.artist_name.clone());
             self.ctx = monodrone_ctx_set_artist_name(self.ctx, lean_str);
         };
     }
@@ -956,14 +981,14 @@ impl Context {
             let end = note.start + note.nsteps;
             max_time = max_time.max(end);
         }
-        let TIME_DELTA : u32 = 120;
-        let mut cur_time_delta = 0u32;
+        let TIME_DELTA : u32 = (256.0 / self.playback_speed) as u32;
+        let mut time_delta_accum = 0;
         for t in 0..max_time+1 {
-            cur_time_delta += TIME_DELTA; // for this instant of time, add time.
+            time_delta_accum += TIME_DELTA; // for this instant of time, add time.
             let player_notes = track_get_note_events_at_time(&player_track, t);
             for (i, player_note) in player_notes.iter().enumerate() {
-                let time_delta = cur_time_delta;
-                cur_time_delta = 0; // we've consumed the time delta for this note.
+                let time_delta = time_delta_accum;
+                time_delta_accum = 0; // we've consumed the time delta for this note.
                 let midi_message = player_note.to_midi_message();
                 let midi_note = midly::TrackEventKind::Midi {
                     channel : 0.into(),
@@ -981,6 +1006,26 @@ impl Context {
             kind: midly::TrackEventKind::Meta(midly::MetaMessage::EndOfTrack),
         });
         (header, vec![meta_track, track])
+    }
+
+}
+
+impl Clone for Context {
+    fn clone(&self) -> Self {
+        let ctx = unsafe {
+            lean_inc_ref(self.ctx);
+            self.ctx
+        };
+        Context {
+            file_path: self.file_path.clone(),
+            ctx,
+            track: self.track.clone(),
+            selection: self.selection.clone(),
+            playback_speed: self.playback_speed,
+            track_name: self.track_name.clone(),
+            artist_name: self.artist_name.clone(),
+            time_signature: self.time_signature,
+        }
     }
 }
 
