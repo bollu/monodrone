@@ -2,7 +2,6 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 
-
 use egui::Key;
 use lean_sys::{
     lean_initialize_runtime_module, lean_io_mark_end_initialization,
