@@ -734,6 +734,7 @@ fn mainLoop() {
             if ctx.input(|i| i.key_pressed(Key::B)) {
                 monodrone_ctx.set_pitch(monodroneffi::PitchName::B);
             }
+            // <space>: plause/play
             if ctx.input(|i| i.key_pressed(Key::Space)) {
                 if sequencer_io.is_playing() {
                     sequencer_io.stop();
@@ -744,6 +745,18 @@ fn mainLoop() {
                     let is_looping = false;
                     sequencer_io.restart(start_instant, end_instant + 1, is_looping);
                 }
+
+            if ctx.input(|i| i.key_pressed(Key::P)) {
+                if sequencer_io.is_playing() {
+                    sequencer_io.stop();
+                } else {
+                    sequencer_io.set_track(monodrone_ctx.track().clone().to_player_track());
+                    let end_instant = monodrone_ctx.track().get_last_instant() as u64;
+                    let start_instant = 0;
+                    let is_looping = false;
+                    sequencer_io.restart(start_instant, end_instant + 1, is_looping);
+                }
+            }
             }
 
 

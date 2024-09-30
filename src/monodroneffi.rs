@@ -2,322 +2,9 @@
 use std::{collections::HashMap, path::PathBuf};
 use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
 
-
 use tracing::{event, Level};
 
 use crate::{track_get_note_events_at_time};
-
-extern {
-    pub fn initialize_Monodrone(builtin : u8, world : *mut lean_object) -> lean_object;
-
-    // ctx.
-    fn monodrone_ctx_new (path : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_step (ctx : *mut lean_object) -> *mut lean_object;
-
-    // cursor movement.
-    fn monodrone_ctx_cursor_move_left_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_cursor_move_right_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_cursor_move_down_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_cursor_move_up_one(ctx: *mut lean_object) -> *mut lean_object;
-
-    // selection movement.
-    fn monodrone_ctx_select_anchor_move_left_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_select_anchor_move_right_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_select_anchor_move_down_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_drag_down_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_drag_up_one(ctx: *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object;
-    // note editing.
-    fn monodrone_ctx_set_pitch(ctx : *mut lean_object, pitch : u64) -> *mut lean_object;
-    fn monodrone_ctx_toggle_sharp(ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_toggle_flat(ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_lower_octave (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_raise_octave (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_newline (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_delete_note (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_delete_line (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_set_nsteps (ctx : *mut lean_object, nsteps : u64) -> *mut lean_object;
-    fn monodrone_ctx_increase_nsteps (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object;
-
-    // fn monodrone_copy(ctx : *mut lean_object);
-    // fn monodrone_paste(ctx : *mut lean_object);
-
-
-    // cursor query
-    fn monodrone_ctx_get_cursor_sync_index(ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_cursor_x(ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_cursor_y(ctx : *mut lean_object) -> u64;
-
-    // selection query
-    // fn monodrone_ctx_has_select_anchor (ctx : *mut lean_object) -> bool;
-    fn monodrone_ctx_get_select_anchor_x (ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_select_anchor_y (ctx : *mut lean_object) -> u64;
-
-
-    // track query
-    fn monodrone_ctx_get_track_sync_index(ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_track_length(ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_track_note(ctx : *mut lean_object, i : u64) -> *mut lean_object;
-
-    // note query
-    fn monodrone_note_get_pitch_name(note : *mut lean_object) -> u64;
-    fn monodrone_note_get_accidental(note : *mut lean_object) -> u64;
-    fn monodrone_note_get_x(note : *mut lean_object) -> u64;
-    fn monodrone_note_get_y(note : *mut lean_object) -> u64;
-    fn monodrone_note_get_nsteps(note : *mut lean_object) -> u64;
-    fn monodrone_note_get_octave (note : *mut lean_object) -> u64;
-
-    // Undo/Redo action
-    fn monodrone_ctx_undo_action(ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_redo_action(ctx : *mut lean_object) -> *mut lean_object;
-
-    // Undo/Redo movement
-    fn monodrone_ctx_undo_movement (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_redo_movement (ctx : *mut lean_object) -> *mut lean_object;
-
-    fn monodrone_ctx_to_json_str (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_from_json_str (json_str : *mut lean_object) -> *mut lean_object;
-
-
-    fn monodrone_ctx_get_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_get_track_name (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_get_artist_name (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_get_time_signature_fst (ctx : *mut lean_object) -> u64;
-    fn monodrone_ctx_get_time_signature_snd (ctx : *mut lean_object) -> u64;
-
-    fn monodrone_ctx_set_playback_speed (ctx : *mut lean_object, speed : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_set_track_name (ctx : *mut lean_object, str : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_set_artist_name (ctx : *mut lean_object, str : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_set_time_signature (ctx : *mut lean_object, fst : u64, snd : u64) -> *mut lean_object;
-    fn lean_io_error_to_string (io_obj : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
-    fn monodrone_ctx_decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object;
-}
-
-/// Run a function that is linear in the monodrone ctx, so we bump the ref count once and then call the function.
-pub fn monodrone_ctx_run_linear_fn<T> (ctx : *mut lean_object, f : unsafe extern "C" fn(*mut lean_object) -> T) -> T {
-    unsafe {
-        lean_inc_ref(ctx);
-        f(ctx)
-    }
-}
-
-// consumes the string.
-pub fn lean_str_to_string (lean_str : *mut lean_object) -> String {
-    let c_str = unsafe { lean_sys::lean_string_cstr(lean_str) };
-    let str = unsafe { std::ffi::CStr::from_ptr(c_str as *const i8).to_str().unwrap().to_string() };
-    unsafe { lean_sys::lean_dec_ref(lean_str); }
-    str
-}
-
-pub fn string_to_lean_str (string : String) -> *mut lean_object {
-    let c_str = std::ffi::CString::new(string).unwrap();
-    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
-}
-
-pub fn str_to_lean_str (string : &str) -> *mut lean_object {
-    let c_str = std::ffi::CString::new(string).unwrap();
-    unsafe { lean_sys::lean_mk_string(c_str.to_bytes().as_ptr() as *const u8) }
-}
-
-
-// # Ctx function wrappers.
-pub fn initialize() {
-    unsafe { initialize_Monodrone(1, lean_box(0)) };
-}
-pub fn new_context(path : &str) -> *mut lean_object {
-    unsafe { monodrone_ctx_new(str_to_lean_str(path)) }
-}
-
-// cursor movement.
-pub fn cursor_move_left_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_move_left_one) }
-
-}
-pub fn cursor_move_right_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_move_right_one) }
-}
-pub fn cursor_move_down_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_move_down_one) }
-}
-pub fn cursor_move_up_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_cursor_move_up_one) }
-}
-
-pub fn select_anchor_move_left_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_select_anchor_move_left_one) }
-}
-
-pub fn select_anchor_move_right_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_select_anchor_move_right_one) }
-}
-
-pub fn select_anchor_move_down_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_select_anchor_move_down_one) }
-}
-
-pub fn drag_down_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_drag_down_one) }
-}
-
-pub fn drag_up_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_drag_up_one) }
-}
-
-pub fn select_anchor_move_up_one(ctx: *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_select_anchor_move_up_one) }
-}
-
-// note editing.
-pub fn set_pitch(ctx : *mut lean_object, pitch : PitchName) -> *mut lean_object {
-    unsafe { lean_inc_ref(ctx); }
-    unsafe { monodrone_ctx_set_pitch(ctx, pitch.to_lean() ) }
-}
-
-pub fn toggle_sharp (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_sharp) }
-}
-
-pub fn toggle_flat (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_toggle_flat) }
-}
-
-pub fn lower_octave (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_lower_octave) }
-}
-
-pub fn raise_octave (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_raise_octave) }
-}
-
-
-pub fn get_track_sync_index (ctx : *mut lean_object) -> u64 {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_track_sync_index) }
-}
-
-pub fn get_cursor_sync_index (ctx : *mut lean_object) -> u64 {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_sync_index) }
-}
-
-
-
-
-pub fn step (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_step) }
-}
-
-pub fn undo_action (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_undo_action) }
-}
-
-pub fn redo_action (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_redo_action) }
-}
-
-pub fn newline (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_newline) }
-}
-
-pub fn delete_note (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_note) }
-}
-
-pub fn delete_line (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_delete_line) }
-}
-
-pub fn set_nsteps (ctx : *mut lean_object, nsteps : u64) -> *mut lean_object {
-    unsafe {
-        lean_inc_ref(ctx);
-        monodrone_ctx_set_nsteps(ctx, nsteps)
-    }
-}
-pub fn increase_nsteps (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe {
-        monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_nsteps)
-    }
-}
-
-pub fn decrease_nsteps (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe {
-        monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_nsteps)
-    }
-}
-
-
-pub fn ctx_to_json_string (ctx : *mut lean_object) -> String {
-    unsafe {
-        let lean_str = monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_to_json_str);
-
-        lean_str_to_string(lean_str)
-    }
-}
-
-// TODO: implement Result.
-pub fn ctx_from_json_str (string : String) -> Result<*mut lean_object, String> {
-    let lean_str = string_to_lean_str(string);
-    let io_ctx = unsafe { monodrone_ctx_from_json_str(lean_str) };
-    println!("io_ctx: {:p}", io_ctx);
-    unsafe {
-        lean_inc_ref(io_ctx);
-        if lean_sys::lean_io_result_is_ok(io_ctx) {
-            let ctx = lean_sys::lean_io_result_get_value(io_ctx);
-            println!("ctx: {:p}", ctx);
-            Ok(ctx)
-        } else {
-            let err = lean_io_result_get_error(io_ctx);
-            let err_str = lean_str_to_string(lean_io_error_to_string(err));
-            Err(err_str)
-        }
-    }
-}
-
-pub fn get_playback_speed (ctx : *mut lean_object) -> f64 {
-    unsafe {
-        let obj =  monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_playback_speed);
-        let out = lean_unbox_float(obj);
-        lean_dec_ref(obj);
-        out
-    }
-}
-
-pub fn get_track_name (ctx : *mut lean_object) -> String {
-    let lean_str = unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_track_name) };
-    lean_str_to_string(lean_str)
-}
-
-pub fn get_artist_name (ctx : *mut lean_object) -> String {
-    let lean_str = unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_artist_name) };
-    lean_str_to_string(lean_str)
-}
-
-pub fn get_time_signature_fst (ctx : *mut lean_object) -> u8 {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_time_signature_fst) as u8 }
-}
-
-pub fn get_time_signature_snd (ctx : *mut lean_object) -> u8 {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_time_signature_snd) as u8 }
-}
-
-pub fn set_playback_speed (ctx : *mut lean_object, value : f64) -> *mut lean_object {
-    unsafe {
-        lean_inc_ref(ctx);
-        monodrone_ctx_set_playback_speed(ctx, lean_sys::lean_box_float(value))
-    }
-
-}
-
-pub fn increase_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_increase_playback_speed) }
-
-
-}
-pub fn decrease_playback_speed (ctx : *mut lean_object) -> *mut lean_object {
-    unsafe { monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_decrease_playback_speed) }
-
-
-}
 
 pub struct LeanPtr {
     ptr : *mut lean_object,
@@ -548,8 +235,6 @@ pub struct UINote {
     pub octave : u64,
     pub y: u64,
     pub nsteps: u64,
-    raw: *mut lean_object,
-
 }
 
 impl UINote {
@@ -595,7 +280,6 @@ impl UINote {
         let octave = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_octave) };
         let accidental = unsafe { monodrone_ctx_run_linear_fn(note, monodrone_note_get_accidental) };
         UINote { pitch_name: PitchName::of_lean(pitch_name),
-            raw : note,
             accidental: Accidental::of_lean(accidental),
             octave,
             x, y,
@@ -608,27 +292,15 @@ impl UINote {
     }
 }
 
-impl Drop for UINote {
-    fn drop(&mut self) {
-        unsafe {
-            lean_dec_ref(self.raw);
-        }
-    }
-
-}
-
 impl Clone for UINote {
     fn clone(&self) -> Self {
-        unsafe {
-            lean_inc_ref(self.raw);
-        }
         UINote { pitch_name: self.pitch_name,
             accidental: self.accidental,
             x: self.x,
             octave: self.octave,
             y: self.y,
             nsteps: self.nsteps,
-            raw: self.raw }
+        }
     }
 }
 
@@ -687,39 +359,66 @@ impl UITrack {
     }
 }
 
+
+const NTRACKS : u32 = 4;
+const TRACK_LENGTH : u32 = 100;
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Selection {
-    pub sync_index: u64,
     pub cursor : egui::Pos2,
+    pub x : u32,
+    pub y : u32,
 }
 
+
 impl Selection {
-    pub fn from_lean (ctx : *mut lean_object) -> Selection {
 
-        let cursor = egui::Pos2::new(unsafe {
-            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_x)
-        } as f32,
-        unsafe {
-            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_y)
-        } as f32);
-
-        let sync_index = unsafe {
-            monodrone_ctx_run_linear_fn(ctx, monodrone_ctx_get_cursor_sync_index)
-         };
-
+    fn new(&self) -> Selection {
         Selection {
-            sync_index,
-             cursor
+            cursor: egui::vec2(0.0, 0.0),
+            x: 0,
+            y: 0,
         }
     }
 
+    fn move_left_one(&self) -> Selection {
+        Selection {
+            cursor: self.cursor - egui::vec2(1.0, 0.0),
+            x : (self.x - 1).clamp(0, NTRACKS - 1),
+            y : self.y
+        }
+    }
+
+    fn move_right_one(&self) -> Selection {
+        Selection {
+            cursor: self.cursor + egui::vec2(1.0, 0.0),
+            x : (self.x + 1).clamp(0, NTRACKS - 1),
+            y : self.y
+        }
+    }
+
+    fn move_down_one(&self) -> Selection {
+        Selection {
+            cursor: self.cursor + egui::vec2(0.0, 1.0),
+            x : self.x,
+            y : (self.y + 1).clamp(0, TRACK_LENGTH - 1),
+        }
+    }
+
+    fn move_up_one(&self) -> Selection {
+        Selection {
+            cursor: (self.cursor - egui::vec2(0.0, 1.0)),
+            x : self.x,
+            y : (self.y - 1).clamp(0, TRACK_LENGTH - 1),
+        }
+    }
+
+
+
 }
-
-
 pub struct Context {
-    // file_path : AppFilePath,
     file_path : PathBuf,
-    ctx : *mut lean_object,
     track : UITrack,
     selection : Selection,
     playback_speed : f64,
@@ -737,12 +436,12 @@ impl Context {
 
     pub fn from_raw_ctx (ctx : *mut lean_object, file_path : PathBuf) -> Context {
         let track = UITrack::from_lean(ctx);
-        let selection = Selection::from_lean(ctx);
+        let selection = Selection::new(ctx);
         event!(Level::INFO, "track: {:?}", track);
         event!(Level::INFO, "selection: {:?}", selection);
         Context {
             file_path, // TODO: store state on Lean side.
-            ctx,
+            // ctx,
             track,
             selection,
             playback_speed: get_playback_speed(ctx),
@@ -768,50 +467,6 @@ impl Context {
         &mut self.time_signature
     }
 
-    pub fn push_track_name_to_lean (&mut self) {
-        unsafe {
-            lean_inc_ref(self.ctx);
-            let lean_str = string_to_lean_str(self.track_name.clone());
-            self.ctx = monodrone_ctx_set_track_name(self.ctx, lean_str);
-        };
-    }
-
-    // TODO: switch to using run_ctx_fn.
-    pub fn push_artist_name_to_lean (&mut self) {
-        unsafe {
-            lean_inc_ref(self.ctx);
-            let lean_str = string_to_lean_str(self.artist_name.clone());
-            self.ctx = monodrone_ctx_set_artist_name(self.ctx, lean_str);
-        };
-    }
-
-    // TODO: switch to using run_ctx_fn.
-    pub fn push_time_signature_to_lean (&mut self) {
-        unsafe {
-            lean_inc_ref(self.ctx);
-            monodrone_ctx_set_time_signature(self.ctx,
-                self.time_signature.0 as u64, self.time_signature.1 as u64)
-        };
-    }
-
-
-    pub fn run_ctx_fn<F> (&mut self, f : F) where F : FnOnce(*mut lean_object) -> *mut lean_object {
-        self.ctx = unsafe {
-            lean_inc_ref(self.ctx);
-            f(self.ctx)
-        };
-
-        if self.track.sync_index != unsafe { monodrone_ctx_run_linear_fn(self.ctx, monodrone_ctx_get_track_sync_index) } {
-            self.track = UITrack::from_lean(self.ctx);
-        }
-
-        if self.selection.sync_index != unsafe { monodrone_ctx_run_linear_fn(self.ctx, monodrone_ctx_get_cursor_sync_index) } {
-            self.selection = Selection::from_lean(self.ctx);
-        }
-
-        self.playback_speed = get_playback_speed(self.ctx);
-    }
-
 
     pub fn track(&self) -> &UITrack {
         &self.track
@@ -826,13 +481,13 @@ impl Context {
     }
 
     pub fn set_playback_speed(&mut self, value : f64) {
-        unsafe {
-            self.ctx = set_playback_speed(self.ctx, value);
-        }
+        self.playback_speed = value;
     }
 
     pub fn to_json_string(&self) -> String {
-        ctx_to_json_string(self.ctx)
+        // TODO: convert o json string.
+        // ctx_to_json_string(self.ctx)
+        panic!("Not implemented");
     }
 
     pub fn get_midi_export_file_path(&self) -> PathBuf {
@@ -842,67 +497,68 @@ impl Context {
     }
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
-        self.run_ctx_fn(|ctx| set_pitch(ctx, pitch))
+        panic!("Not implemented");
+        // self.run_ctx_fn(|ctx| set_pitch(ctx, pitch))
     }
 
     pub fn cursor_move_left_one (&mut self) {
-        self.run_ctx_fn(cursor_move_left_one)
+        self.selection = self.selection.move_left_one();
     }
 
     pub fn cursor_move_right_one (&mut self) {
-        self.run_ctx_fn(cursor_move_right_one)
+        self.selection = self.selection.move_right_one();
     }
 
     pub fn cursor_move_down_one (&mut self) {
-        self.run_ctx_fn(cursor_move_down_one)
+        self.selection = self.selection.move_down_one();
     }
 
     pub fn cursor_move_up_one (&mut self) {
-        self.run_ctx_fn(cursor_move_up_one)
+        self.selection = self.selection.move_up_one();
     }
 
     pub fn toggle_sharp (&mut self) {
-        self.run_ctx_fn(toggle_sharp)
+        panic!("Not implemented");
     }
 
     pub fn toggle_flat (&mut self) {
-        self.run_ctx_fn(toggle_flat)
+        panic!("Not implemented");
     }
 
     pub fn newline (&mut self) {
-        self.run_ctx_fn(newline)
+        panic!("Not implemented");
     }
 
     pub fn delete_line (&mut self) {
-        self.run_ctx_fn(delete_line)
+        panic!("Not implemented");
     }
 
     pub fn delete_note (&mut self) {
-        self.run_ctx_fn(delete_note)
+        panic!("Not implemented");
     }
 
     pub fn lower_octave (&mut self) {
-        self.run_ctx_fn(lower_octave)
+        panic!("Not implemented");
     }
 
     pub fn raise_octave (&mut self) {
-        self.run_ctx_fn(raise_octave)
+        panic!("Not implemented");
     }
 
     pub fn increase_nsteps (&mut self) {
-        self.run_ctx_fn(increase_nsteps)
+        panic!("Not implemented");
     }
 
     pub fn decrease_nsteps (&mut self) {
-        self.run_ctx_fn(decrease_nsteps)
+        panic!("Not implemented");
     }
 
     pub fn undo_action (&mut self) {
-        self.run_ctx_fn(undo_action)
+        panic!("Not implemented");
     }
 
     pub fn redo_action (&mut self) {
-        self.run_ctx_fn(redo_action)
+        panic!("Not implemented");
     }
     pub fn get_app_title(&self) -> String {
         format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy())
@@ -1012,27 +668,14 @@ impl Context {
 
 impl Clone for Context {
     fn clone(&self) -> Self {
-        let ctx = unsafe {
-            lean_inc_ref(self.ctx);
-            self.ctx
-        };
         Context {
             file_path: self.file_path.clone(),
-            ctx,
             track: self.track.clone(),
             selection: self.selection.clone(),
             playback_speed: self.playback_speed,
             track_name: self.track_name.clone(),
             artist_name: self.artist_name.clone(),
             time_signature: self.time_signature,
-        }
-    }
-}
-
-impl Drop for Context {
-    fn drop(&mut self) {
-        unsafe {
-            lean_dec_ref(self.ctx);
         }
     }
 }
