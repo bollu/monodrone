@@ -888,7 +888,7 @@ fn mainLoop() {
             }
 
             let cursor_draw = logical_to_draw_min(cursorEaser.get());
-            painter.rect_filled (Rect::from_min_size(cursor_draw, box_dim * Vec2::new(0.2, 1.)),
+            painter.rect_filled (Rect::from_min_size(cursor_draw, box_dim * Vec2::new(1., 0.2)),
                 Rounding::default().at_least(2.0),
                 box_cursored_color);
 
