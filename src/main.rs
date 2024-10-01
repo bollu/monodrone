@@ -204,12 +204,12 @@ fn track_get_note_events_at_time(
     // Otherwise, we hear a jarring of a note being "stacattod" where we
     // turn it off and on in the same instant.
     for note in track.notes.iter() {
-        if (note.start + note.nsteps) == instant {
+        if (note.start + note.nsteps as u64) == instant {
             let off_event = NoteEvent::NoteOff {
                 pitch: note.pitch() as u8,
                 instant,
             };
-            match ix2pitches.get(&(note.start + note.nsteps)) {
+            match ix2pitches.get(&(note.start + note.nsteps as u64)) {
                 Some(next_notes) => {
                     if !next_notes.contains(&note.pitch()) {
                         note_events.push(off_event);
@@ -511,7 +511,7 @@ impl MidiSequencerIO {
 }
 
 fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
-    let str = monodrone_ctx.to_json_string();
+    let str = serde_json::to_string_pretty(monodrone_ctx).unwrap();
     let file_path_str = monodrone_ctx.file_path.to_string_lossy();
     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
     match File::create(monodrone_ctx.file_path.as_path()) {
@@ -798,11 +798,12 @@ fn mainLoop() {
                 }
             }
             if ctx.input(|i| i.key_pressed(Key::Backspace)) {
-                if ctx.input(|i| i.modifiers.shift) {
-                    monodrone_ctx.delete_line();
-                } else {
-                    monodrone_ctx.delete_note();
-                }
+                monodrone_ctx.delete_line();
+                // if ctx.input(|i| i.modifiers.shift) {
+                //     monodrone_ctx.delete_line();
+                // } else {
+                //     monodrone_ctx.delete_note();
+                // }
             }
             if ctx.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
                 save(ctx, &monodrone_ctx);
@@ -836,7 +837,8 @@ fn mainLoop() {
             let box_dim = Vec2::new(20., 20.);
             let box_padding_min = Vec2::new(1., 1.);
             let box_padding_max = Vec2::new(1., 1.);
-            let window_padding = Vec2::new(box_padding_min.x, box_padding_min.y);
+            let window_padding = Vec2::new(10.0, box_padding_min.y);
+            let sidebar_left_width = 15.0;
             let avail_rect = ui.available_rect_before_wrap();
 
             let box_deselected_color = egui::Color32::from_rgb(66, 66, 66);
@@ -846,17 +848,25 @@ fn mainLoop() {
             let text_color_leading = egui::Color32::from_rgb(207, 216, 220);
             let text_color_following = egui::Color32::from_rgb(99, 99, 99);
 
+            let font_size_note : f32 = 10.0;
+            let font_size_octave : f32 = 10.0;
+
             cameraEaser.set(Vec2::new(0.,
-                (monodrone_ctx.selection.cursor.y *
+                (monodrone_ctx.selection.cursor().y *
                     (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
             );
             cameraEaser.step();
 
-            cursorEaser.set(monodrone_ctx.selection.cursor); cursorEaser.damping = 0.3; cursorEaser.step();
+            cursorEaser.set(monodrone_ctx.selection.cursor()); cursorEaser.damping = 0.3; cursorEaser.step();
+
+            let logical_to_sidebar_text_min = |logical: egui::Pos2| -> egui::Pos2 {
+                avail_rect.min + window_padding +
+                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get()
+            };
 
             // now playing.
             let logical_to_draw_min = |logical: egui::Pos2| -> egui::Pos2 {
-                avail_rect.min + window_padding +
+                avail_rect.min + window_padding + Vec2::new(sidebar_left_width, 0.0) +
                 logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get()
             };
 
@@ -868,8 +878,8 @@ fn mainLoop() {
                 nowPlayingEaser.step();
             }
 
-            for x in 0u64..8 {
-                for y in 0u64..100 {
+            for x in 0u64..monodroneffi::NTRACKS {
+                for y in 0u64..monodroneffi::TRACK_LENGTH {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
                     painter.rect_filled (Rect::from_min_size(draw, box_dim),
                         egui::Rounding::default().at_least(4.0),
@@ -882,25 +892,30 @@ fn mainLoop() {
                 Rounding::default().at_least(2.0),
                 box_cursored_color);
 
+            for y in 0u64..100 {
+                let draw = logical_to_sidebar_text_min(Pos2::new(0f32, y as f32));
+                painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y+1), FontId::monospace(font_size_note), text_color_following);
+            }
+
             for x in 0u64..8 {
                 for y in 0u64..100 {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
                     if let Some(note) = monodrone_ctx.track.get_note_from_coord(x, y) {
-                            let text_color = if note.start == x && note.y == y {
-                                text_color_leading
-                            } else {
-                                text_color_following
-                            };
+                        let text_color = if note.x == x && note.y() == y {
+                            text_color_leading
+                        } else {
+                            text_color_following
+                        };
 
-                            let note_text_padding = Vec2::splat(5.0);
-                            painter.text(draw + note_text_padding,
-                                Align2::LEFT_TOP, note.to_str(), FontId::monospace(20.), text_color);
-                            let octave_text_padding = Vec2::new(2., 2.);
-                            let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
-                            let octave_text = painter.layout_no_wrap(note.octave.to_string(),
-                                FontId::monospace(15.), octave_text_color);
-                            let text_pos = draw + box_dim - octave_text_padding - octave_text.rect.size();
-                            painter.galley(text_pos, octave_text, octave_text_color);
+                        let note_text_padding = Vec2::splat(5.0);
+                        painter.text(draw + note_text_padding,
+                            Align2::LEFT_TOP, note.to_str(), FontId::monospace(font_size_note), text_color);
+                        let octave_text_padding = Vec2::new(2., 2.);
+                        let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
+                        let octave_text = painter.layout_no_wrap(note.octave.to_string(),
+                            FontId::monospace(font_size_octave), octave_text_color);
+                        let text_pos = draw + box_dim - octave_text_padding - octave_text.rect.size();
+                        painter.galley(text_pos, octave_text, octave_text_color);
                     };
                 }
             }

@@ -1,5 +1,6 @@
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use egui::PlatformOutput;
 use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
 use serde::{Serialize, Deserialize};
 
@@ -10,9 +11,9 @@ use crate::{track_get_note_events_at_time};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PlayerNote {
-    pub y : u64,
+    pub x : u64,
     pub start: u64,
-    pub nsteps: u64,
+    pub nsteps: i64,
 
     pub pitch_name: PitchName,
     pub accidental : Accidental,
@@ -50,6 +51,43 @@ fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octa
 }
 
 
+// check if note contains the selection, but defining a cursor that is at the start
+// of the note as not containing the note.
+fn note_contains_selection_ignore_start (note : &PlayerNote, selection : Selection) -> bool {
+    note.x == selection.x && note.start < selection.y && note.start + note.nsteps as u64 <= selection.y
+}
+
+// check if note contains the selection, but defining a cursor that is at the end
+// of the note as not containing the note.
+fn note_contains_selection_ignore_end (note : &PlayerNote, selection : Selection) -> bool {
+    note.x == selection.x && note.start <= selection.y && (note.start + note.nsteps as u64) < selection.y
+}
+
+// given a y location, return at most two player notes that are split at the y location.
+fn player_note_split_at (note : &PlayerNote, y : u64) -> (Option<PlayerNote>, Option<PlayerNote>) {
+    assert!(note.nsteps > 0);
+    let end = note.start + note.nsteps as u64;
+
+    if (y >= end) {
+        // note ends before y
+        return (Some(note.clone()), None);
+    }
+    assert!(y < end);
+    if (note.start >= y) {
+        return (None, Some(note.clone()));
+    }
+    assert!(note.start < y);
+    assert!(end - note.start >= 2);
+    let mut n1 = note.clone();
+    n1.nsteps = (y - note.start) as i64;
+    assert!(n1.nsteps > 0);
+    let mut n2 = note.clone();
+    n2.start = n1.start + n1.nsteps as u64;
+    n2.nsteps = (end - y) as i64;
+    assert!((n1.nsteps + n2.nsteps) == note.nsteps);
+    return (Some(n1), Some(n2));
+}
+
 impl PlayerNote {
     pub fn pitch(&self) -> u64 {
         ui_pitch_to_midi_pitch(self.pitch_name, self.accidental, self.octave)
@@ -58,13 +96,128 @@ impl PlayerNote {
     pub fn to_str (&self) -> String {
         format!("{}{}", self.pitch_name.to_str(), self.accidental.to_str())
     }
+
+    pub fn y(&self) -> u64 {
+        self.start
+    }
+
+    pub fn lower_octave (&mut self) {
+        if self.octave > 0 {
+            self.octave -= 1;
+        }
+    }
+
+    pub fn raise_octave(&mut self) {
+        if self.octave < 8 {
+            self.octave += 1;
+        }
+    }
+
+    pub fn insert_newline_at (&self, selection : Selection, accum : &mut Vec<PlayerNote>) {
+        if selection.x != self.x {
+            accum.push(self.clone())
+        } else {
+            match player_note_split_at(self, selection.y) {
+                (Some(n1), None) => {
+                    // stuff entirely before is unaffected.
+                    accum.push(n1);
+                },
+                (None, Some(mut n2)) => {
+                    // note is entirely to the right.
+                    // if we are at the line of the note,
+                    // stuff entirely after moves up.
+                    n2.start += 1;
+                    accum.push(n2);
+                },
+                (Some(n1), Some(mut n2)) => {
+                    // note must be broken up, moving the lower note downward,
+                    accum.push(n1);
+                    n2.start += 1;
+                    accum.push(n2);
+                },
+                (None, None) => {
+                    // impossible!
+                    panic!("Impossible case");
+                },
+            }
+        }
+    }
+
+    // returns true if something of significance was consumed.
+    pub fn delete_line (&self, selection : Selection, accum : &mut Vec<PlayerNote>) -> () {
+        if selection.x != self.x {
+            accum.push(self.clone())
+        } else {
+            let (n1, n2) = player_note_split_at(self, selection.y);
+            match (n1, n2) {
+                (Some(n1), None) => {
+                    // stuff entirely before is unaffected.
+                    accum.push(n1);
+                },
+                (Some(n1), Some(n2)) => {
+                    // note must be made smaller.
+                    let mut out = self.clone();
+                    out.nsteps = self.nsteps - 1;
+                    if (out.nsteps > 0) {
+                        accum.push(out);
+                    }
+                }
+                (None, Some(mut n2)) => {
+                    // note is entirely to the right.
+                    // if we are at the line of the note,
+                    // stuff entirely after moves up.
+                    if (n2.start > 0) {
+                        n2.start -= 1;
+                    }
+                    accum.push(n2);
+                },
+                (None, None) => {
+                    // impossible!
+                    panic!("Impossible case");
+                },
+            }
+
+        }
+    }
+
+    pub fn decrease_nsteps (&self) -> Option<PlayerNote> {
+        let mut note = self.clone();
+        if note.nsteps > 1 {
+            note.nsteps -= 1;
+            Some(note)
+        } else {
+            None
+        }
+    }
+
+    pub fn increase_nsteps (&self) -> PlayerNote {
+        let mut note = self.clone();
+        // TODO: what should happen to a note with duration zero?
+        note.nsteps += 1;
+        note
+    }
 }
 
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PlayerTrack {
+    // TODO: make this immutable vector with imrs
     pub notes: Vec<PlayerNote>, // sorted by start
+    // TODO: make this immutable vector with imrs
     pub hitbox : HashMap<(u64, u64), usize>, // maps (x, y) to index in notes.
+}
+
+fn build_hitbox (notes : &Vec<PlayerNote>) -> HashMap<(u64, u64), usize> {
+    let mut hitbox = HashMap::new();
+    for (ix, note) in notes.iter().enumerate() {
+        assert!(note.nsteps > 0);
+        for y in note.start..note.start + note.nsteps as u64 {
+            // can't have another note at the same location.
+            assert!(!hitbox.contains_key(&(note.start, y)));
+            hitbox.insert((note.x, y), ix);
+        }
+    }
+    hitbox
 }
 
 impl Default for PlayerTrack {
@@ -81,16 +234,123 @@ impl PlayerTrack {
         }
     }
 
-    pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<&PlayerNote> {
+    pub fn from_notes(notes : Vec<PlayerNote>) -> PlayerTrack {
+        PlayerTrack {
+            hitbox : build_hitbox(&notes),
+            notes: notes,
+        }
+    }
+
+    pub fn add_note (&mut self, note : PlayerNote) {
+        self.notes.push(note);
+        self.hitbox = build_hitbox(&self.notes);
+    }
+
+
+
+    pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<PlayerNote> {
         match self.hitbox.get(&(x, y)) {
-            Some(ix) => Some(&self.notes[*ix]),
+            Some(ix) => Some(self.notes[*ix]),
+            None => None,
+        }
+    }
+
+    pub fn get_note_ix_from_coord (&self, x : u64, y : u64) -> Option<usize> {
+        match self.hitbox.get(&(x, y)) {
+            Some(ix) => Some(*ix),
+            None => None,
+        }
+    }
+
+    pub fn modify_note_at_ix_mut (&mut self, ix : usize, f : impl FnOnce(&mut PlayerNote)) {
+        assert!(ix < self.notes.len());
+        f(&mut self.notes[ix]);
+        self.hitbox = build_hitbox(&self.notes);
+    }
+
+    pub fn get_note_from_coord_mut (&mut self, x : u64, y : u64) -> Option<&mut PlayerNote> {
+        match self.hitbox.get(&(x, y)) {
+            Some(ix) => Some(&mut self.notes[*ix]),
             None => None,
         }
     }
 
     pub fn get_last_instant (&self) -> u64 {
-        self.notes.iter().map(|note| note.y + note.nsteps).max().unwrap_or(0)
+        self.notes.iter().map(|note| note.start + note.nsteps as u64).max().unwrap_or(0)
     }
+
+    fn insert_newline (&mut self, selection : Selection) {
+        let mut new_notes = Vec::new();
+        for note in self.notes.iter() {
+            note.insert_newline_at(selection, &mut new_notes);
+        }
+        self.notes = new_notes;
+        self.hitbox = build_hitbox(&self.notes);
+    }
+
+    fn delete_line (&mut self, selection : Selection) {
+        let mut new_notes = Vec::new();
+        for note in self.notes.iter() {
+            note.delete_line(selection, &mut new_notes);
+        }
+        self.notes = new_notes;
+        self.hitbox = build_hitbox(&self.notes);
+    }
+
+    fn delete_note (&mut self, selection : Selection) {
+        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
+            self.notes.remove(*ix);
+            // TODO: optimize?
+            self.hitbox = build_hitbox(&self.notes);
+        }
+    }
+
+    fn increase_nsteps (&mut self, selection : Selection) {
+        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
+            let note = self.notes[*ix];
+
+            // do we need to make space for more notes? yes we do!
+            for bumpedNote in self.notes.iter_mut() {
+                // the other note starts at or after the note we just bumped,
+                // so we need to push it down to make space for it!
+                if bumpedNote.x == selection.x &&  bumpedNote.start >= note.start + note.nsteps as u64 {
+                    bumpedNote.start += 1;
+                }
+            }
+
+
+            // now that we've made space, adjust the current note.
+            self.notes[*ix] = note.increase_nsteps();
+            self.hitbox = build_hitbox(&self.notes)
+        }
+    }
+
+    fn decrease_nsteps (&mut self, selection : Selection) {
+        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
+            let note = self.notes[*ix];
+
+            // we need to delete space that was occupied by this note.
+            for bumpedNote in self.notes.iter_mut() {
+                // the other note starts at or after the note we just bumped,
+                // so we need to push it down to make space for it!
+                if bumpedNote.x == selection.x &&
+                    bumpedNote.start >= note.start + note.nsteps as u64 {
+                    bumpedNote.start -= 1;
+                }
+            }
+
+            if let Some(newNote) = note.decrease_nsteps() {
+                self.notes[*ix] = newNote; // we've decreased the duration of this note.
+            } else {
+                // we've deleted this note.
+                // TODO: keep this around, until someone tells us that the increase/decrease manipulation
+                // has ended, at which point we can delete the tombstone values.
+                self.notes.remove(*ix);
+            }
+            self.hitbox = build_hitbox(&self.notes)
+        }
+    }
+
 
 }
 
@@ -192,24 +452,38 @@ impl Accidental {
             _ => panic!("Invalid accidental index {}", ix),
         }
     }
+
+    pub fn toggle_sharp (&self) -> Accidental{
+        match self {
+            Accidental::Natural => Accidental::Sharp,
+            Accidental::Sharp => Accidental::Natural,
+            Accidental::Flat => Accidental::Natural,
+        }
+    }
+
+    pub fn toggle_flat (&self) -> Accidental {
+        match self {
+            Accidental::Natural => Accidental::Flat,
+            Accidental::Sharp => Accidental::Natural,
+            Accidental::Flat => Accidental::Natural,
+        }
+    }
 }
 
-const NTRACKS : u32 = 4;
-const TRACK_LENGTH : u32 = 100;
+pub const NTRACKS : u64 = 4;
+pub const TRACK_LENGTH : u64 = 100;
 
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct Selection {
-    pub cursor : egui::Pos2,
-    pub x : u32,
-    pub y : u32,
+    pub x : u64,
+    pub y : u64,
 }
 
 
 impl Selection {
     fn new() -> Selection {
         Selection {
-            cursor: egui::Pos2::new(0.0, 0.0),
             x: 0,
             y: 0,
         }
@@ -217,37 +491,94 @@ impl Selection {
 
     fn move_left_one(&self) -> Selection {
         Selection {
-            cursor: self.cursor - egui::vec2(1.0, 0.0),
-            x : (self.x - 1).clamp(0, NTRACKS - 1),
+            x : if self.x == 0 { 0 } else { self.x - 1 },
             y : self.y
         }
     }
 
     fn move_right_one(&self) -> Selection {
         Selection {
-            cursor: self.cursor + egui::vec2(1.0, 0.0),
-            x : (self.x + 1).clamp(0, NTRACKS - 1),
+            x : if self.x == NTRACKS - 1 { NTRACKS - 1 } else { self.x + 1 },
             y : self.y
         }
     }
 
     fn move_down_one(&self) -> Selection {
         Selection {
-            cursor: self.cursor + egui::vec2(0.0, 1.0),
             x : self.x,
-            y : (self.y + 1).clamp(0, TRACK_LENGTH - 1),
+            y : if self.y == TRACK_LENGTH - 1 { TRACK_LENGTH - 1 } else { self.y + 1 }
         }
     }
 
     fn move_up_one(&self) -> Selection {
         Selection {
-            cursor: (self.cursor - egui::vec2(0.0, 1.0)),
             x : self.x,
-            y : (self.y - 1).clamp(0, TRACK_LENGTH - 1),
+            y : if self.y == 0 { 0 } else { self.y - 1 }
         }
     }
 
+    pub fn cursor(&self) -> egui::Pos2 {
+        egui::Pos2::new(self.x as f32, self.y as f32)
+    }
+
 }
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+enum Action {
+    CursorMoveLeftOne,
+    CursorMoveRightOne,
+    CursorMoveDownOne,
+    CursorMoveUpOne,
+    ToggleSharp,
+    ToggleFlat,
+    Newline,
+    DeleteLine,
+    DeleteNote,
+    LowerOctave,
+    RaiseOctave,
+    IncreaseNSteps,
+    DecreaseNSteps,
+}
+
+#[derive (Debug, PartialEq, Serialize, Deserialize, Clone)]
+struct History {
+    actions : Vec<(Action, Selection, PlayerTrack)>,
+    current : usize,
+}
+
+impl History {
+    fn new() -> History {
+        History {
+            actions: Vec::new(),
+            current: 0,
+        }
+    }
+
+    fn push(&mut self, action : Action, selection : Selection, track : PlayerTrack) {
+        self.actions.truncate(self.current);
+        self.actions.push((action, selection, track));
+        self.current += 1;
+    }
+
+    fn undo(&mut self) -> Option<(Action, Selection, PlayerTrack)> {
+        if self.current == 0 {
+            None
+        } else {
+            self.current -= 1;
+            Some(self.actions[self.current].clone())
+        }
+    }
+
+    fn redo(&mut self) -> Option<(Action, Selection, PlayerTrack)> {
+        if self.current == self.actions.len() {
+            None
+        } else {
+            self.current += 1;
+            Some(self.actions[self.current - 1].clone())
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Context {
     pub file_path : PathBuf,
@@ -257,7 +588,9 @@ pub struct Context {
     pub track_name : String,
     pub artist_name : String,
     pub time_signature : (u8, u8),
+    pub history : History,
 }
+
 
 impl Context {
     // TODO: take egui context to set title.
@@ -270,16 +603,11 @@ impl Context {
             track_name: "Untitled".to_string(),
             artist_name: "Unknown".to_string(),
             time_signature: (4, 4),
+            history: History::new(),
         }
 
     }
 
-
-    pub fn to_json_string(&self) -> String {
-        // TODO: convert o json string.
-        // ctx_to_json_string(self.ctx)
-        panic!("Not implemented");
-    }
 
     pub fn get_midi_export_file_path(&self) -> PathBuf {
         let mut out = self.file_path.clone();
@@ -288,68 +616,127 @@ impl Context {
     }
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
-        panic!("Not implemented");
-        // self.run_ctx_fn(|ctx| set_pitch(ctx, pitch))
+        // if a note exists, set its pitch.
+        if let Some(note) = self.track.get_note_from_coord_mut(self.selection.x, self.selection.y) {
+            note.pitch_name = pitch;
+        }
+        // otherwise, add a note.
+        self.track.add_note(PlayerNote {
+            x: self.selection.x,
+            start: self.selection.y,
+            nsteps: 1,
+            pitch_name: pitch,
+            accidental: Accidental::Natural,
+            octave: 4,
+        });
     }
 
     pub fn cursor_move_left_one (&mut self) {
+        self.history.push(Action::CursorMoveLeftOne, self.selection, self.track.clone());
         self.selection = self.selection.move_left_one();
     }
 
     pub fn cursor_move_right_one (&mut self) {
+        self.history.push(Action::CursorMoveRightOne, self.selection, self.track.clone());
         self.selection = self.selection.move_right_one();
     }
 
     pub fn cursor_move_down_one (&mut self) {
+        self.history.push(Action::CursorMoveDownOne, self.selection, self.track.clone());
         self.selection = self.selection.move_down_one();
     }
 
     pub fn cursor_move_up_one (&mut self) {
+        self.history.push(Action::CursorMoveUpOne, self.selection, self.track.clone());
         self.selection = self.selection.move_up_one();
     }
 
     pub fn toggle_sharp (&mut self) {
-        panic!("Not implemented");
+        if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
+            self.track.modify_note_at_ix_mut(ix, |note| {
+                note.accidental = note.accidental.toggle_sharp()
+            });
+        }
     }
 
     pub fn toggle_flat (&mut self) {
-        panic!("Not implemented");
+        if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.history.push(Action::ToggleFlat, self.selection, self.track.clone());
+            self.track.modify_note_at_ix_mut(ix, |note| {
+                note.accidental = note.accidental.toggle_flat()
+            });
+        }
     }
 
     pub fn newline (&mut self) {
-        panic!("Not implemented");
+        self.history.push(Action::Newline, self.selection, self.track.clone());
+        self.track.insert_newline(self.selection);
+        self.selection = self.selection.move_down_one();
     }
 
     pub fn delete_line (&mut self) {
-        panic!("Not implemented");
+        self.history.push(Action::DeleteLine, self.selection, self.track.clone());
+        self.track.delete_line(self.selection);
+        self.selection = self.selection.move_up_one();
     }
 
     pub fn delete_note (&mut self) {
-        panic!("Not implemented");
+        self.track.delete_note(self.selection);
+        self.selection = self.selection.move_up_one();
+        self.history.push(Action::DeleteNote, self.selection, self.track.clone());
     }
 
     pub fn lower_octave (&mut self) {
-        panic!("Not implemented");
+        if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.history.push(Action::LowerOctave, self.selection, self.track.clone());
+            self.track.modify_note_at_ix_mut(ix, |note| {
+                note.lower_octave()
+            });
+        }
     }
 
     pub fn raise_octave (&mut self) {
-        panic!("Not implemented");
+        if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.history.push(Action::RaiseOctave, self.selection, self.track.clone());
+            self.track.modify_note_at_ix_mut(ix, |note| {
+                note.raise_octave()
+            });
+        }
     }
 
     pub fn increase_nsteps (&mut self) {
-        panic!("Not implemented");
+        self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
+        self.track.increase_nsteps(self.selection);
     }
 
     pub fn decrease_nsteps (&mut self) {
-        panic!("Not implemented");
+        self.history.push(Action::DecreaseNSteps, self.selection, self.track.clone());
+        self.track.decrease_nsteps(self.selection);
     }
 
     pub fn undo_action (&mut self) {
-        panic!("Not implemented");
+        match self.history.undo() {
+            Some((action, selection, track)) => {
+                self.selection = selection;
+                self.track = track;
+            },
+            None => {
+                event!(Level::INFO, "No more actions to undo");
+            }
+        }
     }
 
     pub fn redo_action (&mut self) {
-        panic!("Not implemented");
+        match self.history.redo() {
+            Some((action, selection, track)) => {
+                self.selection = selection;
+                self.track = track;
+            },
+            None => {
+                event!(Level::INFO, "No more actions to redo");
+            }
+        }
     }
     pub fn get_app_title(&self) -> String {
         format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy())
@@ -424,7 +811,8 @@ impl Context {
 
         let mut max_time = 0;
         for note in self.track.notes.iter() {
-            let end = note.start + note.nsteps;
+            let end = note.start + note.nsteps as u64;
+            assert!(end > note.start);
             max_time = max_time.max(end);
         }
         let TIME_DELTA : u32 = (256.0 / self.playback_speed) as u32;
@@ -466,6 +854,7 @@ impl Clone for Context {
             track_name: self.track_name.clone(),
             artist_name: self.artist_name.clone(),
             time_signature: self.time_signature,
+            history: self.history.clone(),
         }
     }
 }
