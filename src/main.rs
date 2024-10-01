@@ -186,6 +186,7 @@ impl Ord for NoteEvent {
 }
 
 /// Get the note events at a given time instant.
+// TODO: make this a method of the track.
 fn track_get_note_events_at_time(
     track: &monodroneffi::PlayerTrack,
     instant: u64,
@@ -197,7 +198,7 @@ fn track_get_note_events_at_time(
         ix2pitches
             .entry(note.start)
             .or_default()
-            .push(note.pitch);
+            .push(note.pitch());
     }
     // only emit a note off if there is no same note in the next time step.
     // Otherwise, we hear a jarring of a note being "stacattod" where we
@@ -205,12 +206,12 @@ fn track_get_note_events_at_time(
     for note in track.notes.iter() {
         if (note.start + note.nsteps) == instant {
             let off_event = NoteEvent::NoteOff {
-                pitch: note.pitch as u8,
+                pitch: note.pitch() as u8,
                 instant,
             };
             match ix2pitches.get(&(note.start + note.nsteps)) {
                 Some(next_notes) => {
-                    if !next_notes.contains(&note.pitch) {
+                    if !next_notes.contains(&note.pitch()) {
                         note_events.push(off_event);
                     }
                 }
@@ -221,7 +222,7 @@ fn track_get_note_events_at_time(
         }
         if note.start == instant {
             note_events.push(NoteEvent::NoteOn {
-                pitch: note.pitch as u8,
+                pitch: note.pitch() as u8,
                 instant,
             });
         }
@@ -270,14 +271,18 @@ impl MidiSequencer {
     }
 
     /// Stops playing. Keep current location.
-    pub fn stop(&mut self) {
+    pub fn pause(&mut self) {
         self.synthesizer.reset();
         self.playing = false;
-        self.cur_instant = 0.0;
-        self.last_rendered_instant = 0;
+        //self.cur_instant = 0.0;
+        //self.last_rendered_instant = 0;
     }
 
-    pub fn start(&mut self, start_instant: u64, end_instant: u64, looping: bool) {
+    pub fn play(&mut self) {
+        self.playing = true;
+    }
+
+    pub fn start_afresh(&mut self, start_instant: u64, end_instant: u64, looping: bool) {
         self.playing = true;
         self.cur_instant = start_instant as f32;
         self.start_instant = start_instant;
@@ -477,7 +482,11 @@ impl MidiSequencerIO {
     }
 
     fn stop(&mut self) {
-        self.sequencer.lock().as_mut().unwrap().stop();
+        self.sequencer.lock().as_mut().unwrap().pause();
+    }
+
+    fn play(&mut self) {
+        self.sequencer.lock().as_mut().unwrap().play();
     }
 
     fn set_playback_speed(&mut self, instant_delta: f32) {
@@ -492,9 +501,10 @@ impl MidiSequencerIO {
         seq_changer.looping = looping;
         seq_changer.start_instant = start_instant;
         seq_changer.end_instant = end_instant;
-        seq_changer.start(start_instant, end_instant, looping);
+        seq_changer.start_afresh(start_instant, end_instant, looping);
     }
 
+    // TODO: figure out how to give this guy a reference to the track.
     fn set_track(&mut self, track: monodroneffi::PlayerTrack) {
         self.sequencer.lock().as_mut().unwrap().track = track;
     }
@@ -502,9 +512,9 @@ impl MidiSequencerIO {
 
 fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
     let str = monodrone_ctx.to_json_string();
-    let file_path_str = monodrone_ctx.file_path().to_string_lossy();
+    let file_path_str = monodrone_ctx.file_path.to_string_lossy();
     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
-    match File::create(monodrone_ctx.file_path().as_path()) {
+    match File::create(monodrone_ctx.file_path.as_path()) {
         Ok(mut file) => {
             file.write_all(str.as_bytes()).unwrap();
             event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
@@ -556,7 +566,7 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
         .add_filter("monodrone", &["drn"])
         .set_can_create_directories(true)
         .set_title("Open monodrone file location")
-        .set_directory(monodrone_ctx.file_path().as_path().parent().unwrap());
+        .set_directory(monodrone_ctx.file_path.as_path().parent().unwrap());
 
     if let Some(path) = open_dialog.pick_file() {
         // open path and load string.
@@ -566,16 +576,16 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
                 let reader = std::io::BufReader::new(file);
                 let str = std::io::read_to_string(reader).unwrap();
                 event!(Level::INFO, "loaded file data: {str}");
-                let monodrone_ctx = match monodroneffi::ctx_from_json_str(str) {
-                    Ok(raw_ctx) => {
-                        monodroneffi::Context::from_raw_ctx(raw_ctx, path)
+                let monodrone_ctx : monodroneffi::Context =  match serde_json::from_str(&str) {
+                    Ok(ctx) => {
+                        ctx
                     }
 
                     Err(e) => {
                         rfd::MessageDialog::new()
                             .set_level(rfd::MessageLevel::Error)
                             .set_title("Unable to load file, JSON parsing error.")
-                            .set_description(&e)
+                            .set_description(&e.to_string())
                             .show();
                         event!(Level::ERROR, "error loading file: {:?}", e);
                         return Option::None;
@@ -604,9 +614,6 @@ fn mainLoop() {
     unsafe {
         event!(Level::INFO, "initializing lean runtime module");
         lean_initialize_runtime_module();
-
-        event!(Level::INFO, "initializing monodrone");
-        monodroneffi::initialize();
 
         event!(
             Level::INFO,
@@ -646,7 +653,7 @@ fn mainLoop() {
     event!(
         Level::INFO,
         "initial file path: {:?}",
-        monodrone_ctx.file_path().to_string_lossy(),
+        monodrone_ctx.file_path.to_string_lossy(),
     );
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
@@ -656,36 +663,29 @@ fn mainLoop() {
     let mut nowPlayingEaser = Easer::new(Pos2::ZERO);
     let mut cursorEaser = Easer::new(Pos2::ZERO);
 
-    let mut playback_speed = 1.0_f64;
     nowPlayingEaser.damping = 0.1;
 
-    let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path().to_str().unwrap()).as_str(),
+    let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path.to_str().unwrap()).as_str(),
         options, move |ctx, _frame| {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
-                if ui.add(egui::DragValue::new(&mut playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
-                    monodrone_ctx.set_playback_speed(playback_speed);
-                    sequencer_io.set_playback_speed(playback_speed as f32);
-                    event!(Level::INFO, "new Playback speed: {:?}", playback_speed);
+                if ui.add(egui::DragValue::new(&mut monodrone_ctx.playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
+                    sequencer_io.set_playback_speed(monodrone_ctx.playback_speed as f32);
+                    event!(Level::INFO, "new Playback speed: {:?}", monodrone_ctx.playback_speed);
                 }
                 ui.label("Time Signature");
-                let mut time_signature = monodrone_ctx.get_time_signature_mut().clone();
-                if ui.add(egui::DragValue::new(&mut time_signature.0).clamp_range(1..=9).update_while_editing(false)).changed() {
-                    monodrone_ctx.push_time_signature_to_lean();
-                }
+                ui.add(egui::DragValue::new(&mut monodrone_ctx.time_signature.0)
+                    .clamp_range(1..=9).update_while_editing(false));
                 ui.label("/");
-                if ui.add(egui::DragValue::new(&mut time_signature.1).clamp_range(1..=9).update_while_editing(false)).changed() {
-                    monodrone_ctx.push_time_signature_to_lean();
-                }
+                ui.add(egui::DragValue::new(&mut monodrone_ctx.time_signature.1)
+                    .clamp_range(1..=9).update_while_editing(false));
                 ui.label("Artist");
-               if  ui.text_edit_singleline(monodrone_ctx.get_artist_mut()).changed() {
-                    monodrone_ctx.push_artist_name_to_lean();
-               }
+                ui.text_edit_singleline(&mut monodrone_ctx.artist_name);
                 ui.label("Title");
-                if ui.text_edit_singleline(monodrone_ctx.get_track_name_mut()).changed() {
-                    monodrone_ctx.push_track_name_to_lean();
-                }
+                ui.text_edit_singleline(&mut monodrone_ctx.track_name);
+
+
             });
         });
 
@@ -703,6 +703,11 @@ fn mainLoop() {
                 if ui.button("Save").clicked() {
                     save(ctx, &monodrone_ctx);
                 }
+                ui.label("File");
+                // TODO: give a way to keep the file name as an editable value.
+                // if ui.text_edit_singleline(monodrone_ctx.file_path).changed() {
+                //     event!(Level::INFO, "file path changed");
+                // }
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -739,19 +744,20 @@ fn mainLoop() {
                 if sequencer_io.is_playing() {
                     sequencer_io.stop();
                 } else {
-                    sequencer_io.set_track(monodrone_ctx.track().clone().to_player_track());
-                    let end_instant = monodrone_ctx.track().get_last_instant() as u64;
+                    let end_instant = monodrone_ctx.track.get_last_instant() as u64;
+                    sequencer_io.set_track(monodrone_ctx.track.clone());
                     let start_instant = 0;
                     let is_looping = false;
                     sequencer_io.restart(start_instant, end_instant + 1, is_looping);
                 }
 
+            // P: play from current location? TODO: implement looping.
             if ctx.input(|i| i.key_pressed(Key::P)) {
                 if sequencer_io.is_playing() {
                     sequencer_io.stop();
                 } else {
-                    sequencer_io.set_track(monodrone_ctx.track().clone().to_player_track());
-                    let end_instant = monodrone_ctx.track().get_last_instant() as u64;
+                    let end_instant = monodrone_ctx.track.get_last_instant() as u64;
+                    sequencer_io.set_track(monodrone_ctx.track.clone());
                     let start_instant = 0;
                     let is_looping = false;
                     sequencer_io.restart(start_instant, end_instant + 1, is_looping);
@@ -827,9 +833,9 @@ fn mainLoop() {
             // let (response, painter) = ui.allocate_painter(size, Sense::hover());
             let painter = ui.painter_at(ui.available_rect_before_wrap());
 
-            let box_dim = Vec2::new(40., 40.);
-            let box_padding_min = Vec2::new(5., 5.);
-            let box_padding_max = Vec2::new(5., 5.);
+            let box_dim = Vec2::new(20., 20.);
+            let box_padding_min = Vec2::new(1., 1.);
+            let box_padding_max = Vec2::new(1., 1.);
             let window_padding = Vec2::new(box_padding_min.x, box_padding_min.y);
             let avail_rect = ui.available_rect_before_wrap();
 
@@ -841,11 +847,12 @@ fn mainLoop() {
             let text_color_following = egui::Color32::from_rgb(99, 99, 99);
 
             cameraEaser.set(Vec2::new(0.,
-                (monodrone_ctx.selection().cursor.y * (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
+                (monodrone_ctx.selection.cursor.y *
+                    (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
             );
             cameraEaser.step();
 
-            cursorEaser.set(monodrone_ctx.selection().cursor); cursorEaser.damping = 0.3; cursorEaser.step();
+            cursorEaser.set(monodrone_ctx.selection.cursor); cursorEaser.damping = 0.3; cursorEaser.step();
 
             // now playing.
             let logical_to_draw_min = |logical: egui::Pos2| -> egui::Pos2 {
@@ -878,8 +885,8 @@ fn mainLoop() {
             for x in 0u64..8 {
                 for y in 0u64..100 {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
-                    if let Some(note) = monodrone_ctx.track().get_note_from_coord(x, y) {
-                            let text_color = if note.x == x && note.y == y {
+                    if let Some(note) = monodrone_ctx.track.get_note_from_coord(x, y) {
+                            let text_color = if note.start == x && note.y == y {
                                 text_color_leading
                             } else {
                                 text_color_following
@@ -1032,7 +1039,7 @@ fn main() {
     );
     // testMidiInOpZ();
 
-    let mut opz = Opz::new();
-    opz.find_port();
+    // let mut opz = Opz::new();
+    // opz.find_port();
     mainLoop();
 }
