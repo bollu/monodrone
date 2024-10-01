@@ -12,13 +12,14 @@ use lean_sys::{
 
 use rand::seq::SliceRandom; // 0.7.2
 use rfd::FileDialog;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use std::error::Error;
 use std::path::{PathBuf};
 
 use std::sync::Mutex;
-use std::thread::sleep;
+use std::thread::{current, sleep};
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
@@ -126,6 +127,15 @@ fn launch_file_path() -> PathBuf {
     filename.push_str(".drn");
     let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
     out.push("Monodrone");
+    std::fs::create_dir_all(&out).unwrap();
+    out.push(filename);
+    out
+}
+
+fn settings_file_path() -> PathBuf {
+    let mut filename = "monodrone-settings.json";
+    let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
+    out.push(filename);
     std::fs::create_dir_all(&out).unwrap();
     out.push(filename);
     out
@@ -510,7 +520,7 @@ impl MidiSequencerIO {
     }
 }
 
-fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
+fn save (egui_ctx : Option<&egui::Context>, monodrone_ctx : &monodroneffi::Context) {
     let str = ron::to_string(monodrone_ctx).unwrap();
     let file_path_str = monodrone_ctx.file_path.to_string_lossy();
     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
@@ -518,7 +528,9 @@ fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
         Ok(mut file) => {
             file.write_all(str.as_bytes()).unwrap();
             event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
-            egui_ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
+            if let Some(egui_ctx) = egui_ctx {
+                egui_ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
+            }
         }
         Err(e) => {
             event!(Level::ERROR, "Error saving file: {:?}", e);
@@ -561,7 +573,38 @@ fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
     };
 }
 
-fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<monodroneffi::Context> {
+fn load_monodrone_ctx_from_file (file_path : &PathBuf) -> Option<monodroneffi::Context> {
+    match File::open(file_path.clone()) {
+        Ok(file) => {
+            let reader = std::io::BufReader::new(file);
+            let str = std::io::read_to_string(reader).unwrap();
+            event!(Level::INFO, "loaded file data: {str}");
+            let monodrone_ctx : monodroneffi::Context =  match ron::from_str(&str) {
+                Ok(ctx) => {
+                    ctx
+                }
+
+                Err(e) => {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Error)
+                        .set_title("Unable to load file, JSON parsing error.")
+                        .set_description(&e.to_string())
+                        .show();
+                    event!(Level::ERROR, "error loading file: {:?}", e);
+                    return Option::None;
+                }
+            };
+            event!(Level::INFO, "loaded file!");
+            Option::Some(monodrone_ctx)
+        }
+        Err(e) => {
+            event!(Level::ERROR, "error opening monodrone_ctx file '{:?}': {:?}", file_path, e);
+            Option::None
+        }
+    }
+}
+
+fn open(egui_ctx: Option<&egui::Context>, monodrone_ctx : &monodroneffi::Context) -> Option<monodroneffi::Context> {
     let open_dialog = FileDialog::new()
         .add_filter("monodrone", &["drn"])
         .set_can_create_directories(true)
@@ -571,38 +614,14 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
     if let Some(path) = open_dialog.pick_file() {
         // open path and load string.
         event!(Level::INFO, "loading file {path:?}");
-        match File::open(path.clone()) {
-            Ok(file) => {
-                let reader = std::io::BufReader::new(file);
-                let str = std::io::read_to_string(reader).unwrap();
-                event!(Level::INFO, "loaded file data: {str}");
-                let monodrone_ctx : monodroneffi::Context =  match ron::from_str(&str) {
-                    Ok(ctx) => {
-                        ctx
-                    }
-
-                    Err(e) => {
-                        rfd::MessageDialog::new()
-                            .set_level(rfd::MessageLevel::Error)
-                            .set_title("Unable to load file, JSON parsing error.")
-                            .set_description(&e.to_string())
-                            .show();
-                        event!(Level::ERROR, "error loading file: {:?}", e);
-                        return Option::None;
-                    }
-                };
-                event!(Level::INFO, "loaded file!");
-                // TODO: figure out how to sync this properly.
-                // There is an annoying cyclic dependency: we can only send a viewport command
-                // after we have a context, but we must create a global monodrone_ctx before we
-                // get our hands on a real context object.
-                ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
-                Option::Some(monodrone_ctx)
+        match load_monodrone_ctx_from_file(&path) {
+            Some(new_ctx) => {
+                if let Some (egui_ctx) = egui_ctx {
+                    egui_ctx.send_viewport_cmd(ViewportCommand::Title(new_ctx.get_app_title()));
+                }
+                Option::Some(new_ctx)
             }
-            Err(e) => {
-                event!(Level::ERROR, "error opening file: {:?}", e);
-                Option::None
-            }
+            None => Option::None
         }
     }
     else {
@@ -610,17 +629,62 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
     }
 }
 
-fn mainLoop() {
-    unsafe {
-        event!(Level::INFO, "initializing lean runtime module");
-        lean_initialize_runtime_module();
+#[derive(Debug, Deserialize, Serialize)]
+struct Settings {
+    settings_file_path : PathBuf,
+    current_file_path : PathBuf
+}
 
-        event!(
-            Level::INFO,
-            "done with Lean initialization. Marking end of initialization."
-        );
-        lean_io_mark_end_initialization();
+
+impl Settings {
+    pub fn new (settings_file_path : PathBuf, current_file_path : PathBuf) -> Self {
+        Settings {
+            settings_file_path : settings_file_path,
+            current_file_path : current_file_path
+        }
     }
+
+    pub fn load(settings_file_path : PathBuf, new_file_path : PathBuf) -> Self {
+        match File::open(settings_file_path.clone()) {
+            Ok(file) => {
+                event!(Level::INFO, "loaded settings file from : {:?}", settings_file_path);
+                let reader = std::io::BufReader::new(file);
+                let str = std::io::read_to_string(reader).unwrap();
+                match ron::from_str(&str) {
+                    Ok(settings) => {
+                        event!(Level::INFO, "loaded settings file: {:?}", settings);
+                        settings
+                    }
+                    Err(e) => {
+                        event!(Level::ERROR, "error loading settings file: {:?}", e);
+                        Settings::new(settings_file_path, new_file_path)
+                    }
+                }
+            }
+            Err(e) => {
+                event!(Level::ERROR, "error opening settings file: {:?}", e);
+                Settings::new(settings_file_path, new_file_path)
+            }
+        }
+    }
+
+    // save the settings to the settings file.
+    pub fn save(&self) {
+        let str = ron::to_string(self).unwrap();
+        match File::create(self.settings_file_path.as_path()) {
+            Ok(mut file) => {
+                file.write_all(str.as_bytes()).unwrap();
+                event!(Level::INFO, "Successfully saved settings file to path {:?}", self.settings_file_path);
+            }
+            Err(e) => {
+                event!(Level::ERROR, "Error saving settings file: {:?}", e);
+            }
+        };
+    }
+}
+
+fn mainLoop() {
+
 
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
@@ -649,12 +713,26 @@ fn mainLoop() {
 
     event!(Level::INFO, "creating context");
 
-    let mut monodrone_ctx = monodroneffi::Context::new(launch_file_path());
+    // TODO: call this AppState, have it manage the set of monodrone contexts?
+    let mut settings = Settings::load(settings_file_path(), launch_file_path());
+
+    let mut monodrone_ctx =
+        if let Some (ctx) = load_monodrone_ctx_from_file(&settings.current_file_path) {
+            ctx
+        } else {
+            let new_file_path = launch_file_path();
+            settings.current_file_path = new_file_path;
+            settings.save();
+            monodroneffi::Context::new(launch_file_path())
+        };
+    save(None, &monodrone_ctx);
+
     event!(
         Level::INFO,
         "initial file path: {:?}",
         monodrone_ctx.file_path.to_string_lossy(),
     );
+
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
     let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
@@ -665,11 +743,12 @@ fn mainLoop() {
 
     nowPlayingEaser.damping = 0.1;
 
+    let mut file_name_buffer = monodrone_ctx.file_path.file_stem().unwrap().to_string_lossy().to_string();
 
-    let mut fileNameBuffer = monodrone_ctx.file_path.file_stem().unwrap().to_string_lossy().to_string();
 
-    let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path.to_str().unwrap()).as_str(),
+    let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path.as_path().to_string_lossy()).as_str(),
         options, move |ctx, _frame| {
+
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
@@ -695,11 +774,14 @@ fn mainLoop() {
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.label("File Name");
-                if ui.text_edit_singleline(&mut fileNameBuffer).changed() {
+                if ui.text_edit_singleline(&mut file_name_buffer).changed() {
                     // reuse the same file path, but change the file name.
                     match monodrone_ctx.file_path.as_path().parent() {
-                        Some(parent) =>
-                            monodrone_ctx.file_path = parent.join(fileNameBuffer.clone() + ".drn"),
+                        Some(parent) => {
+                            monodrone_ctx.file_path = parent.join(file_name_buffer.clone() + ".drn");
+                            settings.current_file_path = monodrone_ctx.file_path.clone();
+                            settings.save();
+                        }
                         None => {}
                     };
                 }
@@ -709,12 +791,14 @@ fn mainLoop() {
                     ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
                 }
                 if ui.button("Open").clicked() {
-                    if let Some(new_ctx) = open(ctx, &monodrone_ctx) {
+                    if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
                         monodrone_ctx = new_ctx;
                     }
                 }
                 if ui.button("Save").clicked() {
-                    save(ctx, &monodrone_ctx);
+                    // TODO: do this with a 'dirty' flag on AppSettings, dedup calls to settings.save()
+                    save(Some(ctx), &monodrone_ctx);
+                    settings.save();
                 }
                 // TODO: give a way to keep the file name as an editable value.
                 // if ui.text_edit_singleline(monodrone_ctx.file_path).changed() {
@@ -818,11 +902,15 @@ fn mainLoop() {
                 // }
             }
             if ctx.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
-                save(ctx, &monodrone_ctx);
+                save(Some(ctx), &monodrone_ctx);
+                settings.current_file_path = monodrone_ctx.file_path.clone();
+                settings.save();
             }
             if ctx.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
-                if let Some(new_ctx) = open(ctx, &monodrone_ctx) {
+                if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
                     monodrone_ctx = new_ctx;
+                    settings.current_file_path = monodrone_ctx.file_path.clone();
+                    settings.save();
                 }
             }
 

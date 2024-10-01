@@ -885,7 +885,7 @@ impl Context {
             kind: midly::TrackEventKind::Midi {
                 channel: 0.into(),
                 message: midly::MidiMessage::ProgramChange {
-                    program: 22.into(), // grand piano
+                    program: 0.into(), // grand piano
                 },
             },
         });
