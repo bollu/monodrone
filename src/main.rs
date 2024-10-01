@@ -511,7 +511,7 @@ impl MidiSequencerIO {
 }
 
 fn save (egui_ctx : &egui::Context, monodrone_ctx : &monodroneffi::Context) {
-    let str = serde_json::to_string_pretty(monodrone_ctx).unwrap();
+    let str = ron::to_string(monodrone_ctx).unwrap();
     let file_path_str = monodrone_ctx.file_path.to_string_lossy();
     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
     match File::create(monodrone_ctx.file_path.as_path()) {
@@ -576,7 +576,7 @@ fn open(ctx: &egui::Context, monodrone_ctx : &monodroneffi::Context) -> Option<m
                 let reader = std::io::BufReader::new(file);
                 let str = std::io::read_to_string(reader).unwrap();
                 event!(Level::INFO, "loaded file data: {str}");
-                let monodrone_ctx : monodroneffi::Context =  match serde_json::from_str(&str) {
+                let monodrone_ctx : monodroneffi::Context =  match ron::from_str(&str) {
                     Ok(ctx) => {
                         ctx
                     }
@@ -665,6 +665,9 @@ fn mainLoop() {
 
     nowPlayingEaser.damping = 0.1;
 
+
+    let mut fileNameBuffer = monodrone_ctx.file_path.file_stem().unwrap().to_string_lossy().to_string();
+
     let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path.to_str().unwrap()).as_str(),
         options, move |ctx, _frame| {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
@@ -691,6 +694,16 @@ fn mainLoop() {
 
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
+                ui.label("File Name");
+                if ui.text_edit_singleline(&mut fileNameBuffer).changed() {
+                    // reuse the same file path, but change the file name.
+                    match monodrone_ctx.file_path.as_path().parent() {
+                        Some(parent) =>
+                            monodrone_ctx.file_path = parent.join(fileNameBuffer.clone() + ".drn"),
+                        None => {}
+                    };
+                }
+                ui.separator();
                 if ui.button("New").clicked() {
                     monodrone_ctx = monodroneffi::Context::new(launch_file_path());
                     ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
@@ -703,7 +716,6 @@ fn mainLoop() {
                 if ui.button("Save").clicked() {
                     save(ctx, &monodrone_ctx);
                 }
-                ui.label("File");
                 // TODO: give a way to keep the file name as an editable value.
                 // if ui.text_edit_singleline(monodrone_ctx.file_path).changed() {
                 //     event!(Level::INFO, "file path changed");
@@ -834,16 +846,16 @@ fn mainLoop() {
             // let (response, painter) = ui.allocate_painter(size, Sense::hover());
             let painter = ui.painter_at(ui.available_rect_before_wrap());
 
-            let box_dim = Vec2::new(20., 20.);
-            let box_padding_min = Vec2::new(1., 1.);
-            let box_padding_max = Vec2::new(1., 1.);
+            let box_dim = Vec2::new(25., 25.);
+            let box_padding_min = Vec2::new(3., 3.);
+            let box_padding_max = Vec2::new(3., 3.);
             let window_padding = Vec2::new(10.0, box_padding_min.y);
             let sidebar_left_width = 15.0;
             let avail_rect = ui.available_rect_before_wrap();
 
             let box_deselected_color = egui::Color32::from_rgb(66, 66, 66);
             let _box_selected_background_color = egui::Color32::from_rgb(255, 0, 100);
-            let box_cursored_color = egui::Color32::from_rgb(99, 99, 99);
+            let box_cursored_color = egui::Color32::from_rgb(244, 143, 177);
             let box_now_playing_color = egui::Color32::from_rgb(255, 143, 0);
             let text_color_leading = egui::Color32::from_rgb(207, 216, 220);
             let text_color_following = egui::Color32::from_rgb(99, 99, 99);
@@ -857,7 +869,7 @@ fn mainLoop() {
             );
             cameraEaser.step();
 
-            cursorEaser.set(monodrone_ctx.selection.cursor()); cursorEaser.damping = 0.3; cursorEaser.step();
+
 
             let logical_to_sidebar_text_min = |logical: egui::Pos2| -> egui::Pos2 {
                 avail_rect.min + window_padding +
@@ -882,19 +894,34 @@ fn mainLoop() {
                 for y in 0u64..monodroneffi::TRACK_LENGTH {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
                     painter.rect_filled (Rect::from_min_size(draw, box_dim),
-                        egui::Rounding::default().at_least(4.0),
+                        egui::Rounding::default().at_least(2.0),
                         box_deselected_color);
                 }
             }
 
-            let cursor_draw = logical_to_draw_min(cursorEaser.get());
-            painter.rect_filled (Rect::from_min_size(cursor_draw, box_dim * Vec2::new(1., 0.2)),
+            // TODO: for the love of got, clean this up.
+            let cursor_dim = box_dim * Vec2::new(1., 0.1);
+            let cursor_box_top_left = logical_to_draw_min(monodrone_ctx.selection.cursor());
+
+            // place cursor at *end* of the box, if the box is filled.
+            let cursor_loc =
+                if monodrone_ctx.track.get_note_from_coord(monodrone_ctx.selection.x, monodrone_ctx.selection.y).is_some() {
+                    cursor_box_top_left + box_dim - cursor_dim
+                } else {
+                    cursor_box_top_left
+                };
+            cursorEaser.set(cursor_loc);
+            cursorEaser.damping = 0.3; cursorEaser.step();
+            let cursor_loc = cursorEaser.get();
+
+
+            painter.rect_filled (Rect::from_min_size(cursor_loc, cursor_dim),
                 Rounding::default().at_least(2.0),
                 box_cursored_color);
 
             for y in 0u64..100 {
                 let draw = logical_to_sidebar_text_min(Pos2::new(0f32, y as f32));
-                painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y+1), FontId::monospace(font_size_note), text_color_following);
+                painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y), FontId::monospace(font_size_note), text_color_following);
             }
 
             for x in 0u64..8 {

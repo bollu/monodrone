@@ -51,42 +51,58 @@ fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octa
 }
 
 
-// check if note contains the selection, but defining a cursor that is at the start
-// of the note as not containing the note.
-fn note_contains_selection_ignore_start (note : &PlayerNote, selection : Selection) -> bool {
-    note.x == selection.x && note.start < selection.y && note.start + note.nsteps as u64 <= selection.y
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Copy)]
+enum NoteSelectionPositioning {
+    NoteStartsAfterSelection,
+    NoteStartsAtSelection,
+    NoteProperlyContainsSelection,
+    NoteEndsAtSelection,
+    NoteEndsBeforeSelection,
+    NoteNotInSameTrack,
 }
 
-// check if note contains the selection, but defining a cursor that is at the end
-// of the note as not containing the note.
-fn note_contains_selection_ignore_end (note : &PlayerNote, selection : Selection) -> bool {
-    note.x == selection.x && note.start <= selection.y && (note.start + note.nsteps as u64) < selection.y
+impl NoteSelectionPositioning {
+    pub fn playsSound (&self) -> bool {
+        match self {
+            NoteSelectionPositioning::NoteStartsAtSelection |
+            NoteSelectionPositioning::NoteProperlyContainsSelection => true,
+            _ => false,
+        }
+    }
+
+    pub fn insideOrEndsAt (&self) -> bool {
+        match self {
+            NoteSelectionPositioning::NoteProperlyContainsSelection |
+            NoteSelectionPositioning::NoteEndsAtSelection => true,
+            _ => false,
+        }
+    }
 }
 
-// given a y location, return at most two player notes that are split at the y location.
-fn player_note_split_at (note : &PlayerNote, y : u64) -> (Option<PlayerNote>, Option<PlayerNote>) {
-    assert!(note.nsteps > 0);
+
+fn note_selection_positioning (note : &PlayerNote, selection : Selection) -> NoteSelectionPositioning {
+    if(selection.x != note.x) {
+        return NoteSelectionPositioning::NoteNotInSameTrack;
+    }
     let end = note.start + note.nsteps as u64;
-
-    if (y >= end) {
-        // note ends before y
-        return (Some(note.clone()), None);
+    if (selection.y < note.start) {
+        return NoteSelectionPositioning::NoteStartsAfterSelection;
     }
-    assert!(y < end);
-    if (note.start >= y) {
-        return (None, Some(note.clone()));
+    else if (selection.y == note.start) {
+        return NoteSelectionPositioning::NoteStartsAtSelection;
     }
-    assert!(note.start < y);
-    assert!(end - note.start >= 2);
-    let mut n1 = note.clone();
-    n1.nsteps = (y - note.start) as i64;
-    assert!(n1.nsteps > 0);
-    let mut n2 = note.clone();
-    n2.start = n1.start + n1.nsteps as u64;
-    n2.nsteps = (end - y) as i64;
-    assert!((n1.nsteps + n2.nsteps) == note.nsteps);
-    return (Some(n1), Some(n2));
+    else if (selection.y < end) {
+        return NoteSelectionPositioning::NoteProperlyContainsSelection;
+    }
+    else if (selection.y == end) {
+        return NoteSelectionPositioning::NoteEndsAtSelection;
+    }
+    else if (selection.y > end) {
+        return NoteSelectionPositioning::NoteEndsBeforeSelection;
+    }
+    panic!("Impossible case");
 }
+
 
 impl PlayerNote {
     pub fn pitch(&self) -> u64 {
@@ -114,69 +130,68 @@ impl PlayerNote {
     }
 
     pub fn insert_newline_at (&self, selection : Selection, accum : &mut Vec<PlayerNote>) {
-        if selection.x != self.x {
-            accum.push(self.clone())
-        } else {
-            match player_note_split_at(self, selection.y) {
-                (Some(n1), None) => {
-                    // stuff entirely before is unaffected.
+        let pos = note_selection_positioning(self, selection);
+        match pos {
+            NoteSelectionPositioning::NoteStartsAtSelection |
+            NoteSelectionPositioning::NoteNotInSameTrack |
+            NoteSelectionPositioning::NoteEndsAtSelection |
+            NoteSelectionPositioning::NoteEndsBeforeSelection => {
+                // note ends before selection, so it is unaffected.
+                accum.push(self.clone());
+            },
+            NoteSelectionPositioning::NoteStartsAfterSelection => {
+                // note starts after selection, so move note down.
+                let mut out = self.clone();
+                out.start += 1;
+                accum.push(out);
+            },
+            NoteSelectionPositioning::NoteProperlyContainsSelection => {
+                let end = self.start + self.nsteps as u64;
+                let mut n2 = self.clone();
+                n2.start = selection.y;
+                n2.nsteps = (end - n2.start) as i64;
+                assert!(n2.nsteps > 0); // must be the case, as interval properly contains selection.
+
+                let mut n1 = self.clone();
+                n1.nsteps = (selection.y - n1.start) as i64;
+
+                if n1.nsteps > 0 {
                     accum.push(n1);
-                },
-                (None, Some(mut n2)) => {
-                    // note is entirely to the right.
-                    // if we are at the line of the note,
-                    // stuff entirely after moves up.
-                    n2.start += 1;
-                    accum.push(n2);
-                },
-                (Some(n1), Some(mut n2)) => {
-                    // note must be broken up, moving the lower note downward,
-                    accum.push(n1);
-                    n2.start += 1;
-                    accum.push(n2);
-                },
-                (None, None) => {
-                    // impossible!
-                    panic!("Impossible case");
-                },
+                }
             }
         }
     }
 
     // returns true if something of significance was consumed.
-    pub fn delete_line (&self, selection : Selection, accum : &mut Vec<PlayerNote>) -> () {
-        if selection.x != self.x {
-            accum.push(self.clone())
-        } else {
-            let (n1, n2) = player_note_split_at(self, selection.y);
-            match (n1, n2) {
-                (Some(n1), None) => {
-                    // stuff entirely before is unaffected.
-                    accum.push(n1);
-                },
-                (Some(n1), Some(n2)) => {
-                    // note must be made smaller.
-                    let mut out = self.clone();
-                    out.nsteps = self.nsteps - 1;
-                    if (out.nsteps > 0) {
-                        accum.push(out);
-                    }
+    // return the new selection.
+    // return true if the stuff was consumed.
+    pub fn delete_line (&self, selection : Selection, accum : &mut Vec<PlayerNote>) -> bool {
+        match note_selection_positioning(&self, selection) {
+            NoteSelectionPositioning::NoteEndsAtSelection |
+            NoteSelectionPositioning::NoteStartsAfterSelection => {
+                // note starts after selection, so move note up.
+                let mut out = self.clone();
+                out.start = if out.start > 0 { out.start - 1 } else { 0 };
+                accum.push(out);
+                return false
+            },
+            NoteSelectionPositioning::NoteStartsAtSelection |
+            NoteSelectionPositioning::NoteProperlyContainsSelection => {
+                // note properly contains selection, or ends at the cursor,
+                // so we consume it.
+                let mut out = self.clone();
+                out.nsteps = self.nsteps - 1;
+                if (out.nsteps > 0) {
+                    accum.push(out);
                 }
-                (None, Some(mut n2)) => {
-                    // note is entirely to the right.
-                    // if we are at the line of the note,
-                    // stuff entirely after moves up.
-                    if (n2.start > 0) {
-                        n2.start -= 1;
-                    }
-                    accum.push(n2);
-                },
-                (None, None) => {
-                    // impossible!
-                    panic!("Impossible case");
-                },
-            }
-
+                return true
+            },
+            NoteSelectionPositioning::NoteNotInSameTrack |
+            NoteSelectionPositioning::NoteEndsBeforeSelection => {
+                // note ends before selection, so it is unaffected.
+                accum.push(self.clone());
+                return false
+            },
         }
     }
 
@@ -198,26 +213,64 @@ impl PlayerNote {
     }
 }
 
+#[derive (Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hitbox {
+    startsOrContains : HashMap<(u64, u64), usize>,
+    containsOrEndsAt : HashMap<(u64, u64), usize>,
+}
+
+impl Hitbox {
+    pub fn new() -> Hitbox {
+        Hitbox {
+            startsOrContains : HashMap::new(),
+            containsOrEndsAt : HashMap::new(),
+        }
+    }
+
+    fn startsOrContains (&self, selection : &Selection) -> Option<usize> {
+        match self.startsOrContains.get(&(selection.x, selection.y)) {
+            Some(&ix) => Some(ix),
+            None => None,
+        }
+    }
+
+    fn containsOrEndsAt (&self, selection : &Selection) -> Option<usize> {
+        match self.containsOrEndsAt.get(&(selection.x, selection.y)) {
+            Some(&ix) => Some(ix),
+            None => None,
+        }
+    }
+
+    fn build (notes : &Vec<PlayerNote>) -> Hitbox {
+        let mut startsOrContains = HashMap::new();
+        let mut containsOrEndsAt = HashMap::new();
+        for (ix, note) in notes.iter().enumerate() {
+            assert!(note.nsteps > 0);
+            for y in note.start..note.start + (note.nsteps as u64) + 1{
+                assert!(note.start != 0);
+                // can't have another note at the same location.
+                if y != (note.start + note.nsteps as u64) {
+                    assert!(!startsOrContains.contains_key(&(note.x, y)));
+                    startsOrContains.insert((note.x, y), ix);
+                }
+                if y != note.start {
+                    assert!(!containsOrEndsAt.contains_key(&(note.x, y)));
+                    containsOrEndsAt.insert((note.x, y), ix);
+                }
+            }
+        }
+        Hitbox {  startsOrContains, containsOrEndsAt }
+    }
+
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PlayerTrack {
     // TODO: make this immutable vector with imrs
     pub notes: Vec<PlayerNote>, // sorted by start
     // TODO: make this immutable vector with imrs
-    pub hitbox : HashMap<(u64, u64), usize>, // maps (x, y) to index in notes.
-}
-
-fn build_hitbox (notes : &Vec<PlayerNote>) -> HashMap<(u64, u64), usize> {
-    let mut hitbox = HashMap::new();
-    for (ix, note) in notes.iter().enumerate() {
-        assert!(note.nsteps > 0);
-        for y in note.start..note.start + note.nsteps as u64 {
-            // can't have another note at the same location.
-            assert!(!hitbox.contains_key(&(note.start, y)));
-            hitbox.insert((note.x, y), ix);
-        }
-    }
-    hitbox
+    // TODO: rebuild this, instead of storing it via serde.
+    hitbox : Hitbox
 }
 
 impl Default for PlayerTrack {
@@ -230,34 +283,35 @@ impl PlayerTrack {
     pub fn new() -> PlayerTrack {
         PlayerTrack {
             notes: Vec::new(),
-            hitbox : HashMap::new()
+            hitbox : Hitbox::new(),
         }
     }
 
     pub fn from_notes(notes : Vec<PlayerNote>) -> PlayerTrack {
         PlayerTrack {
-            hitbox : build_hitbox(&notes),
+            hitbox : Hitbox::build(&notes),
             notes: notes,
         }
     }
 
     pub fn add_note (&mut self, note : PlayerNote) {
         self.notes.push(note);
-        self.hitbox = build_hitbox(&self.notes);
+        self.hitbox = Hitbox::build(&self.notes);
     }
 
 
 
     pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<PlayerNote> {
-        match self.hitbox.get(&(x, y)) {
-            Some(ix) => Some(self.notes[*ix]),
+        match self.hitbox.startsOrContains(&Selection { x, y }) {
+            Some(ix) =>
+              Some(self.notes[ix]),
             None => None,
         }
     }
 
     pub fn get_note_ix_from_coord (&self, x : u64, y : u64) -> Option<usize> {
-        match self.hitbox.get(&(x, y)) {
-            Some(ix) => Some(*ix),
+        match self.hitbox.startsOrContains(&Selection {x, y}) {
+            Some(ix) => Some(ix),
             None => None,
         }
     }
@@ -265,14 +319,7 @@ impl PlayerTrack {
     pub fn modify_note_at_ix_mut (&mut self, ix : usize, f : impl FnOnce(&mut PlayerNote)) {
         assert!(ix < self.notes.len());
         f(&mut self.notes[ix]);
-        self.hitbox = build_hitbox(&self.notes);
-    }
-
-    pub fn get_note_from_coord_mut (&mut self, x : u64, y : u64) -> Option<&mut PlayerNote> {
-        match self.hitbox.get(&(x, y)) {
-            Some(ix) => Some(&mut self.notes[*ix]),
-            None => None,
-        }
+        self.hitbox = Hitbox::build(&self.notes);
     }
 
     pub fn get_last_instant (&self) -> u64 {
@@ -285,29 +332,50 @@ impl PlayerTrack {
             note.insert_newline_at(selection, &mut new_notes);
         }
         self.notes = new_notes;
-        self.hitbox = build_hitbox(&self.notes);
+        self.hitbox = Hitbox::build(&self.notes);
     }
 
-    fn delete_line (&mut self, selection : Selection) {
-        let mut new_notes = Vec::new();
-        for note in self.notes.iter() {
-            note.delete_line(selection, &mut new_notes);
-        }
-        self.notes = new_notes;
-        self.hitbox = build_hitbox(&self.notes);
-    }
+    // return true if something was consumed.
+    fn delete_line (&mut self, selection : Selection) -> bool {
+        match self.hitbox.startsOrContains(&selection) {
+            Some(ix) => {
+                let mut consumed = false;
+                let mut note = self.notes[ix];
 
-    fn delete_note (&mut self, selection : Selection) {
-        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
-            self.notes.remove(*ix);
-            // TODO: optimize?
-            self.hitbox = build_hitbox(&self.notes);
+                assert!(note.nsteps >= 1);
+                note.nsteps -= 1;
+                if (note.nsteps == 0) {
+                    self.notes.remove(ix);
+                } else {
+                    self.notes[ix] = note;
+                }
+                consumed = true;
+                self.hitbox = Hitbox::build(&self.notes);
+                return consumed;
+            }
+
+            None => {
+                // no note lies at this location, so we need to move notes up.
+                for note in self.notes.iter_mut() {
+                    let relation = note_selection_positioning(note, selection);
+                    // if the note starts after the selection, we need to move it up.
+                    if relation == NoteSelectionPositioning::NoteStartsAfterSelection {
+                        // notes start at 1.
+                        // zero is hallowed ground where no note may rest.
+                        if (note.start >= 2) {
+                            note.start = note.start - 1;
+                        }
+                    }
+                }
+                self.hitbox = Hitbox::build(&self.notes);
+                return false
+            }
         }
     }
 
     fn increase_nsteps (&mut self, selection : Selection) {
-        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
-            let note = self.notes[*ix];
+        if let Some(ix) = self.hitbox.startsOrContains(&selection) {
+            let note = self.notes[ix];
 
             // do we need to make space for more notes? yes we do!
             for bumpedNote in self.notes.iter_mut() {
@@ -320,14 +388,14 @@ impl PlayerTrack {
 
 
             // now that we've made space, adjust the current note.
-            self.notes[*ix] = note.increase_nsteps();
-            self.hitbox = build_hitbox(&self.notes)
+            self.notes[ix] = note.increase_nsteps();
+            self.hitbox = Hitbox::build(&self.notes);
         }
     }
 
     fn decrease_nsteps (&mut self, selection : Selection) {
-        if let Some(ix) = self.hitbox.get(&(selection.x, selection.y)) {
-            let note = self.notes[*ix];
+        if let Some(ix) = self.hitbox.startsOrContains(&selection) {
+            let note = self.notes[ix];
 
             // we need to delete space that was occupied by this note.
             for bumpedNote in self.notes.iter_mut() {
@@ -335,19 +403,20 @@ impl PlayerTrack {
                 // so we need to push it down to make space for it!
                 if bumpedNote.x == selection.x &&
                     bumpedNote.start >= note.start + note.nsteps as u64 {
+                    assert!(bumpedNote.start >= 2);
                     bumpedNote.start -= 1;
                 }
             }
 
             if let Some(newNote) = note.decrease_nsteps() {
-                self.notes[*ix] = newNote; // we've decreased the duration of this note.
+                self.notes[ix] = newNote; // we've decreased the duration of this note.
             } else {
                 // we've deleted this note.
                 // TODO: keep this around, until someone tells us that the increase/decrease manipulation
                 // has ended, at which point we can delete the tombstone values.
-                self.notes.remove(*ix);
+                self.notes.remove(ix);
             }
-            self.hitbox = build_hitbox(&self.notes)
+            self.hitbox = Hitbox::build(&self.notes);
         }
     }
 
@@ -485,7 +554,16 @@ impl Selection {
     fn new() -> Selection {
         Selection {
             x: 0,
-            y: 0,
+            y: 1,
+        }
+    }
+
+    // we don't allow insertion at location 0, but we do allow
+    // a creation of a cursor that sits at zero for e.g. newline creation.
+    fn legalize_for_insert(&self) -> Selection {
+        Selection {
+            x: self.x,
+            y: if self.y <= 1 { 1 } else { self.y }
         }
     }
 
@@ -533,7 +611,6 @@ enum Action {
     ToggleFlat,
     Newline,
     DeleteLine,
-    DeleteNote,
     LowerOctave,
     RaiseOctave,
     IncreaseNSteps,
@@ -616,19 +693,24 @@ impl Context {
     }
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
-        // if a note exists, set its pitch.
-        if let Some(note) = self.track.get_note_from_coord_mut(self.selection.x, self.selection.y) {
-            note.pitch_name = pitch;
+        self.selection = self.selection.legalize_for_insert();
+        if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
+            self.track.modify_note_at_ix_mut(ix, |note| {
+                note.pitch_name = pitch
+            });
+        } else {
+            // otherwise, add a note.
+            self.track.add_note(PlayerNote {
+                x: self.selection.x,
+                start: self.selection.y,
+                nsteps: 1,
+                pitch_name: pitch,
+                accidental: Accidental::Natural,
+                octave: 4,
+            });
+            // self.cursor_move_down_one(); this makes it annoying when one wants to e.g. write C#
         }
-        // otherwise, add a note.
-        self.track.add_note(PlayerNote {
-            x: self.selection.x,
-            start: self.selection.y,
-            nsteps: 1,
-            pitch_name: pitch,
-            accidental: Accidental::Natural,
-            octave: 4,
-        });
     }
 
     pub fn cursor_move_left_one (&mut self) {
@@ -676,15 +758,15 @@ impl Context {
     }
 
     pub fn delete_line (&mut self) {
+        if (self.selection.y == 0) { return; }
         self.history.push(Action::DeleteLine, self.selection, self.track.clone());
-        self.track.delete_line(self.selection);
-        self.selection = self.selection.move_up_one();
-    }
-
-    pub fn delete_note (&mut self) {
-        self.track.delete_note(self.selection);
-        self.selection = self.selection.move_up_one();
-        self.history.push(Action::DeleteNote, self.selection, self.track.clone());
+        // this lets cursor eat things like:
+        // A A A| -> A A|A -> A A |- , since the cursor eats things *below*.
+        let consumed = self.track.delete_line(self.selection);
+        if (!consumed) {
+            // if nothing was consumed, then we make an action by moving the cursor up.
+            self.selection = self.selection.move_up_one();
+        }
     }
 
     pub fn lower_octave (&mut self) {
