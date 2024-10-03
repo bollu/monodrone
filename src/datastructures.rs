@@ -1,5 +1,6 @@
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, ops::DerefMut, path::PathBuf, sync::Arc};
+use eframe::glow::FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS;
 use egui::PlatformOutput;
 use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
 use serde::{Serialize, Deserialize};
@@ -7,9 +8,13 @@ use serde::{Serialize, Deserialize};
 
 use tracing::{event, Level};
 
-use crate::midi::{track_get_note_events_at_time};
+use crate::{midi::track_get_note_events_at_time, NoteEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+
+
+// TODO: extract out the harmonic information into a separate
+// data structure: pitchname, accidental, octave.
 pub struct PlayerNote {
     pub x : u64,
     pub start: u64,
@@ -20,11 +25,11 @@ pub struct PlayerNote {
     pub octave : u64,
 }
 
-fn octave_to_midi_pitch (octave : u64) -> u64 {
+pub fn octave_to_midi_pitch (octave : u64) -> u64 {
     12 * (octave + 1)
 }
 
-fn pitch_name_to_midi_pitch (pitch_name : PitchName) -> u64 {
+pub fn pitch_name_to_midi_pitch (pitch_name : PitchName) -> u64 {
     match pitch_name {
         PitchName::C => 0,
         PitchName::D => 2,
@@ -36,7 +41,7 @@ fn pitch_name_to_midi_pitch (pitch_name : PitchName) -> u64 {
     }
 }
 
-fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
+pub fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
     match accidental {
         Accidental::Natural => 0,
         Accidental::Sharp => 1,
@@ -44,7 +49,7 @@ fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
     }
 }
 
-fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octave : u64) -> u64 {
+pub fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octave : u64) -> u64 {
     (pitch_name_to_midi_pitch(pitch_name) as i64 +
     accidental_to_midi_pitch(accidental)) as u64 +
     octave_to_midi_pitch(octave)
@@ -270,7 +275,8 @@ pub struct PlayerTrack {
     pub notes: Vec<PlayerNote>, // sorted by start
     // TODO: make this immutable vector with imrs
     // TODO: rebuild this, instead of storing it via serde.
-    hitbox : Hitbox
+    hitbox : Hitbox,
+    dirty : bool
 }
 
 impl Default for PlayerTrack {
@@ -283,6 +289,7 @@ impl PlayerTrack {
     pub fn new() -> PlayerTrack {
         PlayerTrack {
             notes: Vec::new(),
+            dirty : true,
             hitbox : Hitbox::new(),
         }
     }
@@ -290,13 +297,21 @@ impl PlayerTrack {
     pub fn from_notes(notes : Vec<PlayerNote>) -> PlayerTrack {
         PlayerTrack {
             hitbox : Hitbox::build(&notes),
+            dirty : true,
             notes: notes,
         }
+    }
+
+    pub fn is_dirty(&mut self) -> bool {
+        let out = self.dirty;
+        self.dirty = false;
+        out
     }
 
     pub fn add_note (&mut self, note : PlayerNote) {
         self.notes.push(note);
         self.hitbox = Hitbox::build(&self.notes);
+        self.dirty = true;
     }
 
 
@@ -317,6 +332,7 @@ impl PlayerTrack {
     }
 
     pub fn modify_note_at_ix_mut (&mut self, ix : usize, f : impl FnOnce(&mut PlayerNote)) {
+        self.dirty = true;
         assert!(ix < self.notes.len());
         f(&mut self.notes[ix]);
         self.hitbox = Hitbox::build(&self.notes);
@@ -327,6 +343,7 @@ impl PlayerTrack {
     }
 
     fn insert_newline (&mut self, selection : Selection) {
+        self.dirty = true;
         let mut new_notes = Vec::new();
         for note in self.notes.iter() {
             note.insert_newline_at(selection, &mut new_notes);
@@ -337,6 +354,7 @@ impl PlayerTrack {
 
     // return true if something was consumed.
     fn delete_line (&mut self, selection : Selection) -> bool {
+        self.dirty = true;
         match self.hitbox.startsOrContains(&selection) {
             Some(ix) => {
                 let mut consumed = false;
@@ -374,6 +392,7 @@ impl PlayerTrack {
     }
 
     fn increase_nsteps (&mut self, selection : Selection) {
+        self.dirty = true;
         if let Some(ix) = self.hitbox.startsOrContains(&selection) {
             let note = self.notes[ix];
 
@@ -394,6 +413,7 @@ impl PlayerTrack {
     }
 
     fn decrease_nsteps (&mut self, selection : Selection) {
+        self.dirty = true;
         if let Some(ix) = self.hitbox.startsOrContains(&selection) {
             let note = self.notes[ix];
 
@@ -658,6 +678,7 @@ impl History {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Context {
+    dirty : bool,
     pub file_path : PathBuf,
     pub track : PlayerTrack,
     pub selection : Selection,
@@ -669,10 +690,55 @@ pub struct Context {
 }
 
 
+// data structure that tracks whether a value is dirty.
+pub struct TrackDirty<T> {
+    pub dirty : bool,
+    pub value : T,
+}
+
+impl<T> TrackDirty<T> {
+    pub fn new(value : T) -> TrackDirty<T> {
+        TrackDirty {
+            dirty : true,
+            value
+        }
+    }
+
+    pub fn get(&self) -> &T {
+        &self.value
+    }
+
+    pub fn get_mut(&mut self) -> &mut T {
+        self.dirty = true;
+        &mut self.value
+    }
+
+    pub fn set(&mut self, value : T) {
+        self.dirty = true;
+        self.value = value;
+    }
+
+    pub fn modify(&mut self, f : impl FnOnce(&mut T)) {
+        self.dirty = true;
+        f(&mut self.value);
+    }
+}
+
 impl Context {
+
+    // Return whether the context is dirty, and reset the dirty flag.
+    // Note that this *does not* recurse. To check if something like the
+    // PlayerTrack is dirty, one has to recurse.
+    pub fn dirty(&mut self) -> bool {
+        let out = self.dirty;
+        self.dirty = false;
+        out
+    }
+
     // TODO: take egui context to set title.
     pub fn new(file_path : PathBuf) -> Context {
         Context {
+            dirty : true,
             file_path,
             track: PlayerTrack::new(),
             selection: Selection::new(),
@@ -790,6 +856,7 @@ impl Context {
     pub fn increase_nsteps (&mut self) {
         self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
         self.track.increase_nsteps(self.selection);
+        self.dirty = true;
     }
 
     pub fn decrease_nsteps (&mut self) {
@@ -802,6 +869,7 @@ impl Context {
             Some((action, selection, track)) => {
                 self.selection = selection;
                 self.track = track;
+                self.track.dirty = true;
             },
             None => {
                 event!(Level::INFO, "No more actions to undo");
@@ -814,6 +882,7 @@ impl Context {
             Some((action, selection, track)) => {
                 self.selection = selection;
                 self.track = track;
+                self.track.dirty = true;
             },
             None => {
                 event!(Level::INFO, "No more actions to redo");
@@ -929,6 +998,7 @@ impl Context {
 impl Clone for Context {
     fn clone(&self) -> Self {
         Context {
+            dirty : true,
             file_path: self.file_path.clone(),
             track: self.track.clone(),
             selection: self.selection.clone(),
@@ -940,3 +1010,4 @@ impl Clone for Context {
         }
     }
 }
+

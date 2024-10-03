@@ -31,6 +31,7 @@ use tracing_subscriber::layer::SubscriberExt;
 
 mod datastructures;
 mod midi;
+mod counterpoint1;
 
 use midi::*;
 use datastructures::*;
