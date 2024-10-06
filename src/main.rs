@@ -1,12 +1,14 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
 
 use egui::Key;
 
-use rand::seq::SliceRandom; // 0.7.2
-use rfd::FileDialog;
+use ron::de::from_reader;
 use serde::{Deserialize, Serialize};
+use rand::seq::SliceRandom; // 0.7.2
+use ron;
+use rfd::FileDialog;
+use tracing_subscriber::fmt::MakeWriter;
 use std::collections::HashMap;
 
 use std::error::Error;
@@ -119,28 +121,21 @@ fn whimsical_file_name() -> String {
     format!("{}-of-{}-{}", random_event, random_adjective, random_noun)
 }
 
-
-fn launch_file_path() -> PathBuf {
-    let mut filename = whimsical_file_name();
-    filename.push_str(".drn");
+fn audio_dir() -> PathBuf {
     let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
     out.push("Monodrone");
     std::fs::create_dir_all(&out).unwrap();
+    return out
+}
+
+fn ide_image_file_path() -> PathBuf {
+    let mut out = audio_dir();
+    let filename = "monodrone-settings.json";
     out.push(filename);
     out
 }
 
-fn settings_file_path() -> PathBuf {
-    let mut filename = "monodrone-settings.json";
-    let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
-    out.push(filename);
-    std::fs::create_dir_all(&out).unwrap();
-    out.push(filename);
-    out
-}
 // TODO: read midi
-
-
 struct Debouncer {
     time_to_next_event: f32,
     debounce_time_sec: f32,
@@ -223,66 +218,68 @@ impl<T> SequenceNumbered<T> {
 }
 
 
-fn save (egui_ctx : Option<&egui::Context>, monodrone_ctx : &datastructures::Context) {
-    let str = ron::to_string(monodrone_ctx).unwrap();
-    let file_path_str = monodrone_ctx.file_path.to_string_lossy();
-    event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
-    match File::create(monodrone_ctx.file_path.as_path()) {
-        Ok(mut file) => {
-            file.write_all(str.as_bytes()).unwrap();
-            event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
-            if let Some(egui_ctx) = egui_ctx {
-                egui_ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
-            }
-        }
-        Err(e) => {
-            event!(Level::ERROR, "Error saving file: {:?}", e);
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title(format!(
-                    "Unable to save file to path '{}'.",
-                    file_path_str
-                ))
-                .set_description(e.to_string())
-                .show();
-        }
-    };
-    let midi_filepath = monodrone_ctx.get_midi_export_file_path();
-    let midi_file = match File::create(midi_filepath.clone()) {
-        Ok(file) => file,
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to create MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-            return;
-        }
-    };
-    let (header, tracks) = monodrone_ctx.to_smf();
-    match midly::write_std(&header, tracks.iter(), midi_file) {
-        Ok(()) => {
-            event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
-        }
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to save MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error writing MIDI file: {:?}", e);
-        }
-    };
-}
+// fn save (egui_ctx : Option<&egui::Context>, settings.ctx() : &datastructures::Context) {
+//     let str = ron::to_string(settings.ctx()).unwrap();
+//     let file_path_str = settings.ctx().file_path.to_string_lossy();
+//     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
+//     match File::create(settings.ctx().file_path.as_path()) {
+//         Ok(mut file) => {
+//             file.write_all(str.as_bytes()).unwrap();
+//             event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
+//             if let Some(egui_ctx) = egui_ctx {
+//                 egui_ctx.send_viewport_cmd(ViewportCommand::Title(settings.ctx().get_app_title()));
+//             }
+//         }
+//         Err(e) => {
+//             event!(Level::ERROR, "Error saving file: {:?}", e);
+//             rfd::MessageDialog::new()
+//                 .set_level(rfd::MessageLevel::Error)
+//                 .set_title(format!(
+//                     "Unable to save file to path '{}'.",
+//                     file_path_str
+//                 ))
+//                 .set_description(e.to_string())
+//                 .show();
+//         }
+//     };
+//
+//     let midi_filepath = settings.ctx().get_midi_export_file_path();
+//     let midi_file = match File::create(midi_filepath.clone()) {
+//         Ok(file) => file,
+//         Err(e) => {
+//             rfd::MessageDialog::new()
+//                 .set_level(rfd::MessageLevel::Error)
+//                 .set_title("Unable to create MIDI file")
+//                 .set_description(e.to_string())
+//                 .show();
+//             event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+//             return;
+//         }
+//     };
+//     let (header, tracks) = settings.ctx().to_smf();
+//     match midly::write_std(&header, tracks.iter(), midi_file) {
+//         Ok(()) => {
+//             event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
+//         }
+//         Err(e) => {
+//             rfd::MessageDialog::new()
+//                 .set_level(rfd::MessageLevel::Error)
+//                 .set_title("Unable to save MIDI file")
+//                 .set_description(e.to_string())
+//                 .show();
+//             event!(Level::ERROR, "error writing MIDI file: {:?}", e);
+//         }
+//     };
+// }
 
-fn load_monodrone_ctx_from_file (file_path : &PathBuf) -> Option<datastructures::Context> {
+/*
+fn load_settings(file_path : &PathBuf) -> Option<datastructures::Context> {
     match File::open(file_path.clone()) {
         Ok(file) => {
             let reader = std::io::BufReader::new(file);
             let str = std::io::read_to_string(reader).unwrap();
             event!(Level::INFO, "loaded file data.");
-            let monodrone_ctx : datastructures::Context =  match ron::from_str(&str) {
+            let settings.ctx() : datastructures::Context =  match ron::from_str(&str) {
                 Ok(ctx) => {
                     ctx
                 }
@@ -298,97 +295,156 @@ fn load_monodrone_ctx_from_file (file_path : &PathBuf) -> Option<datastructures:
                 }
             };
             event!(Level::INFO, "loaded file!");
-            Option::Some(monodrone_ctx)
+            Option::Some(settings.ctx())
         }
         Err(e) => {
-            event!(Level::ERROR, "error opening monodrone_ctx file '{:?}': {:?}", file_path, e);
+            event!(Level::ERROR, "error opening settings.ctx() file '{:?}': {:?}", file_path, e);
             Option::None
         }
     }
 }
+*/
 
-fn open(egui_ctx: Option<&egui::Context>, monodrone_ctx : &datastructures::Context) -> Option<datastructures::Context> {
-    let open_dialog = FileDialog::new()
-        .add_filter("monodrone", &["drn"])
-        .set_can_create_directories(true)
-        .set_title("Open monodrone file location")
-        .set_directory(monodrone_ctx.file_path.as_path().parent().unwrap());
+// fn open(egui_ctx: Option<&egui::Context>, settings.ctx() : &datastructures::Context) -> Option<datastructures::Context> {
+//     let open_dialog = FileDialog::new()
+//         .add_filter("monodrone", &["drn"])
+//         .set_can_create_directories(true)
+//         .set_title("Open monodrone file location")
+//         .set_directory(settings.ctx().file_path.as_path().parent().unwrap());
+//
+//     if let Some(path) = open_dialog.pick_file() {
+//         // open path and load string.
+//         event!(Level::INFO, "loading file {path:?}");
+//         match load_settings.ctx()_from_file(&path) {
+//             Some(new_ctx) => {
+//                 if let Some (egui_ctx) = egui_ctx {
+//                     egui_ctx.send_viewport_cmd(ViewportCommand::Title(new_ctx.get_app_title()));
+//                 }
+//                 Option::Some(new_ctx)
+//             }
+//             None => Option::None
+//         }
+//     }
+//     else {
+//         Option::None
+//     }
+// }
 
-    if let Some(path) = open_dialog.pick_file() {
-        // open path and load string.
-        event!(Level::INFO, "loading file {path:?}");
-        match load_monodrone_ctx_from_file(&path) {
-            Some(new_ctx) => {
-                if let Some (egui_ctx) = egui_ctx {
-                    egui_ctx.send_viewport_cmd(ViewportCommand::Title(new_ctx.get_app_title()));
-                }
-                Option::Some(new_ctx)
-            }
-            None => Option::None
+
+
+// The image file, that has all the state.
+#[derive(Debug, Serialize, Deserialize)]
+struct IDEImage {
+    contexts : Vec<datastructures::Context>,
+    ix : i32,
+}
+
+
+pub fn save_context(ctx : &datastructures::Context) {
+    // let midi_filepath = dir ctx.get_midi_export_file_path();
+    let mut path = audio_dir();
+    path.push(format!("{}.mid", ctx.track_name.clone()));
+
+    let midi_file = match File::create(path.clone()) {
+        Ok(file) => file,
+        Err(e) => {
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("Unable to create MIDI file")
+                .set_description(e.to_string())
+                .show();
+            event!(Level::ERROR, "error creating MIDI file: {:?}", e);
+            return;
         }
-    }
-    else {
-        Option::None
+    };
+    let (header, tracks) = ctx.to_smf();
+    match midly::write_std(&header, tracks.iter(), midi_file) {
+        Ok(()) => {
+            event!(Level::INFO, "Successfully saved MIDI file '{}'", path.to_string_lossy());
+        }
+        Err(e) => {
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("Unable to save MIDI file")
+                .set_description(e.to_string())
+                .show();
+            event!(Level::ERROR, "error writing MIDI file: {:?}", e);
+        }
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Settings {
-    settings_file_path : PathBuf,
-    current_file_path : PathBuf
-}
 
-
-impl Settings {
-    pub fn new (settings_file_path : PathBuf, current_file_path : PathBuf) -> Self {
-        Settings {
-            settings_file_path : settings_file_path,
-            current_file_path : current_file_path
-        }
+impl IDEImage {
+    pub fn ctx_mut(&mut self) -> &mut datastructures::Context {
+        &mut self.contexts[self.ix as usize]
     }
 
-    pub fn load(settings_file_path : PathBuf, new_file_path : PathBuf) -> Self {
-        match File::open(settings_file_path.clone()) {
-            Ok(file) => {
-                event!(Level::INFO, "loaded settings file from : {:?}", settings_file_path);
-                let reader = std::io::BufReader::new(file);
-                let str = std::io::read_to_string(reader).unwrap();
-                match ron::from_str(&str) {
-                    Ok(settings) => {
-                        event!(Level::INFO, "loaded settings file: {:?}", settings);
-                        settings
-                    }
-                    Err(e) => {
-                        event!(Level::ERROR, "error loading settings file: {:?}", e);
-                        Settings::new(settings_file_path, new_file_path)
-                    }
+    // TODO: rename ctx to ctx_mut.
+    pub fn ctx(&self) -> &datastructures::Context {
+        &self.contexts[self.ix as usize]
+    }
+
+    pub fn load() -> Self {
+        let default =
+            IDEImage {
+                contexts : vec![datastructures::Context::new("track-0".to_string())],
+                ix : 0,
+            };
+        let path = ide_image_file_path();
+        let file =
+            match File::open(path.clone()) {
+                Ok(file) => {
+                    event!(Level::INFO, "opened settings fil at '{}'", path.to_string_lossy());
+                    file
                 }
+                Err(err) => {
+                    event!(Level::ERROR, "error loading settings file at '{}': {:?}", path.to_string_lossy(), err);
+                    default.save();
+                    return default
+                }
+            };
+
+        let reader = std::io::BufReader::new(file);
+        match ron::de::from_reader(reader) {
+            Ok(settings) => {
+                event!(Level::INFO, "loaded settings from file: {:?}", settings);
+                return settings;
             }
-            Err(e) => {
-                event!(Level::ERROR, "error opening settings file: {:?}", e);
-                Settings::new(settings_file_path, new_file_path)
+            Err(err) => {
+                event!(Level::ERROR, "failed to load settings file: '{:?}'", err);
+                default.save();
+                return default;
             }
         }
+        default
+    }
+
+    pub fn new(&mut self, name : String) {
+        let ix = self.contexts.len();
+        let ctx = datastructures::Context::new(format!("track-{}", ix));
+        self.contexts.push(ctx);
+        self.ix = ix as i32;
     }
 
     // save the settings to the settings file.
     pub fn save(&self) {
-        let str = ron::to_string(self).unwrap();
-        match File::create(self.settings_file_path.as_path()) {
+        let path = ide_image_file_path();
+        match File::create(path.clone()) {
             Ok(mut file) => {
-                file.write_all(str.as_bytes()).unwrap();
-                event!(Level::INFO, "Successfully saved settings file to path {:?}", self.settings_file_path);
+                let mut writer = file.make_writer();
+                ron::ser::to_writer(writer, &self).unwrap();
+                event!(Level::INFO, "Successfully saved settings file to path {:?}", path.to_string_lossy());
             }
             Err(e) => {
-                event!(Level::ERROR, "Error saving settings file: {:?}", e);
+                event!(Level::ERROR, "Error saving settings file '{}': {:?}", path.to_string_lossy(),
+                    e);
             }
-        };
+        }
+        save_context(&self.ctx());
     }
 }
 
 fn mainLoop() {
-
-
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
     // Load the SoundFont.
@@ -417,24 +473,7 @@ fn mainLoop() {
     event!(Level::INFO, "creating context");
 
     // TODO: call this AppState, have it manage the set of monodrone contexts?
-    let mut settings = Settings::load(settings_file_path(), launch_file_path());
-
-    let mut monodrone_ctx =
-        if let Some (ctx) = load_monodrone_ctx_from_file(&settings.current_file_path) {
-            ctx
-        } else {
-            let new_file_path = launch_file_path();
-            settings.current_file_path = new_file_path;
-            settings.save();
-            datastructures::Context::new(launch_file_path())
-        };
-    save(None, &monodrone_ctx);
-
-    event!(
-        Level::INFO,
-        "initial file path: {:?}",
-        monodrone_ctx.file_path.to_string_lossy(),
-    );
+    let mut settings = IDEImage::load();
 
 
     let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
@@ -446,29 +485,27 @@ fn mainLoop() {
 
     nowPlayingEaser.damping = 0.1;
 
-    let mut file_name_buffer = monodrone_ctx.file_path.file_stem().unwrap().to_string_lossy().to_string();
 
-
-    let _ = eframe::run_simple_native(format!("monodrone({})", monodrone_ctx.file_path.as_path().to_string_lossy()).as_str(),
+    let _ = eframe::run_simple_native(format!("monodrone({})", settings.ctx_mut().track_name).as_str(),
         options, move |ctx, _frame| {
 
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
-                if ui.add(egui::DragValue::new(&mut monodrone_ctx.playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
-                    sequencer_io.set_playback_speed(monodrone_ctx.playback_speed as f32);
-                    event!(Level::INFO, "new Playback speed: {:?}", monodrone_ctx.playback_speed);
+                if ui.add(egui::DragValue::new(&mut settings.ctx_mut().playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
+                    sequencer_io.set_playback_speed(settings.ctx_mut().playback_speed as f32);
+                    event!(Level::INFO, "new Playback speed: {:?}", settings.ctx_mut().playback_speed);
                 }
                 ui.label("Time Signature");
-                ui.add(egui::DragValue::new(&mut monodrone_ctx.time_signature.0)
+                ui.add(egui::DragValue::new(&mut settings.ctx_mut().time_signature.0)
                     .clamp_range(1..=9).update_while_editing(false));
                 ui.label("/");
-                ui.add(egui::DragValue::new(&mut monodrone_ctx.time_signature.1)
+                ui.add(egui::DragValue::new(&mut settings.ctx_mut().time_signature.1)
                     .clamp_range(1..=9).update_while_editing(false));
                 ui.label("Artist");
-                ui.text_edit_singleline(&mut monodrone_ctx.artist_name);
+                ui.text_edit_singleline(&mut settings.ctx_mut().artist_name);
                 ui.label("Title");
-                ui.text_edit_singleline(&mut monodrone_ctx.track_name);
+                ui.text_edit_singleline(&mut settings.ctx_mut().track_name);
 
 
             });
@@ -476,35 +513,21 @@ fn mainLoop() {
 
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.label("File Name");
-                if ui.text_edit_singleline(&mut file_name_buffer).changed() {
-                    // reuse the same file path, but change the file name.
-                    match monodrone_ctx.file_path.as_path().parent() {
-                        Some(parent) => {
-                            monodrone_ctx.file_path = parent.join(file_name_buffer.clone() + ".drn");
-                            settings.current_file_path = monodrone_ctx.file_path.clone();
-                            settings.save();
-                        }
-                        None => {}
-                    };
-                }
-                ui.separator();
                 if ui.button("New").clicked() {
-                    monodrone_ctx = datastructures::Context::new(launch_file_path());
-                    ctx.send_viewport_cmd(ViewportCommand::Title(monodrone_ctx.get_app_title()));
+                    // settings.ctx() = datastructures::Context::new(new_launch_file_path());
+                    // ctx.send_viewport_cmd(ViewportCommand::Title(settings.ctx().get_app_title()));
                 }
-                if ui.button("Open").clicked() {
-                    if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
-                        monodrone_ctx = new_ctx;
-                    }
-                }
+                // if ui.button("Open").clicked() {
+                //     // if let Some(new_ctx) = open(Some(ctx), &settings.ctx()) {
+                //     //     settings.ctx() = new_ctx;
+                //     // }
+                // }
                 if ui.button("Save").clicked() {
                     // TODO: do this with a 'dirty' flag on AppSettings, dedup calls to settings.save()
-                    save(Some(ctx), &monodrone_ctx);
-                    settings.save();
+                    settings.save()
                 }
                 // TODO: give a way to keep the file name as an editable value.
-                // if ui.text_edit_singleline(monodrone_ctx.file_path).changed() {
+                // if ui.text_edit_singleline(settings.ctx().file_path).changed() {
                 //     event!(Level::INFO, "file path changed");
                 // }
             });
@@ -527,33 +550,33 @@ fn mainLoop() {
             // TODO: refactor into a widget that requests focus.
             if ui.ui_contains_pointer() && ui.is_enabled() && !ctx.wants_keyboard_input() { //response.hovered() {
                 if ui.input(|i|  i.key_pressed(Key::C)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::C);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::C);
                 }
                 if ui.input(|i| i.key_pressed(Key::D)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::D);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::D);
                 }
                 if ui.input(|i| i.key_pressed(Key::E)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::E);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::E);
                 }
                 if ui.input(|i| i.key_pressed(Key::F)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::F);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::F);
                 }
                 if ui.input(|i| i.key_pressed(Key::G)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::G);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::G);
                 }
                 if ui.input(|i| i.key_pressed(Key::A)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::A);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::A);
                 }
                 if ui.input(|i| i.key_pressed(Key::B)) {
-                    monodrone_ctx.set_pitch(datastructures::PitchName::B);
+                    settings.ctx_mut().set_pitch(datastructures::PitchName::B);
                 }
                 // <space>: plause/play
                 if ui.input(|i| i.key_pressed(Key::Space)) {
                     if sequencer_io.is_playing() {
                         sequencer_io.stop();
                     } else {
-                        let end_instant = monodrone_ctx.track.get_last_instant() as u64;
-                        sequencer_io.set_track(monodrone_ctx.track.clone());
+                        let end_instant = settings.ctx_mut().track.get_last_instant() as u64;
+                        sequencer_io.set_track(settings.ctx_mut().track.clone());
                         let start_instant = 0;
                         let is_looping = false;
                         sequencer_io.restart(start_instant, end_instant + 1, is_looping);
@@ -565,8 +588,8 @@ fn mainLoop() {
                     if sequencer_io.is_playing() {
                         sequencer_io.stop();
                     } else {
-                        let end_instant = monodrone_ctx.track.get_last_instant() as u64;
-                        sequencer_io.set_track(monodrone_ctx.track.clone());
+                        let end_instant = settings.ctx_mut().track.get_last_instant() as u64;
+                        sequencer_io.set_track(settings.ctx_mut().track.clone());
                         let start_instant = 0;
                         let is_looping = false;
                         sequencer_io.restart(start_instant, end_instant + 1, is_looping);
@@ -575,66 +598,65 @@ fn mainLoop() {
 
                 if ui.input(|i| i.key_pressed(Key::H)) {
                     if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                        monodrone_ctx.lower_octave();
+                        settings.ctx_mut().lower_octave();
                     }
                     else {
-                        monodrone_ctx.cursor_move_left_one();
+                        settings.ctx_mut().cursor_move_left_one();
                     }
                 }
                 if ui.input(|i| i.key_pressed(Key::J)) {
                     if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                        monodrone_ctx.increase_nsteps();
+                        settings.ctx_mut().increase_nsteps();
                     }
                     else {
-                        monodrone_ctx.cursor_move_down_one();
+                        settings.ctx_mut().cursor_move_down_one();
                     }
                 }
                 if ui.input(|i| i.key_pressed(Key::K)) {
                     if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                        monodrone_ctx.decrease_nsteps();
+                        settings.ctx_mut().decrease_nsteps();
                     }
                     else {
-                        monodrone_ctx.cursor_move_up_one();
+                        settings.ctx_mut().cursor_move_up_one();
                     }
                 }
                 if ui.input(|i| i.key_pressed(Key::L)) {
                     if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                        monodrone_ctx.raise_octave();
+                        settings.ctx_mut().raise_octave();
                     } else {
-                        monodrone_ctx.cursor_move_right_one();
+                        settings.ctx_mut().cursor_move_right_one();
                     }
                 }
                 if ui.input(|i| i.key_pressed(Key::Backspace)) {
-                    monodrone_ctx.delete_line();
+                    settings.ctx_mut().delete_line();
                 }
                 if ui.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
-                    save(Some(ctx), &monodrone_ctx);
-                    settings.current_file_path = monodrone_ctx.file_path.clone();
                     settings.save();
+                    // save(Some(ctx), &settings.ctx());
                 }
-                if ui.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
-                    if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
-                        monodrone_ctx = new_ctx;
-                        settings.current_file_path = monodrone_ctx.file_path.clone();
-                        settings.save();
-                    }
-                }
+                // if ui.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
+                //     if let Some(new_ctx) = open(Some(ctx), &settings.ctx()) {
+                //         settings.ctx() = new_ctx;
+                //         settings.current_file_path = settings.ctx().file_path.clone();
+                //         settings.save();
+                //     }
+                // }
 
                 if ui.input(|i| i.key_pressed(Key::Z) && i.modifiers.command) {
                     if ui.input(|i| i.modifiers.shift) {
-                        monodrone_ctx.redo_action();
+                        settings.ctx_mut().redo_action();
                     } else {
-                        monodrone_ctx.undo_action();
+                        settings.ctx_mut().undo_action();
                     }
                 }
                 if ui.input (|i| i.key_pressed(Key::Num2)) {
-                    monodrone_ctx.toggle_flat();
+                    settings.ctx_mut().toggle_flat();
                 }
                 if ui.input (|i| i.key_pressed(Key::Num3)) {
-                    monodrone_ctx.toggle_sharp();
+                    settings.ctx_mut().toggle_sharp();
                 }
                 if ui.input (|i| i.key_pressed(Key::Enter)) {
-                    monodrone_ctx.newline();
+                    settings.ctx_mut().newline();
                 }
             }
 
@@ -660,7 +682,7 @@ fn mainLoop() {
             let font_size_octave : f32 = 10.0;
 
             cameraEaser.set(Vec2::new(0.,
-                (monodrone_ctx.selection.cursor().y *
+                (settings.ctx_mut().selection.cursor().y *
                     (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
             );
             cameraEaser.step();
@@ -697,11 +719,11 @@ fn mainLoop() {
 
             // TODO: for the love of got, clean this up.
             let cursor_dim = box_dim * Vec2::new(1., 0.2);
-            let cursor_box_top_left = logical_to_draw_min(monodrone_ctx.selection.cursor());
+            let cursor_box_top_left = logical_to_draw_min(settings.ctx_mut().selection.cursor());
 
             // place cursor at *end* of the box, if the box is filled.
             let cursor_loc =
-                if monodrone_ctx.track.get_note_from_coord(monodrone_ctx.selection.x, monodrone_ctx.selection.y).is_some() {
+                if settings.ctx().track.get_note_from_coord(settings.ctx().selection.x, settings.ctx().selection.y).is_some() {
                     cursor_box_top_left + box_dim - cursor_dim
                 } else {
                     cursor_box_top_left
@@ -711,7 +733,7 @@ fn mainLoop() {
             let cursor_loc = cursorEaser.get();
 
 
-            let draw = logical_to_draw_min(Pos2::new(monodrone_ctx.selection.x as f32, monodrone_ctx.selection.y as f32));
+            let draw = logical_to_draw_min(Pos2::new(settings.ctx_mut().selection.x as f32, settings.ctx_mut().selection.y as f32));
             painter.rect_filled (Rect::from_min_size(draw, box_dim),
                 egui::Rounding::default().at_least(2.0),
                 box_cursored_color);
@@ -728,7 +750,7 @@ fn mainLoop() {
             for x in 0u64..8 {
                 for y in 0u64..100 {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
-                    if let Some(note) = monodrone_ctx.track.get_note_from_coord(x, y) {
+                    if let Some(note) = settings.ctx_mut().track.get_note_from_coord(x, y) {
                         let text_color = if note.x == x && note.y() == y {
                             text_color_leading
                         } else {

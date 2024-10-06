@@ -1,9 +1,9 @@
 
+use serde::{Serialize, Deserialize};
 use std::{collections::HashMap, ops::DerefMut, path::PathBuf, sync::Arc};
 use eframe::glow::FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS;
 use egui::PlatformOutput;
 use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
-use serde::{Serialize, Deserialize};
 
 
 use tracing::{event, Level};
@@ -313,7 +313,6 @@ impl PlayerTrack {
         self.hitbox = Hitbox::build(&self.notes);
         self.dirty = true;
     }
-
 
 
     pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<PlayerNote> {
@@ -638,7 +637,7 @@ enum Action {
 }
 
 #[derive (Debug, PartialEq, Serialize, Deserialize, Clone)]
-struct History {
+pub struct History {
     actions : Vec<(Action, Selection, PlayerTrack)>,
     current : usize,
 }
@@ -679,7 +678,6 @@ impl History {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Context {
     dirty : bool,
-    pub file_path : PathBuf,
     pub track : PlayerTrack,
     pub selection : Selection,
     pub playback_speed : f64,
@@ -736,14 +734,13 @@ impl Context {
     }
 
     // TODO: take egui context to set title.
-    pub fn new(file_path : PathBuf) -> Context {
+    pub fn new(track_name : String) -> Context {
         Context {
             dirty : true,
-            file_path,
             track: PlayerTrack::new(),
             selection: Selection::new(),
             playback_speed: 1.0,
-            track_name: "Untitled".to_string(),
+            track_name,
             artist_name: "Unknown".to_string(),
             time_signature: (4, 4),
             history: History::new(),
@@ -752,11 +749,6 @@ impl Context {
     }
 
 
-    pub fn get_midi_export_file_path(&self) -> PathBuf {
-        let mut out = self.file_path.clone();
-        out.set_extension(".mid");
-        out
-    }
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
         self.selection = self.selection.legalize_for_insert();
@@ -890,7 +882,7 @@ impl Context {
         }
     }
     pub fn get_app_title(&self) -> String {
-        format!("monodrone({})", self.file_path.file_name().unwrap().to_string_lossy())
+        format!("monodrone({})", self.track_name)
     }
 
     pub fn to_smf(&self) -> (midly::Header, Vec<midly::Track>) {
@@ -959,7 +951,6 @@ impl Context {
             },
         });
 
-
         let mut max_time = 0;
         for note in self.track.notes.iter() {
             let end = note.start + note.nsteps as u64;
@@ -999,7 +990,6 @@ impl Clone for Context {
     fn clone(&self) -> Self {
         Context {
             dirty : true,
-            file_path: self.file_path.clone(),
             track: self.track.clone(),
             selection: self.selection.clone(),
             playback_speed: self.playback_speed,
