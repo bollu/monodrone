@@ -1,5 +1,7 @@
-
 use serde::{Serialize, Deserialize};
+use std::alloc::System;
+use std::hash::{self, Hasher};
+use std::time::SystemTime;
 use std::{collections::HashMap, ops::DerefMut, path::PathBuf, sync::Arc};
 use eframe::glow::FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS;
 use egui::PlatformOutput;
@@ -10,11 +12,60 @@ use tracing::{event, Level};
 
 use crate::{midi::track_get_note_events_at_time, NoteEvent};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
+
+
+// data structure that tracks whether a value is dirty.
+pub struct LastModified {
+    pub dirty : bool,
+    pub last_modified_ms : SystemTime, // last modified time in milliseconds.
+}
+
+impl LastModified {
+    pub fn new() -> LastModified {
+        LastModified {
+            dirty : true,
+            last_modified_ms : SystemTime::now(),
+        }
+    }
+
+    pub fn modified(&mut self) {
+        self.dirty = true;
+        self.last_modified_ms = SystemTime::now();
+    }
+
+    pub fn union(&mut self, other : &LastModified) {
+        // we were modified after the other guy, so we don't need to do
+        // consume his event.
+        if self.last_modified_ms > other.last_modified_ms {
+            return;
+        }
+        self.last_modified_ms = other.last_modified_ms;
+        self.dirty = self.dirty || other.dirty;
+    }
+
+    // returns true if the value has been idle for the duration.
+    pub fn is_dirty_and_idle_for(&self, duration : std::time::Duration) -> bool {
+        if (!self.dirty) {
+            return false;
+        }        self.last_modified_ms.elapsed().unwrap_or(std::time::Duration::from_secs(0)) > duration
+    }
+
+    pub fn clean(&mut self) {
+        self.dirty = false;
+        self.last_modified_ms = SystemTime::now();
+    }
+}
+
+trait Dirt {
+    fn get_dirty(&self) -> &LastModified;
+    fn get_dirty_mut(&self) -> &mut LastModified;
+}
 
 
 // TODO: extract out the harmonic information into a separate
 // data structure: pitchname, accidental, octave.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct PlayerNote {
     pub x : u64,
     pub start: u64,
@@ -276,7 +327,7 @@ pub struct PlayerTrack {
     // TODO: make this immutable vector with imrs
     // TODO: rebuild this, instead of storing it via serde.
     hitbox : Hitbox,
-    dirty : bool
+    last_modified : LastModified
 }
 
 impl Default for PlayerTrack {
@@ -289,7 +340,7 @@ impl PlayerTrack {
     pub fn new() -> PlayerTrack {
         PlayerTrack {
             notes: Vec::new(),
-            dirty : true,
+            last_modified: LastModified::new(),
             hitbox : Hitbox::new(),
         }
     }
@@ -297,21 +348,16 @@ impl PlayerTrack {
     pub fn from_notes(notes : Vec<PlayerNote>) -> PlayerTrack {
         PlayerTrack {
             hitbox : Hitbox::build(&notes),
-            dirty : true,
+            last_modified: LastModified::new(),
             notes: notes,
         }
     }
 
-    pub fn is_dirty(&mut self) -> bool {
-        let out = self.dirty;
-        self.dirty = false;
-        out
-    }
 
     pub fn add_note (&mut self, note : PlayerNote) {
         self.notes.push(note);
         self.hitbox = Hitbox::build(&self.notes);
-        self.dirty = true;
+        self.last_modified.modified();
     }
 
 
@@ -331,7 +377,7 @@ impl PlayerTrack {
     }
 
     pub fn modify_note_at_ix_mut (&mut self, ix : usize, f : impl FnOnce(&mut PlayerNote)) {
-        self.dirty = true;
+        self.last_modified.modified();
         assert!(ix < self.notes.len());
         f(&mut self.notes[ix]);
         self.hitbox = Hitbox::build(&self.notes);
@@ -342,7 +388,7 @@ impl PlayerTrack {
     }
 
     fn insert_newline (&mut self, selection : Selection) {
-        self.dirty = true;
+        self.last_modified.modified();
         let mut new_notes = Vec::new();
         for note in self.notes.iter() {
             note.insert_newline_at(selection, &mut new_notes);
@@ -353,7 +399,7 @@ impl PlayerTrack {
 
     // return true if something was consumed.
     fn delete_line (&mut self, selection : Selection) -> bool {
-        self.dirty = true;
+        self.last_modified.modified();
         match self.hitbox.startsOrContains(&selection) {
             Some(ix) => {
                 let mut consumed = false;
@@ -391,7 +437,7 @@ impl PlayerTrack {
     }
 
     fn increase_nsteps (&mut self, selection : Selection) {
-        self.dirty = true;
+        self.last_modified.modified();
         if let Some(ix) = self.hitbox.startsOrContains(&selection) {
             let note = self.notes[ix];
 
@@ -412,7 +458,7 @@ impl PlayerTrack {
     }
 
     fn decrease_nsteps (&mut self, selection : Selection) {
-        self.dirty = true;
+        self.last_modified.modified();
         if let Some(ix) = self.hitbox.startsOrContains(&selection) {
             let note = self.notes[ix];
 
@@ -677,7 +723,7 @@ impl History {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Context {
-    dirty : bool,
+    pub last_modified : LastModified,
     pub track : PlayerTrack,
     pub selection : Selection,
     pub playback_speed : f64,
@@ -688,55 +734,12 @@ pub struct Context {
 }
 
 
-// data structure that tracks whether a value is dirty.
-pub struct TrackDirty<T> {
-    pub dirty : bool,
-    pub value : T,
-}
-
-impl<T> TrackDirty<T> {
-    pub fn new(value : T) -> TrackDirty<T> {
-        TrackDirty {
-            dirty : true,
-            value
-        }
-    }
-
-    pub fn get(&self) -> &T {
-        &self.value
-    }
-
-    pub fn get_mut(&mut self) -> &mut T {
-        self.dirty = true;
-        &mut self.value
-    }
-
-    pub fn set(&mut self, value : T) {
-        self.dirty = true;
-        self.value = value;
-    }
-
-    pub fn modify(&mut self, f : impl FnOnce(&mut T)) {
-        self.dirty = true;
-        f(&mut self.value);
-    }
-}
-
 impl Context {
-
-    // Return whether the context is dirty, and reset the dirty flag.
-    // Note that this *does not* recurse. To check if something like the
-    // PlayerTrack is dirty, one has to recurse.
-    pub fn is_dirty(&mut self) -> bool {
-        let out = self.dirty;
-        self.dirty = false;
-        out
-    }
 
     // TODO: take egui context to set title.
     pub fn new(track_name : String) -> Context {
         Context {
-            dirty : true,
+            last_modified : LastModified::new(),
             track: PlayerTrack::new(),
             selection: Selection::new(),
             playback_speed: 1.0,
@@ -751,7 +754,7 @@ impl Context {
 
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.selection = self.selection.legalize_for_insert();
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
@@ -773,7 +776,7 @@ impl Context {
     }
 
     pub fn cursor_move_left_one (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::CursorMoveLeftOne, self.selection, self.track.clone());
         self.selection = self.selection.move_left_one();
     }
@@ -784,20 +787,20 @@ impl Context {
     }
 
     pub fn cursor_move_down_one (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::CursorMoveDownOne, self.selection, self.track.clone());
         self.selection = self.selection.move_down_one();
     }
 
     pub fn cursor_move_up_one (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::CursorMoveUpOne, self.selection, self.track.clone());
         self.selection = self.selection.move_up_one();
     }
 
     pub fn toggle_sharp (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
-            self.dirty = true;
+            self.last_modified.modified();
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.accidental = note.accidental.toggle_sharp()
@@ -807,7 +810,7 @@ impl Context {
 
     pub fn toggle_flat (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
-            self.dirty = true;
+            self.last_modified.modified();
             self.history.push(Action::ToggleFlat, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.accidental = note.accidental.toggle_flat()
@@ -816,7 +819,7 @@ impl Context {
     }
 
     pub fn newline (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::Newline, self.selection, self.track.clone());
         self.track.insert_newline(self.selection);
         self.selection = self.selection.move_down_one();
@@ -824,7 +827,7 @@ impl Context {
 
     pub fn delete_line (&mut self) {
         if (self.selection.y == 0) { return; }
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::DeleteLine, self.selection, self.track.clone());
         // this lets cursor eat things like:
         // A A A| -> A A|A -> A A |- , since the cursor eats things *below*.
@@ -837,7 +840,7 @@ impl Context {
 
     pub fn lower_octave (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
-            self.dirty = true;
+            self.last_modified.modified();
             self.history.push(Action::LowerOctave, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.lower_octave()
@@ -847,7 +850,7 @@ impl Context {
 
     pub fn raise_octave (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
-            self.dirty = true;
+            self.last_modified.modified();
             self.history.push(Action::RaiseOctave, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.raise_octave()
@@ -856,13 +859,13 @@ impl Context {
     }
 
     pub fn increase_nsteps (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
         self.track.increase_nsteps(self.selection);
     }
 
     pub fn decrease_nsteps (&mut self) {
-        self.dirty = true;
+        self.last_modified.modified();
         self.history.push(Action::DecreaseNSteps, self.selection, self.track.clone());
         self.track.decrease_nsteps(self.selection);
     }
@@ -870,10 +873,10 @@ impl Context {
     pub fn undo_action (&mut self) {
         match self.history.undo() {
             Some((action, selection, track)) => {
-                self.dirty = true;
+                self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
-                self.track.dirty = true;
+                self.track.last_modified.modified();
             },
             None => {
                 event!(Level::INFO, "No more actions to undo");
@@ -884,10 +887,10 @@ impl Context {
     pub fn redo_action (&mut self) {
         match self.history.redo() {
             Some((action, selection, track)) => {
-                self.dirty = true;
+                self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
-                self.track.dirty = true;
+                self.track.last_modified.modified();
             },
             None => {
                 event!(Level::INFO, "No more actions to redo");
@@ -1002,7 +1005,7 @@ impl Context {
 impl Clone for Context {
     fn clone(&self) -> Self {
         Context {
-            dirty : true,
+            last_modified : self.last_modified.clone(),
             track: self.track.clone(),
             selection: self.selection.clone(),
             playback_speed: self.playback_speed,
@@ -1013,4 +1016,3 @@ impl Clone for Context {
         }
     }
 }
-

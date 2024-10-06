@@ -16,6 +16,7 @@ use std::path::{PathBuf};
 
 use std::sync::Mutex;
 use std::thread::{current, sleep};
+use std::time::Duration;
 use std::{fs::File, sync::Arc};
 use tinyaudio::prelude::*;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
@@ -336,6 +337,7 @@ fn load_settings(file_path : &PathBuf) -> Option<datastructures::Context> {
 #[derive(Debug, Serialize, Deserialize)]
 struct IDEImage {
     contexts : Vec<datastructures::Context>,
+    last_modified : datastructures::LastModified,
     ix : i32,
 }
 
@@ -389,6 +391,7 @@ impl IDEImage {
             IDEImage {
                 contexts : vec![datastructures::Context::new("track-0".to_string())],
                 ix : 0,
+                last_modified : datastructures::LastModified::new(),
             };
         let path = ide_image_file_path();
         let file =
@@ -428,19 +431,16 @@ impl IDEImage {
 
     // save the settings to the settings file.
     pub fn save(&mut self) {
-        let mut dirty = false;
         for ctx in &mut self.contexts {
-            if ctx.is_dirty() {
-                dirty = true;
-                break;
-            }
+            // TODO: make this a trait.
+            self.last_modified.union(&ctx.last_modified);
         }
 
-        if (!dirty) {
+        // only save if we are both (a) dirty, and (b) have been idle for X seconds.
+        if !self.last_modified.is_dirty_and_idle_for(Duration::from_secs(1)) {
             return;
-        } else {
-            event!(Level::INFO, "Saving settings file.");
         }
+        self.last_modified.clean();
 
         let path = ide_image_file_path();
         match File::create(path.clone()) {
@@ -753,7 +753,7 @@ fn mainLoop() {
                     cursor_box_top_left
                 };
             cursorEaser.set(cursor_loc);
-            cursorEaser.damping = 0.08; cursorEaser.step();
+            cursorEaser.damping = 0.2; cursorEaser.step();
             let cursor_loc = cursorEaser.get();
 
 
