@@ -281,7 +281,7 @@ fn load_monodrone_ctx_from_file (file_path : &PathBuf) -> Option<datastructures:
         Ok(file) => {
             let reader = std::io::BufReader::new(file);
             let str = std::io::read_to_string(reader).unwrap();
-            event!(Level::INFO, "loaded file data: {str}");
+            event!(Level::INFO, "loaded file data.");
             let monodrone_ctx : datastructures::Context =  match ron::from_str(&str) {
                 Ok(ctx) => {
                     ctx
@@ -516,122 +516,119 @@ fn mainLoop() {
             debounceMovement.add_time_elapsed(time_elapsed);
             debounceUndo.add_time_elapsed(time_elapsed);
 
+
             // TODO: refactor into a widget that requests focus.
-            if ctx.input(|i| i.key_pressed(Key::C)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::C);
-            }
-            if ctx.input(|i| i.key_pressed(Key::D)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::D);
-            }
-            if ctx.input(|i| i.key_pressed(Key::E)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::E);
-            }
-            if ctx.input(|i| i.key_pressed(Key::F)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::F);
-            }
-            if ctx.input(|i| i.key_pressed(Key::G)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::G);
-            }
-            if ctx.input(|i| i.key_pressed(Key::A)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::A);
-            }
-            if ctx.input(|i| i.key_pressed(Key::B)) {
-                monodrone_ctx.set_pitch(datastructures::PitchName::B);
-            }
-            // <space>: plause/play
-            if ctx.input(|i| i.key_pressed(Key::Space)) {
-                if sequencer_io.is_playing() {
-                    sequencer_io.stop();
-                } else {
-                    let end_instant = monodrone_ctx.track.get_last_instant() as u64;
-                    sequencer_io.set_track(monodrone_ctx.track.clone());
-                    let start_instant = 0;
-                    let is_looping = false;
-                    sequencer_io.restart(start_instant, end_instant + 1, is_looping);
+            if ui.ui_contains_pointer() && ui.is_enabled() && !ctx.wants_keyboard_input() { //response.hovered() {
+                if ui.input(|i|  i.key_pressed(Key::C)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::C);
+                }
+                if ui.input(|i| i.key_pressed(Key::D)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::D);
+                }
+                if ui.input(|i| i.key_pressed(Key::E)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::E);
+                }
+                if ui.input(|i| i.key_pressed(Key::F)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::F);
+                }
+                if ui.input(|i| i.key_pressed(Key::G)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::G);
+                }
+                if ui.input(|i| i.key_pressed(Key::A)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::A);
+                }
+                if ui.input(|i| i.key_pressed(Key::B)) {
+                    monodrone_ctx.set_pitch(datastructures::PitchName::B);
+                }
+                // <space>: plause/play
+                if ui.input(|i| i.key_pressed(Key::Space)) {
+                    if sequencer_io.is_playing() {
+                        sequencer_io.stop();
+                    } else {
+                        let end_instant = monodrone_ctx.track.get_last_instant() as u64;
+                        sequencer_io.set_track(monodrone_ctx.track.clone());
+                        let start_instant = 0;
+                        let is_looping = false;
+                        sequencer_io.restart(start_instant, end_instant + 1, is_looping);
+                    }
                 }
 
-            // P: play from current location? TODO: implement looping.
-            if ctx.input(|i| i.key_pressed(Key::P)) {
-                if sequencer_io.is_playing() {
-                    sequencer_io.stop();
-                } else {
-                    let end_instant = monodrone_ctx.track.get_last_instant() as u64;
-                    sequencer_io.set_track(monodrone_ctx.track.clone());
-                    let start_instant = 0;
-                    let is_looping = false;
-                    sequencer_io.restart(start_instant, end_instant + 1, is_looping);
+                // P: play from current location? TODO: implement looping.
+                if ui.input(|i| i.key_pressed(Key::P)) {
+                    if sequencer_io.is_playing() {
+                        sequencer_io.stop();
+                    } else {
+                        let end_instant = monodrone_ctx.track.get_last_instant() as u64;
+                        sequencer_io.set_track(monodrone_ctx.track.clone());
+                        let start_instant = 0;
+                        let is_looping = false;
+                        sequencer_io.restart(start_instant, end_instant + 1, is_looping);
+                    }
                 }
-            }
-            }
 
-
-            if ctx.input(|i| i.key_pressed(Key::H)) {
-                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                    monodrone_ctx.lower_octave();
+                if ui.input(|i| i.key_pressed(Key::H)) {
+                    if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
+                        monodrone_ctx.lower_octave();
+                    }
+                    else {
+                        monodrone_ctx.cursor_move_left_one();
+                    }
                 }
-                else {
-                    monodrone_ctx.cursor_move_left_one();
+                if ui.input(|i| i.key_pressed(Key::J)) {
+                    if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
+                        monodrone_ctx.increase_nsteps();
+                    }
+                    else {
+                        monodrone_ctx.cursor_move_down_one();
+                    }
                 }
-            }
-            if ctx.input(|i| i.key_pressed(Key::J)) {
-                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                    monodrone_ctx.increase_nsteps();
+                if ui.input(|i| i.key_pressed(Key::K)) {
+                    if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
+                        monodrone_ctx.decrease_nsteps();
+                    }
+                    else {
+                        monodrone_ctx.cursor_move_up_one();
+                    }
                 }
-                else {
-                    monodrone_ctx.cursor_move_down_one();
+                if ui.input(|i| i.key_pressed(Key::L)) {
+                    if ui.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
+                        monodrone_ctx.raise_octave();
+                    } else {
+                        monodrone_ctx.cursor_move_right_one();
+                    }
                 }
-            }
-            if ctx.input(|i| i.key_pressed(Key::K)) {
-                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                    monodrone_ctx.decrease_nsteps();
+                if ui.input(|i| i.key_pressed(Key::Backspace)) {
+                    monodrone_ctx.delete_line();
                 }
-                else {
-                    monodrone_ctx.cursor_move_up_one();
-                }
-            }
-            if ctx.input(|i| i.key_pressed(Key::L)) {
-                if ctx.input(|i| i.modifiers.shift || i.modifiers.command || i.modifiers.ctrl) {
-                    monodrone_ctx.raise_octave();
-                } else {
-                    monodrone_ctx.cursor_move_right_one();
-                }
-            }
-            if ctx.input(|i| i.key_pressed(Key::Backspace)) {
-                monodrone_ctx.delete_line();
-                // if ctx.input(|i| i.modifiers.shift) {
-                //     monodrone_ctx.delete_line();
-                // } else {
-                //     monodrone_ctx.delete_note();
-                // }
-            }
-            if ctx.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
-                save(Some(ctx), &monodrone_ctx);
-                settings.current_file_path = monodrone_ctx.file_path.clone();
-                settings.save();
-            }
-            if ctx.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
-                if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
-                    monodrone_ctx = new_ctx;
+                if ui.input(|i| i.key_pressed(Key::S) && i.modifiers.command) {
+                    save(Some(ctx), &monodrone_ctx);
                     settings.current_file_path = monodrone_ctx.file_path.clone();
                     settings.save();
                 }
-            }
-
-            if ctx.input(|i| i.key_pressed(Key::Z) && i.modifiers.command) {
-                if ctx.input(|i| i.modifiers.shift) {
-                    monodrone_ctx.redo_action();
-                } else {
-                    monodrone_ctx.undo_action();
+                if ui.input(|i| i.key_pressed(Key::O) && i.modifiers.command) {
+                    if let Some(new_ctx) = open(Some(ctx), &monodrone_ctx) {
+                        monodrone_ctx = new_ctx;
+                        settings.current_file_path = monodrone_ctx.file_path.clone();
+                        settings.save();
+                    }
                 }
-            }
-            if ctx.input (|i| i.key_pressed(Key::Num2)) {
-                monodrone_ctx.toggle_flat();
-            }
-            if ctx.input (|i| i.key_pressed(Key::Num3)) {
-                monodrone_ctx.toggle_sharp();
-            }
-            if ctx.input (|i| i.key_pressed(Key::Enter)) {
-                monodrone_ctx.newline();
+
+                if ui.input(|i| i.key_pressed(Key::Z) && i.modifiers.command) {
+                    if ui.input(|i| i.modifiers.shift) {
+                        monodrone_ctx.redo_action();
+                    } else {
+                        monodrone_ctx.undo_action();
+                    }
+                }
+                if ui.input (|i| i.key_pressed(Key::Num2)) {
+                    monodrone_ctx.toggle_flat();
+                }
+                if ui.input (|i| i.key_pressed(Key::Num3)) {
+                    monodrone_ctx.toggle_sharp();
+                }
+                if ui.input (|i| i.key_pressed(Key::Enter)) {
+                    monodrone_ctx.newline();
+                }
             }
 
             // let (response, painter) = ui.allocate_painter(size, Sense::hover());
@@ -646,7 +643,8 @@ fn mainLoop() {
 
             let box_deselected_color = egui::Color32::from_rgb(66, 66, 66);
             let _box_selected_background_color = egui::Color32::from_rgb(255, 0, 100);
-            let box_cursored_color = egui::Color32::from_rgb(244, 143, 177);
+            let box_cursored_color = egui::Color32::from_rgb(189, 189, 189);
+            let box_cursor_color = egui::Color32::from_rgb(250, 250, 250);
             let box_now_playing_color = egui::Color32::from_rgb(255, 143, 0);
             let text_color_leading = egui::Color32::from_rgb(207, 216, 220);
             let text_color_following = egui::Color32::from_rgb(99, 99, 99);
@@ -691,7 +689,7 @@ fn mainLoop() {
             }
 
             // TODO: for the love of got, clean this up.
-            let cursor_dim = box_dim * Vec2::new(1., 0.1);
+            let cursor_dim = box_dim * Vec2::new(1., 0.2);
             let cursor_box_top_left = logical_to_draw_min(monodrone_ctx.selection.cursor());
 
             // place cursor at *end* of the box, if the box is filled.
@@ -702,13 +700,18 @@ fn mainLoop() {
                     cursor_box_top_left
                 };
             cursorEaser.set(cursor_loc);
-            cursorEaser.damping = 0.3; cursorEaser.step();
+            cursorEaser.damping = 0.08; cursorEaser.step();
             let cursor_loc = cursorEaser.get();
 
 
+            let draw = logical_to_draw_min(Pos2::new(monodrone_ctx.selection.x as f32, monodrone_ctx.selection.y as f32));
+            painter.rect_filled (Rect::from_min_size(draw, box_dim),
+                egui::Rounding::default().at_least(2.0),
+                box_cursored_color);
+
             painter.rect_filled (Rect::from_min_size(cursor_loc, cursor_dim),
                 Rounding::default().at_least(2.0),
-                box_cursored_color);
+                box_cursor_color);
 
             for y in 0u64..100 {
                 let draw = logical_to_sidebar_text_min(Pos2::new(0f32, y as f32));
