@@ -727,7 +727,7 @@ impl Context {
     // Return whether the context is dirty, and reset the dirty flag.
     // Note that this *does not* recurse. To check if something like the
     // PlayerTrack is dirty, one has to recurse.
-    pub fn dirty(&mut self) -> bool {
+    pub fn is_dirty(&mut self) -> bool {
         let out = self.dirty;
         self.dirty = false;
         out
@@ -751,6 +751,7 @@ impl Context {
 
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
+        self.dirty = true;
         self.selection = self.selection.legalize_for_insert();
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
@@ -772,6 +773,7 @@ impl Context {
     }
 
     pub fn cursor_move_left_one (&mut self) {
+        self.dirty = true;
         self.history.push(Action::CursorMoveLeftOne, self.selection, self.track.clone());
         self.selection = self.selection.move_left_one();
     }
@@ -782,17 +784,20 @@ impl Context {
     }
 
     pub fn cursor_move_down_one (&mut self) {
+        self.dirty = true;
         self.history.push(Action::CursorMoveDownOne, self.selection, self.track.clone());
         self.selection = self.selection.move_down_one();
     }
 
     pub fn cursor_move_up_one (&mut self) {
+        self.dirty = true;
         self.history.push(Action::CursorMoveUpOne, self.selection, self.track.clone());
         self.selection = self.selection.move_up_one();
     }
 
     pub fn toggle_sharp (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.dirty = true;
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.accidental = note.accidental.toggle_sharp()
@@ -802,6 +807,7 @@ impl Context {
 
     pub fn toggle_flat (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.dirty = true;
             self.history.push(Action::ToggleFlat, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.accidental = note.accidental.toggle_flat()
@@ -810,6 +816,7 @@ impl Context {
     }
 
     pub fn newline (&mut self) {
+        self.dirty = true;
         self.history.push(Action::Newline, self.selection, self.track.clone());
         self.track.insert_newline(self.selection);
         self.selection = self.selection.move_down_one();
@@ -817,6 +824,7 @@ impl Context {
 
     pub fn delete_line (&mut self) {
         if (self.selection.y == 0) { return; }
+        self.dirty = true;
         self.history.push(Action::DeleteLine, self.selection, self.track.clone());
         // this lets cursor eat things like:
         // A A A| -> A A|A -> A A |- , since the cursor eats things *below*.
@@ -829,6 +837,7 @@ impl Context {
 
     pub fn lower_octave (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.dirty = true;
             self.history.push(Action::LowerOctave, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.lower_octave()
@@ -838,6 +847,7 @@ impl Context {
 
     pub fn raise_octave (&mut self) {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
+            self.dirty = true;
             self.history.push(Action::RaiseOctave, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.raise_octave()
@@ -846,12 +856,13 @@ impl Context {
     }
 
     pub fn increase_nsteps (&mut self) {
+        self.dirty = true;
         self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
         self.track.increase_nsteps(self.selection);
-        self.dirty = true;
     }
 
     pub fn decrease_nsteps (&mut self) {
+        self.dirty = true;
         self.history.push(Action::DecreaseNSteps, self.selection, self.track.clone());
         self.track.decrease_nsteps(self.selection);
     }
@@ -859,6 +870,7 @@ impl Context {
     pub fn undo_action (&mut self) {
         match self.history.undo() {
             Some((action, selection, track)) => {
+                self.dirty = true;
                 self.selection = selection;
                 self.track = track;
                 self.track.dirty = true;
@@ -872,6 +884,7 @@ impl Context {
     pub fn redo_action (&mut self) {
         match self.history.redo() {
             Some((action, selection, track)) => {
+                self.dirty = true;
                 self.selection = selection;
                 self.track = track;
                 self.track.dirty = true;

@@ -385,7 +385,7 @@ impl IDEImage {
     }
 
     pub fn load() -> Self {
-        let default =
+        let mut default =
             IDEImage {
                 contexts : vec![datastructures::Context::new("track-0".to_string())],
                 ix : 0,
@@ -407,7 +407,7 @@ impl IDEImage {
         let reader = std::io::BufReader::new(file);
         match ron::de::from_reader(reader) {
             Ok(settings) => {
-                event!(Level::INFO, "loaded settings from file: {:?}", settings);
+                event!(Level::INFO, "loaded settings from file: {:?}", path);
                 return settings;
             }
             Err(err) => {
@@ -419,7 +419,7 @@ impl IDEImage {
         default
     }
 
-    pub fn new(&mut self, name : String) {
+    pub fn new(&mut self) {
         let ix = self.contexts.len();
         let ctx = datastructures::Context::new(format!("track-{}", ix));
         self.contexts.push(ctx);
@@ -427,7 +427,21 @@ impl IDEImage {
     }
 
     // save the settings to the settings file.
-    pub fn save(&self) {
+    pub fn save(&mut self) {
+        let mut dirty = false;
+        for ctx in &mut self.contexts {
+            if ctx.is_dirty() {
+                dirty = true;
+                break;
+            }
+        }
+
+        if (!dirty) {
+            return;
+        } else {
+            event!(Level::INFO, "Saving settings file.");
+        }
+
         let path = ide_image_file_path();
         match File::create(path.clone()) {
             Ok(mut file) => {
@@ -441,6 +455,12 @@ impl IDEImage {
             }
         }
         save_context(&self.ctx());
+    }
+
+    pub fn switch_to(&mut self, ix: i32) {
+        assert!(ix < self.contexts.len() as i32);
+        assert!(ix >= 0);
+        self.ix = ix;
     }
 }
 
@@ -489,6 +509,8 @@ fn mainLoop() {
     let _ = eframe::run_simple_native(format!("monodrone({})", settings.ctx_mut().track_name).as_str(),
         options, move |ctx, _frame| {
 
+        settings.save();
+
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
@@ -514,30 +536,25 @@ fn mainLoop() {
         egui::TopBottomPanel::top("top bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 if ui.button("New").clicked() {
-                    // settings.ctx() = datastructures::Context::new(new_launch_file_path());
-                    // ctx.send_viewport_cmd(ViewportCommand::Title(settings.ctx().get_app_title()));
+                    settings.new();
                 }
-                // if ui.button("Open").clicked() {
-                //     // if let Some(new_ctx) = open(Some(ctx), &settings.ctx()) {
-                //     //     settings.ctx() = new_ctx;
-                //     // }
-                // }
-                if ui.button("Save").clicked() {
-                    // TODO: do this with a 'dirty' flag on AppSettings, dedup calls to settings.save()
-                    settings.save()
-                }
-                // TODO: give a way to keep the file name as an editable value.
-                // if ui.text_edit_singleline(settings.ctx().file_path).changed() {
-                //     event!(Level::INFO, "file path changed");
-                // }
             });
         });
-        egui::SidePanel::left("side panel left").show(ctx, |ui| {
-            ui.label("Side Panel");
+
+        egui::SidePanel::left("Compositional Errors").show(ctx, |ui| {
         });
 
-        egui::SidePanel::right("side panel right").show(ctx, |ui| {
-            ui.label("Side Panel");
+        egui::SidePanel::right("Projects").show(ctx, |ui| {
+            ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
+                let mut selected_ix : i32 = settings.ix as i32 ;
+                for (i, ctx) in settings.contexts.iter().enumerate() {
+                    if(ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked()) {
+                        selected_ix = i as i32;
+                    }
+                }
+
+                settings.switch_to(selected_ix as i32);
+            });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
             // return;
@@ -548,7 +565,14 @@ fn mainLoop() {
 
 
             // TODO: refactor into a widget that requests focus.
-            if ui.ui_contains_pointer() && ui.is_enabled() && !ctx.wants_keyboard_input() { //response.hovered() {
+            ctx.memory_mut(|mem| {
+                mem.interested_in_focus(ui.id());
+                if mem.focused().is_none() {
+                    mem.request_focus(ui.id());
+                }
+            });
+            let focused = ctx.memory(|mem| mem.has_focus(ui.id()));
+            if focused { //response.hovered() {
                 if ui.input(|i|  i.key_pressed(Key::C)) {
                     settings.ctx_mut().set_pitch(datastructures::PitchName::C);
                 }
@@ -774,6 +798,11 @@ fn mainLoop() {
                 box_dim * Vec2::new(0.1, 1.0)),
                 Rounding::default().at_least(4.0),
                 box_now_playing_color);
+
+            if !focused {
+                painter.rect_filled(ui.max_rect(), Rounding::default(),
+                    Color32::from_black_alpha(150));
+            }
             ctx.request_repaint();
         });
 
