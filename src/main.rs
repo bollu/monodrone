@@ -509,6 +509,13 @@ fn mainLoop() {
                 // }
             });
         });
+        egui::SidePanel::left("side panel left").show(ctx, |ui| {
+            ui.label("Side Panel");
+        });
+
+        egui::SidePanel::right("side panel right").show(ctx, |ui| {
+            ui.label("Side Panel");
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
             // return;
             // let time_elapsed = rl.get_frame_time();
