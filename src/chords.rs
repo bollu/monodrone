@@ -87,7 +87,11 @@ impl Interval {
     fn kind(&self) -> IntervalKind {
         let p = self.pitches.0;
         let q = self.pitches.1;
-        let diff = (12 + (p.pitch() - q.pitch()) % 12) % 12;
+        let diff = if p.pitch() > q.pitch() {
+            p.pitch() - q.pitch()
+        } else {
+            q.pitch() - p.pitch()
+        };
         match diff {
             0 => IntervalKind::PerfectOctave,
             1 => IntervalKind::Minor2nd,
