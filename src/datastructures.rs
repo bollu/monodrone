@@ -1,17 +1,17 @@
 use serde::{Serialize, Deserialize};
-use std::alloc::System;
-use std::hash::{self, Hasher};
+
+use std::hash::{Hasher};
 use std::time::SystemTime;
-use std::{collections::HashMap, ops::DerefMut, path::PathBuf, sync::Arc};
-use eframe::glow::FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS;
-use egui::PlatformOutput;
-use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, lean_object, lean_unbox_float};
+use std::{collections::HashMap};
+
+
+
 
 
 use tracing::{event, Level};
 
 use crate::counterpoint1::CounterpointLints;
-use crate::{midi::track_get_note_events_at_time, NoteEvent};
+use crate::{midi::track_get_note_events_at_time};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 
@@ -47,7 +47,7 @@ impl LastModified {
 
     // returns true if the value has been idle for the duration.
     pub fn is_dirty_and_idle_for(&self, duration : std::time::Duration) -> bool {
-        if (!self.dirty) {
+        if !self.dirty {
             return false;
         }        self.last_modified_ms.elapsed().unwrap_or(std::time::Duration::from_secs(0)) > duration
     }
@@ -136,23 +136,23 @@ impl NoteSelectionPositioning {
 
 
 fn note_selection_positioning (note : &PlayerNote, selection : Selection) -> NoteSelectionPositioning {
-    if(selection.x != note.x) {
+    if selection.x != note.x {
         return NoteSelectionPositioning::NoteNotInSameTrack;
     }
     let end = note.start + note.nsteps as u64;
-    if (selection.y < note.start) {
+    if selection.y < note.start {
         return NoteSelectionPositioning::NoteStartsAfterSelection;
     }
-    else if (selection.y == note.start) {
+    else if selection.y == note.start {
         return NoteSelectionPositioning::NoteStartsAtSelection;
     }
-    else if (selection.y < end) {
+    else if selection.y < end {
         return NoteSelectionPositioning::NoteProperlyContainsSelection;
     }
-    else if (selection.y == end) {
+    else if selection.y == end {
         return NoteSelectionPositioning::NoteEndsAtSelection;
     }
-    else if (selection.y > end) {
+    else if selection.y > end {
         return NoteSelectionPositioning::NoteEndsBeforeSelection;
     }
     panic!("Impossible case");
@@ -232,7 +232,7 @@ impl PlayerNote {
                 // so we consume it.
                 let mut out = self.clone();
                 out.nsteps = self.nsteps - 1;
-                if (out.nsteps > 0) {
+                if out.nsteps > 0 {
                     accum.push(out);
                 }
                 return true
@@ -423,7 +423,7 @@ impl PlayerTrack {
 
                 assert!(note.nsteps >= 1);
                 note.nsteps -= 1;
-                if (note.nsteps == 0) {
+                if note.nsteps == 0 {
                     self.notes.remove(ix);
                 } else {
                     self.notes[ix] = note;
@@ -441,7 +441,7 @@ impl PlayerTrack {
                     if relation == NoteSelectionPositioning::NoteStartsAfterSelection {
                         // notes start at 1.
                         // zero is hallowed ground where no note may rest.
-                        if (note.start >= 2) {
+                        if note.start >= 2 {
                             note.start = note.start - 1;
                         }
                     }
@@ -909,13 +909,13 @@ impl Project {
     }
 
     pub fn delete_line (&mut self) {
-        if (self.selection.y == 0) { return; }
+        if self.selection.y == 0 { return; }
         self.last_modified.modified();
         self.history.push(Action::DeleteLine, self.selection, self.track.clone());
         // this lets cursor eat things like:
         // A A A| -> A A|A -> A A |- , since the cursor eats things *below*.
         let consumed = self.track.delete_line(self.selection);
-        if (!consumed) {
+        if !consumed {
             // if nothing was consumed, then we make an action by moving the cursor up.
             self.selection = self.selection.move_up_one();
         }
@@ -955,7 +955,7 @@ impl Project {
 
     pub fn undo_action (&mut self) {
         match self.history.undo() {
-            Some((action, selection, track)) => {
+            Some((_action, selection, track)) => {
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
@@ -969,7 +969,7 @@ impl Project {
 
     pub fn redo_action (&mut self) {
         match self.history.redo() {
-            Some((action, selection, track)) => {
+            Some((_action, selection, track)) => {
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
@@ -1061,7 +1061,7 @@ impl Project {
         for t in 0..max_time+1 {
             time_delta_accum += TIME_DELTA; // for this instant of time, add time.
             let player_notes = track_get_note_events_at_time(&self.track, t);
-            for (i, player_note) in player_notes.iter().enumerate() {
+            for (_i, player_note) in player_notes.iter().enumerate() {
                 let time_delta = time_delta_accum;
                 time_delta_accum = 0; // we've consumed the time delta for this note.
                 let midi_message = player_note.to_midi_message();

@@ -1,11 +1,11 @@
 use tracing::event;
-use midi;
-use std::{fs::File, sync::Arc};
+
+use std::{sync::Arc};
 use tinyaudio::{run_output_device, OutputDeviceParameters};
 use std::sync::Mutex;
-use std::thread::{current, sleep};
+
 use std::collections::HashMap;
-use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
+use rustysynth::{Synthesizer};
 use tinyaudio::prelude::*;
 use tracing::{Level};
 

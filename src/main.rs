@@ -3,23 +3,23 @@
 
 use egui::Key;
 
-use ron::de::from_reader;
+
 use serde::{Deserialize, Serialize};
 use rand::seq::SliceRandom; // 0.7.2
 use ron;
-use rfd::FileDialog;
+
 use tracing_subscriber::fmt::MakeWriter;
-use std::collections::HashMap;
+
 
 use std::error::Error;
 use std::path::{PathBuf};
 
-use std::sync::Mutex;
-use std::thread::{current, sleep};
+
+use std::thread::{sleep};
 use std::time::Duration;
 use std::{fs::File, sync::Arc};
-use tinyaudio::prelude::*;
-use tinyaudio::{run_output_device, OutputDeviceParameters};
+
+use tinyaudio::{OutputDeviceParameters};
 use eframe::egui;
 use egui::*;
 
@@ -28,7 +28,7 @@ const GOLDEN_RATIO: f32 = 1.618_034;
 
 use midir::{Ignore, MidiInput, MidiInputPort};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
-use std::io::{stdin, stdout, Write};
+use std::io::{stdin};
 use tracing::{event, Level};
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -39,7 +39,7 @@ mod chords;
 
 use midi::*;
 use datastructures::*;
-use chords::*;
+
 
 
 fn whimsical_file_name() -> String {
@@ -446,8 +446,8 @@ impl IDEImage {
 
         let path = ide_image_file_path();
         match File::create(path.clone()) {
-            Ok(mut file) => {
-                let mut writer = file.make_writer();
+            Ok(file) => {
+                let writer = file.make_writer();
                 ron::ser::to_writer(writer, &self).unwrap();
                 event!(Level::INFO, "Successfully saved settings file to path {:?}", path.to_string_lossy());
             }
@@ -552,14 +552,14 @@ fn mainLoop() {
             });
         });
 
-        egui::SidePanel::left("Compositional Errors").show(ctx, |ui| {
+        egui::SidePanel::left("Compositional Errors").show(ctx, |_ui| {
         });
 
         egui::SidePanel::right("Projects").show(ctx, |ui| {
             ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
                 let mut selected_ix : i32 = settings.ix as i32 ;
                 for (i, ctx) in settings.contexts.iter().enumerate() {
-                    if(ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked()) {
+                    if ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked() {
                         selected_ix = i as i32;
                     }
                 }
@@ -906,7 +906,7 @@ fn testMidiInOpZ() -> Result<MidiInputPort, Box<dyn Error>> {
         }
     };
 
-    let conn = midi_in.connect(
+    let _conn = midi_in.connect(
         &opz,
         "midir-read-input",
         move |stamp, message, _| {
@@ -923,7 +923,7 @@ fn testMidiInOpZ() -> Result<MidiInputPort, Box<dyn Error>> {
     input.clear();
     stdin().read_line(&mut input)?; // wait for next enter key press
 
-    while true {
+    loop {
         sleep(core::time::Duration::from_secs(1));
     };
 

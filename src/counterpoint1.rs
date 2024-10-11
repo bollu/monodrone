@@ -1,5 +1,5 @@
 // This is two voice counterpoint.
-use crate::{datastructures::{PlayerNote, Pitch}, PlayerTrack, TRACK_LENGTH};
+use crate::{datastructures::{Pitch}, PlayerTrack, TRACK_LENGTH};
 
 // list the errors in counterpoint from Fux's book:
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -61,12 +61,12 @@ impl Motion {
 
 
         // neither moves.
-        if (dp == 0 && dq == 0) {
+        if dp == 0 && dq == 0 {
             return Motion::Parallel;
         }
 
         // only one moves.
-        if (dp == 0 || dq == 0) {
+        if dp == 0 || dq == 0 {
             return Motion::Oblique;
         }
 
