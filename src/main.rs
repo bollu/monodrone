@@ -216,121 +216,6 @@ impl<T> SequenceNumbered<T> {
     }
 }
 
-
-// fn save (egui_ctx : Option<&egui::Context>, settings.ctx() : &datastructures::Context) {
-//     let str = ron::to_string(settings.ctx()).unwrap();
-//     let file_path_str = settings.ctx().file_path.to_string_lossy();
-//     event!(Level::INFO, "saving file to path: '{}'", file_path_str.as_str());
-//     match File::create(settings.ctx().file_path.as_path()) {
-//         Ok(mut file) => {
-//             file.write_all(str.as_bytes()).unwrap();
-//             event!(Level::INFO, "Successfully saved '{}'", file_path_str.as_str());
-//             if let Some(egui_ctx) = egui_ctx {
-//                 egui_ctx.send_viewport_cmd(ViewportCommand::Title(settings.ctx().get_app_title()));
-//             }
-//         }
-//         Err(e) => {
-//             event!(Level::ERROR, "Error saving file: {:?}", e);
-//             rfd::MessageDialog::new()
-//                 .set_level(rfd::MessageLevel::Error)
-//                 .set_title(format!(
-//                     "Unable to save file to path '{}'.",
-//                     file_path_str
-//                 ))
-//                 .set_description(e.to_string())
-//                 .show();
-//         }
-//     };
-//
-//     let midi_filepath = settings.ctx().get_midi_export_file_path();
-//     let midi_file = match File::create(midi_filepath.clone()) {
-//         Ok(file) => file,
-//         Err(e) => {
-//             rfd::MessageDialog::new()
-//                 .set_level(rfd::MessageLevel::Error)
-//                 .set_title("Unable to create MIDI file")
-//                 .set_description(e.to_string())
-//                 .show();
-//             event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-//             return;
-//         }
-//     };
-//     let (header, tracks) = settings.ctx().to_smf();
-//     match midly::write_std(&header, tracks.iter(), midi_file) {
-//         Ok(()) => {
-//             event!(Level::INFO, "Sucessfully saved MIDI file '{}'", midi_filepath.to_string_lossy());
-//         }
-//         Err(e) => {
-//             rfd::MessageDialog::new()
-//                 .set_level(rfd::MessageLevel::Error)
-//                 .set_title("Unable to save MIDI file")
-//                 .set_description(e.to_string())
-//                 .show();
-//             event!(Level::ERROR, "error writing MIDI file: {:?}", e);
-//         }
-//     };
-// }
-
-/*
-fn load_settings(file_path : &PathBuf) -> Option<datastructures::Context> {
-    match File::open(file_path.clone()) {
-        Ok(file) => {
-            let reader = std::io::BufReader::new(file);
-            let str = std::io::read_to_string(reader).unwrap();
-            event!(Level::INFO, "loaded file data.");
-            let settings.ctx() : datastructures::Context =  match ron::from_str(&str) {
-                Ok(ctx) => {
-                    ctx
-                }
-
-                Err(e) => {
-                    rfd::MessageDialog::new()
-                        .set_level(rfd::MessageLevel::Error)
-                        .set_title("Unable to load file, JSON parsing error.")
-                        .set_description(&e.to_string())
-                        .show();
-                    event!(Level::ERROR, "error loading file: {:?}", e);
-                    return Option::None;
-                }
-            };
-            event!(Level::INFO, "loaded file!");
-            Option::Some(settings.ctx())
-        }
-        Err(e) => {
-            event!(Level::ERROR, "error opening settings.ctx() file '{:?}': {:?}", file_path, e);
-            Option::None
-        }
-    }
-}
-*/
-
-// fn open(egui_ctx: Option<&egui::Context>, settings.ctx() : &datastructures::Context) -> Option<datastructures::Context> {
-//     let open_dialog = FileDialog::new()
-//         .add_filter("monodrone", &["drn"])
-//         .set_can_create_directories(true)
-//         .set_title("Open monodrone file location")
-//         .set_directory(settings.ctx().file_path.as_path().parent().unwrap());
-//
-//     if let Some(path) = open_dialog.pick_file() {
-//         // open path and load string.
-//         event!(Level::INFO, "loading file {path:?}");
-//         match load_settings.ctx()_from_file(&path) {
-//             Some(new_ctx) => {
-//                 if let Some (egui_ctx) = egui_ctx {
-//                     egui_ctx.send_viewport_cmd(ViewportCommand::Title(new_ctx.get_app_title()));
-//                 }
-//                 Option::Some(new_ctx)
-//             }
-//             None => Option::None
-//         }
-//     }
-//     else {
-//         Option::None
-//     }
-// }
-
-
-
 // The image file, that has all the state.
 #[derive(Debug, Serialize, Deserialize)]
 struct IDEImage {
@@ -789,7 +674,7 @@ fn main_loop() {
 
                         let note_text_padding = Vec2::splat(5.0);
                         painter.text(draw + note_text_padding,
-                            Align2::LEFT_TOP, note.to_str(), FontId::monospace(font_size_note), text_color);
+                            Align2::LEFT_TOP, note.str(), FontId::monospace(font_size_note), text_color);
                         let octave_text_padding = Vec2::new(2., 2.);
                         let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
                         let octave_text = painter.layout_no_wrap(note.pitch.octave.to_string(),

@@ -161,8 +161,8 @@ impl PlayerNote {
         self.pitch.pitch()
     }
 
-    pub fn to_str (&self) -> String {
-        format!("{}{}", self.pitch.name.to_str(), self.pitch.accidental.to_str())
+    pub fn str (&self) -> String {
+        format!("{}{}", self.pitch.name.str(), self.pitch.accidental.str())
     }
 
     pub fn y(&self) -> u64 {
@@ -521,7 +521,7 @@ pub enum PitchName {
 }
 
 impl PitchName {
-    pub fn to_str(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             PitchName::C => "C",
             PitchName::D => "D",
@@ -555,7 +555,7 @@ pub enum Accidental {
 }
 
 impl Accidental {
-    pub fn to_str(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             Accidental::Natural => "",
             Accidental::Sharp => "#",
