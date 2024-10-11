@@ -3,6 +3,7 @@ use crate::{datastructures::{Pitch}, PlayerTrack, TRACK_LENGTH};
 
 // list the errors in counterpoint from Fux's book:
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
+// TODO: replace with IntervalKind from Chord.
 enum AssonanceKind {
     PerfectOctaveConsonance,
     PerfectFifthConsonance,
@@ -74,7 +75,7 @@ impl Motion {
         assert!(dp != 0);
         assert!(dq != 0);
 
-        if dp * dq >= 0 {
+        return if dp * dq >= 0 {
             // both in same direction
             if dp == dq {
                 // and both in same distance.
@@ -105,16 +106,21 @@ pub struct Lint {
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-#[derive(Default)]
 pub struct CounterpointLints {
     lints : Vec<Lint>,
 }
 
-
+impl Default for CounterpointLints {
+    fn default() -> CounterpointLints {
+        CounterpointLints {
+            lints: Vec::new(),
+        }
+    }
+}
 
 // Countrapunctal information for a track.
 impl CounterpointLints {
-    pub fn from_track(track: &PlayerTrack) -> CounterpointLints {
+    pub fn from_track<'a>(track: &'a PlayerTrack) -> CounterpointLints {
         let mut lints : CounterpointLints = Default::default();
         for i in 0..TRACK_LENGTH-1 {
             // cantus firmus

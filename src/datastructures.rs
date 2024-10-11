@@ -1,10 +1,12 @@
 use serde::{Serialize, Deserialize};
+use core::fmt;
 use std::time::SystemTime;
 use std::collections::HashMap;
 use tracing::{event, Level};
 
 use crate::counterpoint1::CounterpointLints;
 use crate::midi::track_get_note_events_at_time;
+use crate::chords::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 
@@ -62,7 +64,7 @@ trait Dirt {
     fn get_dirty_mut(&self) -> &mut LastModified;
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy, Hash, Eq)]
 pub struct Pitch {
    pub name : PitchName,
    pub accidental : Accidental,
@@ -320,7 +322,7 @@ pub struct PlayerTrack {
     // TODO: make this immutable vector with imrs
     // TODO: rebuild this, instead of storing it via serde.
     hitbox : Hitbox,
-    last_modified : LastModified
+    pub last_modified : LastModified
 }
 
 impl Default for PlayerTrack {
@@ -509,7 +511,7 @@ impl PlayerTrack {
 // MetaMessage('end_of_track', time=0)])//
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub enum PitchName {
     C,
     D,
@@ -519,6 +521,7 @@ pub enum PitchName {
     A,
     B,
 }
+
 
 impl PitchName {
     pub fn str(&self) -> &str {
@@ -544,10 +547,15 @@ impl PitchName {
           PitchName::B => 11,
       }
   }
-
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+impl fmt::Display for PitchName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Eq, Hash)]
 pub enum Accidental {
     Natural,
     Sharp,
@@ -598,6 +606,12 @@ impl Accidental {
 
 }
 
+impl fmt::Display for Accidental {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
 pub const NTRACKS : u64 = 4;
 pub const TRACK_LENGTH : u64 = 100;
 
@@ -607,7 +621,6 @@ pub struct Selection {
     pub x : u64,
     pub y : u64,
 }
-
 
 impl Selection {
     fn new() -> Selection {
@@ -766,6 +779,7 @@ pub struct Project {
     pub time_signature : (u8, u8),
     pub history : History,
     pub counterpoint1 : CounterpointLints,
+    pub chord_info : ChordInfo,
 }
 
 impl From<ProjectSaveInfo> for Project {
@@ -782,6 +796,7 @@ impl From<ProjectSaveInfo> for Project {
             time_signature: info.time_signature,
             history: info.history.into(),
             counterpoint1 : cp,
+            chord_info : Default::default(),
         }
     }
 }
@@ -812,8 +827,8 @@ impl Project {
             time_signature: (4, 4),
             history: History::new(),
             counterpoint1 : Default::default(),
+            chord_info : Default::default(),
         }
-
     }
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
@@ -838,29 +853,34 @@ impl Project {
             });
             // self.cursor_move_down_one(); this makes it annoying when one wants to e.g. write C#
         }
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn cursor_move_left_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveLeftOne, self.selection, self.track.clone());
         self.selection = self.selection.move_left_one();
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn cursor_move_right_one (&mut self) {
         self.history.push(Action::CursorMoveRightOne, self.selection, self.track.clone());
         self.selection = self.selection.move_right_one();
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn cursor_move_down_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveDownOne, self.selection, self.track.clone());
         self.selection = self.selection.move_down_one();
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn cursor_move_up_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveUpOne, self.selection, self.track.clone());
         self.selection = self.selection.move_up_one();
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn toggle_sharp (&mut self) {
@@ -870,6 +890,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.pitch.accidental = note.pitch.accidental.toggle_sharp()
             });
+            self.chord_info.rebuild(&self.track);
         }
     }
 
@@ -880,6 +901,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.pitch.accidental = note.pitch.accidental.toggle_flat()
             });
+            self.chord_info.rebuild(&self.track);
         }
     }
 
@@ -888,6 +910,7 @@ impl Project {
         self.history.push(Action::Newline, self.selection, self.track.clone());
         self.track.insert_newline(self.selection);
         self.selection = self.selection.move_down_one();
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn delete_line (&mut self) {
@@ -901,6 +924,7 @@ impl Project {
             // if nothing was consumed, then we make an action by moving the cursor up.
             self.selection = self.selection.move_up_one();
         }
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn lower_octave (&mut self) {
@@ -910,6 +934,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.lower_octave()
             });
+            self.chord_info.rebuild(&self.track);
         }
     }
 
@@ -920,6 +945,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.raise_octave()
             });
+            self.chord_info.rebuild(&self.track);
         }
     }
 
@@ -927,17 +953,20 @@ impl Project {
         self.last_modified.modified();
         self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
         self.track.increase_nsteps(self.selection);
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn decrease_nsteps (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::DecreaseNSteps, self.selection, self.track.clone());
         self.track.decrease_nsteps(self.selection);
+        self.chord_info.rebuild(&self.track);
     }
 
     pub fn undo_action (&mut self) {
         match self.history.undo() {
             Some((_action, selection, track)) => {
+                self.chord_info.rebuild(&track);
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
@@ -952,6 +981,7 @@ impl Project {
     pub fn redo_action (&mut self) {
         match self.history.redo() {
             Some((_action, selection, track)) => {
+                self.chord_info.rebuild(&track);
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
@@ -1079,6 +1109,7 @@ impl Clone for Project {
             time_signature: self.time_signature,
             history: self.history.clone(),
             counterpoint1 : self.counterpoint1.clone(),
+            chord_info : self.chord_info.clone(),
         }
     }
 }
