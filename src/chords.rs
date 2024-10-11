@@ -26,14 +26,14 @@
 //     Tritone    | 6 semitones  |  T
 
 use core::fmt;
-use std::{collections::HashSet,  time::Duration};
+use std::{collections::{HashMap, HashSet},  time::Duration};
 
 use crate::datastructures::*;
 
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone, Eq, Hash, Ord, Copy)]
-enum IntervalKind {
+pub enum IntervalKind {
     PerfectOctave,
     Minor2nd,
     Major2nd,
@@ -49,7 +49,7 @@ enum IntervalKind {
 }
 
 impl IntervalKind {
-    pub fn show(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             IntervalKind::PerfectOctave => "octave",
             IntervalKind::Minor2nd => "m2",
@@ -67,6 +67,12 @@ impl IntervalKind {
     }
 }
 
+impl fmt::Display for IntervalKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
 // an interval is a pair of pitches.
 #[derive(Debug, PartialEq, Clone, Hash, Eq, Copy)]
 pub struct Interval {
@@ -81,7 +87,7 @@ impl Interval {
     fn kind(&self) -> IntervalKind {
         let p = self.pitches.0;
         let q = self.pitches.1;
-        let diff = (p.pitch() - q.pitch()) % 12;
+        let diff = (12 + (p.pitch() - q.pitch()) % 12) % 12;
         match diff {
             0 => IntervalKind::PerfectOctave,
             1 => IntervalKind::Minor2nd,
@@ -99,12 +105,21 @@ impl Interval {
         }
     }
 
+    pub fn string(&self) -> String {
+        self.kind().str().to_string()
+    }
+}
+
+impl fmt::Display for Interval {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.string())
+    }
 }
 
 // this is called quality in music theory:
 // https://en.wikipedia.org/wiki/Interval_(music)#Quality
 #[derive(Debug, PartialEq, Clone, Hash, Copy)]
-enum ChordQuality {
+pub enum ChordQuality {
     Major,
     Minor,
     Diminished,
@@ -112,7 +127,7 @@ enum ChordQuality {
 }
 
 impl ChordQuality {
-    fn str(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             ChordQuality::Major => "M",
             ChordQuality::Minor => "m",
@@ -129,7 +144,7 @@ impl fmt::Display for ChordQuality {
 }
 
 #[derive(Debug, PartialEq, Clone, Hash, Copy)]
-enum ChordInversion {
+pub enum ChordInversion {
     Zeroth,
     First,
     Second
@@ -137,7 +152,7 @@ enum ChordInversion {
 
 impl ChordInversion {
 
-    fn show(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             ChordInversion::Zeroth => "0",
             ChordInversion::First => "inv₁",
@@ -147,7 +162,7 @@ impl ChordInversion {
 }
 
 #[derive(Debug, PartialEq, Clone, Hash, Copy)]
-enum ChordExtension {
+pub enum ChordExtension {
     Seventh,
     Ninth,
     Eleventh,
@@ -156,7 +171,7 @@ enum ChordExtension {
 }
 
 impl ChordExtension {
-    fn show(&self) -> &str {
+    pub fn str(&self) -> &str {
         match self {
             ChordExtension::Seventh => "7",
             ChordExtension::Ninth => "9",
@@ -182,7 +197,7 @@ pub struct Chord {
 
 
 impl Chord {
-    fn identify(ps : Vec<Pitch>) -> Option<Chord> {
+    pub fn identify(ps : Vec<Pitch>) -> Option<Chord> {
         assert!(ps.len() >= 3);
         if ps.len() != 3 {
             return None
@@ -216,22 +231,28 @@ impl Chord {
         }
     }
 
-    fn base(&self) -> Pitch {
+    pub fn base(&self) -> Pitch {
         self.pitches[self.baseix]
     }
 
-    fn show(&self) -> String {
+    pub fn string(&self) -> String {
         format!("{}{}{}", self.base().name, self.base().accidental, self.quality).to_string()
     }
 }
 
+impl fmt::Display for Chord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.string())
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Hash)]
-enum NoteGroup {
+pub enum NoteGroup {
     Single (Pitch),
     Two(Interval),
     More(Chord),
-    None,
     Unknown,
+    None,
 }
 
 impl NoteGroup {
@@ -254,7 +275,8 @@ impl NoteGroup {
 // This is synchronized with a PlayerTrack.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChordInfo {
-    note_groups : Vec<NoteGroup>,
+    // map from y to notegroup for that y.
+    note_groups : HashMap<u64, NoteGroup>,
     last_modified : LastModified,
 }
 
@@ -264,7 +286,7 @@ impl ChordInfo {
         self.last_modified.union(&track.last_modified);
 
         // We're not dirty, so return.
-        if !self.last_modified.is_dirty_and_idle_for(Duration::from_millis(100)) {
+        if !self.last_modified.dirty {
             return
         }
 
@@ -277,20 +299,26 @@ impl ChordInfo {
         for y in 0..TRACK_LENGTH {
             let mut ps = Vec::new();
             for x in 0..NTRACKS {
-                let p = match track.get_note_from_coord(x, y) {
+                match track.get_note_from_coord(x, y) {
                     Some(p) => ps.push(p.pitch),
                     None => continue,
                 };
             }
-            self.note_groups.push(NoteGroup::mk(ps));
+            self.note_groups.insert(y, NoteGroup::mk(ps));
         }
+    }
+
+    pub fn get(&self, y : u64) -> &NoteGroup {
+        assert!(y < TRACK_LENGTH);
+        self.note_groups.get(&y).unwrap_or(&NoteGroup::None)
     }
 }
 
 impl Default for ChordInfo {
     fn default() -> ChordInfo {
+
         ChordInfo {
-            note_groups: Vec::new(),
+            note_groups: HashMap::new(),
             last_modified: LastModified::new(),
         }
     }

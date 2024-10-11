@@ -786,6 +786,8 @@ impl From<ProjectSaveInfo> for Project {
     fn from(info: ProjectSaveInfo) -> Self {
         let track = PlayerTrack::from_notes(info.track.notes);
         let cp = CounterpointLints::from_track(&track);
+        let mut chord_info  : ChordInfo = Default::default();
+        chord_info.rebuild(&track);
         Project {
             last_modified: LastModified::new(),
             track,
@@ -796,7 +798,7 @@ impl From<ProjectSaveInfo> for Project {
             time_signature: info.time_signature,
             history: info.history.into(),
             counterpoint1 : cp,
-            chord_info : Default::default(),
+            chord_info : chord_info,
         }
     }
 }

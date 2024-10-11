@@ -1,6 +1,7 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 #![allow(dead_code)]
 
+use chords::NoteGroup;
 use egui::Key;
 
 
@@ -657,13 +658,13 @@ fn main_loop() {
                 Rounding::default().at_least(2.0),
                 box_cursor_color);
 
-            for y in 0u64..100 {
+            for y in 0u64..TRACK_LENGTH {
                 let draw = logical_to_sidebar_text_min(Pos2::new(0f32, y as f32));
                 painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y), FontId::monospace(font_size_note), text_color_following);
             }
 
-            for x in 0u64..8 {
-                for y in 0u64..100 {
+            for x in 0u64..NTRACKS {
+                for y in 0u64..TRACK_LENGTH {
                     let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
                     if let Some(note) = settings.ctx_mut().track.get_note_from_coord(x, y) {
                         let text_color = if note.x == x && note.y() == y {
@@ -689,6 +690,21 @@ fn main_loop() {
                 box_dim * Vec2::new(0.1, 1.0)),
                 Rounding::default().at_least(4.0),
                 box_now_playing_color);
+
+            for y in 0u64..TRACK_LENGTH {
+                let ng = settings.ctx_mut().chord_info.get(y);
+                let text = match ng {
+                    NoteGroup::Unknown => "?".to_string(),
+                    NoteGroup::More(c) => c.string(),
+                    NoteGroup::Two(i) => i.string(),
+                    NoteGroup::Single(p) => p.name.str().to_string(),
+                    NoteGroup::None => "".to_string()
+                };
+                painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
+                    Align2::LEFT_TOP, text, FontId::monospace(font_size_note), text_color_leading);
+                let octave_text_padding = Vec2::new(2., 2.);
+                let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
+            }
 
             if !focused {
                 painter.rect_filled(ui.max_rect(), Rounding::default(),
