@@ -1,7 +1,8 @@
 // This is two voice counterpoint.
-use crate::datastructures::{PlayerNote, ui_pitch_to_midi_pitch};
+use crate::{datastructures::{PlayerNote, Pitch}, PlayerTrack, TRACK_LENGTH};
 
 // list the errors in counterpoint from Fux's book:
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 enum AssonanceKind {
     PerfectOctaveConsonance,
     PerfectFifthConsonance,
@@ -20,20 +21,27 @@ pub fn num_semitones_in_fifth() -> i64 {
 
 impl AssonanceKind {
     // with p as the lower voice and q as the higher voice, what is the assonance?
-    pub fn assonance_for(p : PlayerNote, q: PlayerNote) -> AssonanceKind {
-        let p1 = ui_pitch_to_midi_pitch(p.pitch_name, p.accidental, p.octave) as i64;
-        let p2 = ui_pitch_to_midi_pitch(p.pitch_name, p.accidental, p.octave) as i64;
-        if p1 - p2 % num_semitones_in_octave() == 0 {
+    pub fn assonance_for(p : Pitch, q: Pitch) -> AssonanceKind {
+        if (p.pitch() - q.pitch()) % num_semitones_in_octave() == 0 {
             AssonanceKind::PerfectFifthConsonance
-        } else if (p1 - p2) % num_semitones_in_fifth() == 0 {
+        } else if (p.pitch() - q.pitch()) % num_semitones_in_fifth() == 0 {
             AssonanceKind::PerfectFifthConsonance
         } else{
             AssonanceKind::Dissonance
         }
 
     }
+
+    pub fn is_perfect(&self) -> bool {
+        match self {
+            AssonanceKind::PerfectOctaveConsonance => true,
+            AssonanceKind::PerfectFifthConsonance => true,
+            _ => false,
+        }
+    }
 }
 
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 enum Motion {
     Parallel,
     Similar,
@@ -42,11 +50,11 @@ enum Motion {
 }
 
 impl Motion {
-    pub fn motion_for(ps : (PlayerNote, PlayerNote), qs: (PlayerNote, PlayerNote)) -> Motion {
-        let p1 = ui_pitch_to_midi_pitch(ps.0.pitch_name, ps.0.accidental, ps.0.octave) as i64;
-        let p2 = ui_pitch_to_midi_pitch(ps.1.pitch_name, ps.1.accidental, ps.1.octave) as i64;
-        let q1 = ui_pitch_to_midi_pitch(qs.0.pitch_name, qs.0.accidental, qs.0.octave) as i64;
-        let q2 = ui_pitch_to_midi_pitch(qs.1.pitch_name, qs.1.accidental, qs.1.octave) as i64;
+    pub fn motion_for(ps : (Pitch, Pitch), qs: (Pitch, Pitch)) -> Motion {
+        let p1 = ps.0.pitch();
+        let p2 = ps.1.pitch();
+        let q1 = qs.0.pitch();
+        let q2 = qs.1.pitch();
         // move in the same direction.
         let dp = p2 - p1;
         let dq = q2 - q1;
@@ -78,5 +86,73 @@ impl Motion {
             // move in opposite directions.
             Motion::Contrary
         }
+    }
+}
+
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+enum LintKind {
+    ParallelPerfectConsonance,
+}
+
+// counterpoint lints.
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub struct Lint {
+    pub kind : LintKind,
+    pub locStart : (i32, i32), // (x, y)
+    pub numNotes : i32,
+}
+
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub struct CounterpointLints {
+    lints : Vec<Lint>,
+}
+
+impl Default for CounterpointLints {
+    fn default() -> CounterpointLints {
+        CounterpointLints {
+            lints: Vec::new(),
+        }
+    }
+}
+
+// Countrapunctal information for a track.
+impl CounterpointLints {
+    pub fn from_track<'a>(track: &'a PlayerTrack) -> CounterpointLints {
+        let mut lints : CounterpointLints = Default::default();
+        for i in 0..TRACK_LENGTH-1 {
+            // cantus firmus
+            let p = match track.get_note_from_coord(0, i) {
+                    Some(p) => p,
+                    None => continue,
+                };
+            let pnext = match track.get_note_from_coord(0, i+1) {
+                    Some(p) => p,
+                    None => continue,
+                };
+            let q = match track.get_note_from_coord(0, i) {
+                    Some(q) => q,
+                    None => continue,
+            };
+            let qnext = match track.get_note_from_coord(0, i+1) {
+                    Some(q) => q,
+                    None => continue,
+            };
+
+            let assonance = AssonanceKind::assonance_for(pnext.pitch, qnext.pitch);
+            let motion = Motion::motion_for((p.pitch, q.pitch), (pnext.pitch, qnext.pitch));
+
+            if assonance.is_perfect() && motion == Motion::Parallel {
+                let lint = Lint {
+                    kind : LintKind::ParallelPerfectConsonance,
+                    locStart : (0, i as i32),
+                    numNotes : 1,
+                };
+
+                lints.lints.push(lint);
+            }
+        }
+        lints
     }
 }

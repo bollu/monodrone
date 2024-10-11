@@ -10,6 +10,7 @@ use lean_sys::{lean_box, lean_dec_ref, lean_inc_ref, lean_io_result_get_error, l
 
 use tracing::{event, Level};
 
+use crate::counterpoint1::CounterpointLints;
 use crate::{midi::track_get_note_events_at_time, NoteEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
@@ -62,6 +63,35 @@ trait Dirt {
     fn get_dirty_mut(&self) -> &mut LastModified;
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+pub struct Pitch {
+   pub name : PitchName,
+   pub accidental : Accidental,
+   pub octave : u64,
+}
+
+impl Pitch {
+  fn new(name : PitchName, accidental : Accidental, octave : u64) -> Self {
+    Pitch { name, accidental, octave}
+  }
+
+  pub fn pitch (&self) -> i64 {
+    (self.octave as i64 + 1) * 12 + self.name.pitch() + self.accidental.pitch()
+  }
+
+  pub fn lower_octave(&mut self) {
+        if self.octave > 0 {
+            self.octave -= 1;
+        }
+    }
+
+  pub fn raise_octave(&mut self) {
+        self.octave += 1;
+    }
+
+}
+
+
 
 // TODO: extract out the harmonic information into a separate
 // data structure: pitchname, accidental, octave.
@@ -71,40 +101,9 @@ pub struct PlayerNote {
     pub start: u64,
     pub nsteps: i64,
 
-    pub pitch_name: PitchName,
-    pub accidental : Accidental,
-    pub octave : u64,
+    pub pitch : Pitch,
 }
 
-pub fn octave_to_midi_pitch (octave : u64) -> u64 {
-    12 * (octave + 1)
-}
-
-pub fn pitch_name_to_midi_pitch (pitch_name : PitchName) -> u64 {
-    match pitch_name {
-        PitchName::C => 0,
-        PitchName::D => 2,
-        PitchName::E => 4,
-        PitchName::F => 5,
-        PitchName::G => 7,
-        PitchName::A => 9,
-        PitchName::B => 11,
-    }
-}
-
-pub fn accidental_to_midi_pitch (accidental : Accidental) -> i64 {
-    match accidental {
-        Accidental::Natural => 0,
-        Accidental::Sharp => 1,
-        Accidental::Flat => -1,
-    }
-}
-
-pub fn ui_pitch_to_midi_pitch (pitch_name : PitchName, accidental : Accidental, octave : u64) -> u64 {
-    (pitch_name_to_midi_pitch(pitch_name) as i64 +
-    accidental_to_midi_pitch(accidental)) as u64 +
-    octave_to_midi_pitch(octave)
-}
 
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Copy)]
@@ -161,12 +160,12 @@ fn note_selection_positioning (note : &PlayerNote, selection : Selection) -> Not
 
 
 impl PlayerNote {
-    pub fn pitch(&self) -> u64 {
-        ui_pitch_to_midi_pitch(self.pitch_name, self.accidental, self.octave)
+    pub fn pitch(&self) -> i64 {
+        self.pitch.pitch()
     }
 
     pub fn to_str (&self) -> String {
-        format!("{}{}", self.pitch_name.to_str(), self.accidental.to_str())
+        format!("{}{}", self.pitch.name.to_str(), self.pitch.accidental.to_str())
     }
 
     pub fn y(&self) -> u64 {
@@ -174,15 +173,11 @@ impl PlayerNote {
     }
 
     pub fn lower_octave (&mut self) {
-        if self.octave > 0 {
-            self.octave -= 1;
-        }
+        self.pitch.lower_octave();
     }
 
     pub fn raise_octave(&mut self) {
-        if self.octave < 8 {
-            self.octave += 1;
-        }
+        self.pitch.raise_octave();
     }
 
     pub fn insert_newline_at (&self, selection : Selection, accum : &mut Vec<PlayerNote>) {
@@ -320,7 +315,14 @@ impl Hitbox {
 
 }
 
+// information that is saved when a track is saved.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct PlayerTrackSaveInfo {
+    pub notes : Vec<PlayerNote>
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(from = "PlayerTrackSaveInfo", into = "PlayerTrackSaveInfo")]
 pub struct PlayerTrack {
     // TODO: make this immutable vector with imrs
     pub notes: Vec<PlayerNote>, // sorted by start
@@ -333,6 +335,20 @@ pub struct PlayerTrack {
 impl Default for PlayerTrack {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Into<PlayerTrackSaveInfo> for PlayerTrack {
+    fn into(self) -> PlayerTrackSaveInfo {
+        PlayerTrackSaveInfo {
+            notes: self.notes
+        }
+    }
+}
+
+impl From<PlayerTrackSaveInfo> for PlayerTrack {
+    fn from(info: PlayerTrackSaveInfo) -> Self {
+        PlayerTrack::from_notes(info.notes)
     }
 }
 
@@ -535,30 +551,17 @@ impl PitchName {
         }
     }
 
-    pub fn to_lean(&self) -> u64 {
-        match self {
-            PitchName::C => 0,
-            PitchName::D => 1,
-            PitchName::E => 2,
-            PitchName::F => 3,
-            PitchName::G => 4,
-            PitchName::A => 5,
-            PitchName::B => 6,
-        }
-    }
-
-    pub fn of_lean (ix : u64) -> PitchName {
-        match ix {
-            0 => PitchName::C,
-            1 => PitchName::D,
-            2 => PitchName::E,
-            3 => PitchName::F,
-            4 => PitchName::G,
-            5 => PitchName::A,
-            6 => PitchName::B,
-            _ => panic!("Invalid pitch name index {}", ix),
-        }
-    }
+  pub fn pitch (&self) -> i64 {
+      match self {
+          PitchName::C => 0,
+          PitchName::D => 2,
+          PitchName::E => 4,
+          PitchName::F => 5,
+          PitchName::G => 7,
+          PitchName::A => 9,
+          PitchName::B => 11,
+      }
+  }
 
 }
 
@@ -602,6 +605,15 @@ impl Accidental {
             Accidental::Flat => Accidental::Natural,
         }
     }
+
+    pub fn pitch (&self) -> i64 {
+        match self {
+            Accidental::Natural => 0,
+            Accidental::Sharp => 1,
+            Accidental::Flat => -1,
+        }
+    }
+
 }
 
 pub const NTRACKS : u64 = 4;
@@ -683,9 +695,38 @@ enum Action {
 }
 
 #[derive (Debug, PartialEq, Serialize, Deserialize, Clone)]
+#[serde(from = "HistorySaveInfo", into = "HistorySaveInfo")]
 pub struct History {
     actions : Vec<(Action, Selection, PlayerTrack)>,
     current : usize,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct HistorySaveInfo {
+    pub actions : Vec<(Action, Selection, PlayerTrackSaveInfo)>,
+    pub current : usize,
+}
+
+impl From<HistorySaveInfo> for History {
+    fn from(info: HistorySaveInfo) -> Self {
+        History {
+            actions: info.actions.into_iter().map(|(action, selection, track)| {
+                (action, selection, PlayerTrack::from_notes(track.notes))
+            }).collect(),
+            current: info.current,
+        }
+    }
+}
+
+impl Into<HistorySaveInfo> for History {
+    fn into(self) -> HistorySaveInfo {
+        HistorySaveInfo {
+            actions: self.actions.into_iter().map(|(action, selection, track)| {
+                (action, selection, track.into())
+            }).collect(),
+            current: self.current,
+        }
+    }
 }
 
 impl History {
@@ -721,8 +762,19 @@ impl History {
     }
 }
 
+// information that is saved when a project is saved.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct Context {
+pub struct ProjectSaveInfo {
+    pub track_name : String,
+    pub artist_name : String,
+    pub time_signature : (u8, u8),
+    pub track : PlayerTrackSaveInfo,
+    pub history : HistorySaveInfo,
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "ProjectSaveInfo", into = "ProjectSaveInfo")]
+pub struct Project {
     pub last_modified : LastModified,
     pub track : PlayerTrack,
     pub selection : Selection,
@@ -731,14 +783,44 @@ pub struct Context {
     pub artist_name : String,
     pub time_signature : (u8, u8),
     pub history : History,
+    pub counterpoint1 : CounterpointLints,
 }
 
+impl From<ProjectSaveInfo> for Project {
+    fn from(info: ProjectSaveInfo) -> Self {
+        let track = PlayerTrack::from_notes(info.track.notes);
+        let cp = CounterpointLints::from_track(&track);
+        Project {
+            last_modified: LastModified::new(),
+            track: track,
+            selection: Selection::new(),
+            playback_speed: 1.0,
+            track_name: info.track_name,
+            artist_name: info.artist_name,
+            time_signature: info.time_signature,
+            history: info.history.into(),
+            counterpoint1 : cp,
+        }
+    }
+}
 
-impl Context {
+impl Into<ProjectSaveInfo> for Project {
+    fn into(self) -> ProjectSaveInfo {
+        ProjectSaveInfo {
+            track_name: self.track_name,
+            artist_name: self.artist_name,
+            time_signature: self.time_signature,
+            track: self.track.into(),
+            history: self.history.into(),
+        }
+    }
+}
+
+impl Project {
 
     // TODO: take egui context to set title.
-    pub fn new(track_name : String) -> Context {
-        Context {
+    pub fn new(track_name : String) -> Project {
+        Project {
             last_modified : LastModified::new(),
             track: PlayerTrack::new(),
             selection: Selection::new(),
@@ -747,11 +829,10 @@ impl Context {
             artist_name: "Unknown".to_string(),
             time_signature: (4, 4),
             history: History::new(),
+            counterpoint1 : Default::default(),
         }
 
     }
-
-
 
     pub fn set_pitch (&mut self, pitch : PitchName) {
         self.last_modified.modified();
@@ -759,7 +840,7 @@ impl Context {
         if let Some(ix) = self.track.get_note_ix_from_coord(self.selection.x, self.selection.y) {
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
-                note.pitch_name = pitch
+                note.pitch.name = pitch
             });
         } else {
             // otherwise, add a note.
@@ -767,9 +848,11 @@ impl Context {
                 x: self.selection.x,
                 start: self.selection.y,
                 nsteps: 1,
-                pitch_name: pitch,
+                pitch : Pitch {
+                name: pitch,
                 accidental: Accidental::Natural,
                 octave: 4,
+                }
             });
             // self.cursor_move_down_one(); this makes it annoying when one wants to e.g. write C#
         }
@@ -803,7 +886,7 @@ impl Context {
             self.last_modified.modified();
             self.history.push(Action::ToggleSharp, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
-                note.accidental = note.accidental.toggle_sharp()
+                note.pitch.accidental = note.pitch.accidental.toggle_sharp()
             });
         }
     }
@@ -813,7 +896,7 @@ impl Context {
             self.last_modified.modified();
             self.history.push(Action::ToggleFlat, self.selection, self.track.clone());
             self.track.modify_note_at_ix_mut(ix, |note| {
-                note.accidental = note.accidental.toggle_flat()
+                note.pitch.accidental = note.pitch.accidental.toggle_flat()
             });
         }
     }
@@ -1002,9 +1085,9 @@ impl Context {
 
 }
 
-impl Clone for Context {
+impl Clone for Project {
     fn clone(&self) -> Self {
-        Context {
+        Project {
             last_modified : self.last_modified.clone(),
             track: self.track.clone(),
             selection: self.selection.clone(),
@@ -1013,6 +1096,7 @@ impl Clone for Context {
             artist_name: self.artist_name.clone(),
             time_signature: self.time_signature,
             history: self.history.clone(),
+            counterpoint1 : self.counterpoint1.clone(),
         }
     }
 }

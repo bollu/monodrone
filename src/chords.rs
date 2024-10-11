@@ -18,11 +18,13 @@
 //
 //   interval vector:
 //     perfect    | 5 semitones  |  P
-//     Major 3rd  | 4 semitones  |  M 
+//     Major 3rd  | 4 semitones  |  M
 //     Minor 3rd  | 3 semitones  |  N
 //     Second     | 2 semitones  |  S
 //     Diminshed  | 1 semitones  |  D
 //     Tritone    | 6 semitones  |  T
+
+use crate::datastructures::*;
 
 enum ChordType {
     Major,
@@ -31,15 +33,13 @@ enum ChordType {
     Augmented,
 }
 
-type Pitch = (NoteName, Accidental);
-
-impl Show for ChordType {
-    fn show(&self) {
+impl ChordType {
+    fn show(&self) -> &str {
         match self {
-            Major => "M",
-            Minor => "m",
-            Diminished => "°",
-            Augmented => "⁺",
+            ChordType::Major => "M",
+            ChordType::Minor => "m",
+            ChordType::Diminished => "°",
+            ChordType::Augmented => "⁺",
         }
     }
 }
@@ -50,12 +50,13 @@ enum ChordInversion {
     Second
 }
 
-impl Show for Inversion {
-    fn show(&self) {
-        match Self {
-            Zeroth => "0",
-            First => "inv₁",
-            Second => "inv₂"
+impl ChordInversion {
+
+    fn show(&self) -> &str {
+        match self {
+            ChordInversion::Zeroth => "0",
+            ChordInversion::First => "inv₁",
+            ChordInversion::Second => "inv₂"
         }
     }
 }
@@ -65,14 +66,27 @@ enum ChordExtension {
     Ninth,
     Eleventh,
     Thirteenth,
+    None,
+}
+
+impl ChordExtension {
+    fn show(&self) -> &str {
+        match self {
+            ChordExtension::Seventh => "7",
+            ChordExtension::Ninth => "9",
+            ChordExtension::Eleventh => "11",
+            ChordExtension::Thirteenth => "13",
+            ChordExtension::None => ""
+        }
+    }
 }
 
 // bass note slash
-struct ChordSlash (Option<(NoteName)>);
+struct ChordSlash (Option<Pitch>);
+
 struct Chord {
-    base: NoteName,
+    base: Pitch,
     typ : ChordType,
     inversion : ChordInversion,
-    extension : Extension,
-    slash : ChordSlash
+    extension : ChordExtension
 }

@@ -72,7 +72,7 @@ pub fn track_get_note_events_at_time(
     instant: u64,
 ) -> Vec<NoteEvent> {
     let mut note_events = Vec::new();
-    let mut ix2pitches: HashMap<u64, Vec<u64>> = HashMap::new();
+    let mut ix2pitches: HashMap<u64, Vec<i64>> = HashMap::new();
 
     for note in track.notes.iter() {
         ix2pitches

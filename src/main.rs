@@ -35,9 +35,11 @@ use tracing_subscriber::layer::SubscriberExt;
 mod datastructures;
 mod midi;
 mod counterpoint1;
+mod chords;
 
 use midi::*;
 use datastructures::*;
+use chords::*;
 
 
 fn whimsical_file_name() -> String {
@@ -336,13 +338,13 @@ fn load_settings(file_path : &PathBuf) -> Option<datastructures::Context> {
 // The image file, that has all the state.
 #[derive(Debug, Serialize, Deserialize)]
 struct IDEImage {
-    contexts : Vec<datastructures::Context>,
+    contexts : Vec<datastructures::Project>,
     last_modified : datastructures::LastModified,
     ix : i32,
 }
 
 
-pub fn save_context(ctx : &datastructures::Context) {
+pub fn save_context(ctx : &datastructures::Project) {
     // let midi_filepath = dir ctx.get_midi_export_file_path();
     let mut path = audio_dir();
     path.push(format!("{}.mid", ctx.track_name.clone()));
@@ -377,19 +379,19 @@ pub fn save_context(ctx : &datastructures::Context) {
 
 
 impl IDEImage {
-    pub fn ctx_mut(&mut self) -> &mut datastructures::Context {
+    pub fn ctx_mut(&mut self) -> &mut datastructures::Project {
         &mut self.contexts[self.ix as usize]
     }
 
     // TODO: rename ctx to ctx_mut.
-    pub fn ctx(&self) -> &datastructures::Context {
+    pub fn ctx(&self) -> &datastructures::Project {
         &self.contexts[self.ix as usize]
     }
 
     pub fn load() -> Self {
         let mut default =
             IDEImage {
-                contexts : vec![datastructures::Context::new("track-0".to_string())],
+                contexts : vec![datastructures::Project::new("track-0".to_string())],
                 ix : 0,
                 last_modified : datastructures::LastModified::new(),
             };
@@ -424,7 +426,7 @@ impl IDEImage {
 
     pub fn new(&mut self) {
         let ix = self.contexts.len();
-        let ctx = datastructures::Context::new(format!("track-{}", ix));
+        let ctx = datastructures::Project::new(format!("track-{}", ix));
         self.contexts.push(ctx);
         self.ix = ix as i32;
     }
@@ -510,6 +512,15 @@ fn mainLoop() {
         options, move |ctx, _frame| {
 
         settings.save();
+
+        // ctrl+p command palette.
+        // egui::Window::new("Monodrone").show(ctx, |ui| {
+        //     ui.label("Welcome to Monodrone!");
+        //     ui.label("This is a music composition tool.");
+        //     ui.label("It is a work in progress.");
+        //     ui.label("Please enjoy your stay.");
+        // });
+
 
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -786,7 +797,7 @@ fn mainLoop() {
                             Align2::LEFT_TOP, note.to_str(), FontId::monospace(font_size_note), text_color);
                         let octave_text_padding = Vec2::new(2., 2.);
                         let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
-                        let octave_text = painter.layout_no_wrap(note.octave.to_string(),
+                        let octave_text = painter.layout_no_wrap(note.pitch.octave.to_string(),
                             FontId::monospace(font_size_octave), octave_text_color);
                         let text_pos = draw + box_dim - octave_text_padding - octave_text.rect.size();
                         painter.galley(text_pos, octave_text, octave_text_color);
