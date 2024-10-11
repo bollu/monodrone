@@ -6,7 +6,7 @@ use egui::Key;
 
 use serde::{Deserialize, Serialize};
 use rand::seq::SliceRandom; // 0.7.2
-use ron;
+
 
 use tracing_subscriber::fmt::MakeWriter;
 use std::error::Error;
@@ -124,7 +124,7 @@ fn audio_dir() -> PathBuf {
     let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
     out.push("Monodrone");
     std::fs::create_dir_all(&out).unwrap();
-    return out
+    out
 }
 
 fn ide_image_file_path() -> PathBuf {
@@ -409,12 +409,12 @@ impl IDEImage {
         match ron::de::from_reader(reader) {
             Ok(settings) => {
                 event!(Level::INFO, "loaded settings from file: {:?}", path);
-                return settings;
+                settings
             }
             Err(err) => {
                 event!(Level::ERROR, "failed to load settings file: '{:?}'", err);
                 default.save();
-                return default;
+                default
             }
         }
     }
@@ -451,7 +451,7 @@ impl IDEImage {
                     e);
             }
         }
-        save_context(&self.ctx());
+        save_context(self.ctx());
     }
 
     pub fn switch_to(&mut self, ix: i32) {
@@ -552,14 +552,14 @@ fn main_loop() {
 
         egui::SidePanel::right("Projects").show(ctx, |ui| {
             ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
-                let mut selected_ix : i32 = settings.ix as i32 ;
+                let mut selected_ix : i32 = settings.ix ;
                 for (i, ctx) in settings.contexts.iter().enumerate() {
                     if ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked() {
                         selected_ix = i as i32;
                     }
                 }
 
-                settings.switch_to(selected_ix as i32);
+                settings.switch_to(selected_ix);
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -605,7 +605,7 @@ fn main_loop() {
                     if sequencer_io.is_playing() {
                         sequencer_io.stop();
                     } else {
-                        let end_instant = settings.ctx_mut().track.get_last_instant() as u64;
+                        let end_instant = settings.ctx_mut().track.get_last_instant();
                         sequencer_io.set_track(settings.ctx_mut().track.clone());
                         let start_instant = 0;
                         let is_looping = false;
@@ -618,7 +618,7 @@ fn main_loop() {
                     if sequencer_io.is_playing() {
                         sequencer_io.stop();
                     } else {
-                        let end_instant = settings.ctx_mut().track.get_last_instant() as u64;
+                        let end_instant = settings.ctx_mut().track.get_last_instant();
                         sequencer_io.set_track(settings.ctx_mut().track.clone());
                         let start_instant = 0;
                         let is_looping = false;

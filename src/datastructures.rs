@@ -15,6 +15,12 @@ pub struct LastModified {
     pub last_modified_ms : SystemTime, // last modified time in milliseconds.
 }
 
+impl Default for LastModified {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LastModified {
     pub fn new() -> LastModified {
         LastModified {
@@ -179,22 +185,22 @@ impl PlayerNote {
             NoteSelectionPositioning::NoteEndsAtSelection |
             NoteSelectionPositioning::NoteEndsBeforeSelection => {
                 // note ends before selection, so it is unaffected.
-                accum.push(self.clone());
+                accum.push(*self);
             },
             NoteSelectionPositioning::NoteStartsAfterSelection => {
                 // note starts after selection, so move note down.
-                let mut out = self.clone();
+                let mut out = *self;
                 out.start += 1;
                 accum.push(out);
             },
             NoteSelectionPositioning::NoteProperlyContainsSelection => {
                 let end = self.start + self.nsteps as u64;
-                let mut n2 = self.clone();
+                let mut n2 = *self;
                 n2.start = selection.y;
                 n2.nsteps = (end - n2.start) as i64;
                 assert!(n2.nsteps > 0); // must be the case, as interval properly contains selection.
 
-                let mut n1 = self.clone();
+                let mut n1 = *self;
                 n1.nsteps = (selection.y - n1.start) as i64;
 
                 if n1.nsteps > 0 {
@@ -208,37 +214,37 @@ impl PlayerNote {
     // return the new selection.
     // return true if the stuff was consumed.
     pub fn delete_line (&self, selection : Selection, accum : &mut Vec<PlayerNote>) -> bool {
-        match note_selection_positioning(&self, selection) {
+        match note_selection_positioning(self, selection) {
             NoteSelectionPositioning::NoteEndsAtSelection |
             NoteSelectionPositioning::NoteStartsAfterSelection => {
                 // note starts after selection, so move note up.
-                let mut out = self.clone();
+                let mut out = *self;
                 out.start = if out.start > 0 { out.start - 1 } else { 0 };
                 accum.push(out);
-                return false
+                false
             },
             NoteSelectionPositioning::NoteStartsAtSelection |
             NoteSelectionPositioning::NoteProperlyContainsSelection => {
                 // note properly contains selection, or ends at the cursor,
                 // so we consume it.
-                let mut out = self.clone();
+                let mut out = *self;
                 out.nsteps = self.nsteps - 1;
                 if out.nsteps > 0 {
                     accum.push(out);
                 }
-                return true
+                true
             },
             NoteSelectionPositioning::NoteNotInSameTrack |
             NoteSelectionPositioning::NoteEndsBeforeSelection => {
                 // note ends before selection, so it is unaffected.
-                accum.push(self.clone());
-                return false
+                accum.push(*self);
+                false
             },
         }
     }
 
     pub fn decrease_nsteps (&self) -> Option<PlayerNote> {
-        let mut note = self.clone();
+        let mut note = *self;
         if note.nsteps > 1 {
             note.nsteps -= 1;
             Some(note)
@@ -248,7 +254,7 @@ impl PlayerNote {
     }
 
     pub fn increase_nsteps (&self) -> PlayerNote {
-        let mut note = self.clone();
+        let mut note = *self;
         // TODO: what should happen to a note with duration zero?
         note.nsteps += 1;
         note
@@ -270,17 +276,11 @@ impl Hitbox {
     }
 
     fn starts_or_contains (&self, selection : &Selection) -> Option<usize> {
-        match self.starts_or_contains.get(&(selection.x, selection.y)) {
-            Some(&ix) => Some(ix),
-            None => None,
-        }
+        self.starts_or_contains.get(&(selection.x, selection.y)).copied()
     }
 
     fn contains_or_ends_at (&self, selection : &Selection) -> Option<usize> {
-        match self.contains_or_ends_at.get(&(selection.x, selection.y)) {
-            Some(&ix) => Some(ix),
-            None => None,
-        }
+        self.contains_or_ends_at.get(&(selection.x, selection.y)).copied()
     }
 
     fn build (notes : &Vec<PlayerNote>) -> Hitbox {
@@ -329,10 +329,10 @@ impl Default for PlayerTrack {
     }
 }
 
-impl Into<PlayerTrackSaveInfo> for PlayerTrack {
-    fn into(self) -> PlayerTrackSaveInfo {
+impl From<PlayerTrack> for PlayerTrackSaveInfo {
+    fn from(val: PlayerTrack) -> Self {
         PlayerTrackSaveInfo {
-            notes: self.notes
+            notes: val.notes
         }
     }
 }
@@ -356,7 +356,7 @@ impl PlayerTrack {
         PlayerTrack {
             hitbox : Hitbox::build(&notes),
             last_modified: LastModified::new(),
-            notes: notes,
+            notes,
         }
     }
 
@@ -369,18 +369,11 @@ impl PlayerTrack {
 
 
     pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<PlayerNote> {
-        match self.hitbox.starts_or_contains(&Selection { x, y }) {
-            Some(ix) =>
-              Some(self.notes[ix]),
-            None => None,
-        }
+        self.hitbox.starts_or_contains(&Selection { x, y }).map(|ix| self.notes[ix])
     }
 
     pub fn get_note_ix_from_coord (&self, x : u64, y : u64) -> Option<usize> {
-        match self.hitbox.starts_or_contains(&Selection {x, y}) {
-            Some(ix) => Some(ix),
-            None => None,
-        }
+        self.hitbox.starts_or_contains(&Selection {x, y})
     }
 
     pub fn modify_note_at_ix_mut (&mut self, ix : usize, f : impl FnOnce(&mut PlayerNote)) {
@@ -419,7 +412,7 @@ impl PlayerTrack {
                     self.notes[ix] = note;
                 }
                 self.hitbox = Hitbox::build(&self.notes);
-                return true;
+                true
             }
 
             None => {
@@ -431,12 +424,12 @@ impl PlayerTrack {
                         // notes start at 1.
                         // zero is hallowed ground where no note may rest.
                         if note.start >= 2 {
-                            note.start = note.start - 1;
+                            note.start -= 1;
                         }
                     }
                 }
                 self.hitbox = Hitbox::build(&self.notes);
-                return false
+                false
             }
         }
     }
@@ -707,13 +700,13 @@ impl From<HistorySaveInfo> for History {
     }
 }
 
-impl Into<HistorySaveInfo> for History {
-    fn into(self) -> HistorySaveInfo {
+impl From<History> for HistorySaveInfo {
+    fn from(val: History) -> Self {
         HistorySaveInfo {
-            actions: self.actions.into_iter().map(|(action, selection, track)| {
+            actions: val.actions.into_iter().map(|(action, selection, track)| {
                 (action, selection, track.into())
             }).collect(),
-            current: self.current,
+            current: val.current,
         }
     }
 }
@@ -781,7 +774,7 @@ impl From<ProjectSaveInfo> for Project {
         let cp = CounterpointLints::from_track(&track);
         Project {
             last_modified: LastModified::new(),
-            track: track,
+            track,
             selection: Selection::new(),
             playback_speed: 1.0,
             track_name: info.track_name,
@@ -793,14 +786,14 @@ impl From<ProjectSaveInfo> for Project {
     }
 }
 
-impl Into<ProjectSaveInfo> for Project {
-    fn into(self) -> ProjectSaveInfo {
+impl From<Project> for ProjectSaveInfo {
+    fn from(val: Project) -> Self {
         ProjectSaveInfo {
-            track_name: self.track_name,
-            artist_name: self.artist_name,
-            time_signature: self.time_signature,
-            track: self.track.into(),
-            history: self.history.into(),
+            track_name: val.track_name,
+            artist_name: val.artist_name,
+            time_signature: val.time_signature,
+            track: val.track.into(),
+            history: val.history.into(),
         }
     }
 }
@@ -991,8 +984,8 @@ impl Project {
         meta_track.push(midly::TrackEvent {
             delta: 0.into(),
             kind: midly::TrackEventKind::Meta(midly::MetaMessage::TimeSignature(
-                self.time_signature.0.into(), // numerator: 4,
-                self.time_signature.1.into(), // denominator: 4,
+                self.time_signature.0, // numerator: 4,
+                self.time_signature.1, // denominator: 4,
                 24, // metronome: 24,
                 8, // thirty_seconds: 8,
             )),
@@ -1077,9 +1070,9 @@ impl Project {
 impl Clone for Project {
     fn clone(&self) -> Self {
         Project {
-            last_modified : self.last_modified.clone(),
+            last_modified : self.last_modified,
             track: self.track.clone(),
-            selection: self.selection.clone(),
+            selection: self.selection,
             playback_speed: self.playback_speed,
             track_name: self.track_name.clone(),
             artist_name: self.artist_name.clone(),
