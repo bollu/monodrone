@@ -127,7 +127,11 @@ pub enum ChordQuality {
     Major,
     Minor,
     Diminished,
+    // HalfDiminished,
     Augmented,
+    // Dominant,
+    Suspended2,
+    Suspended4,
 }
 
 impl ChordQuality {
@@ -135,8 +139,12 @@ impl ChordQuality {
         match self {
             ChordQuality::Major => "M",
             ChordQuality::Minor => "m",
-            ChordQuality::Diminished => "°",
+            ChordQuality::Diminished => "o",
+            // ChordQuality::HalfDiminished => "ø",
             ChordQuality::Augmented => "⁺",
+            ChordQuality::Suspended2 => "sus2",
+            ChordQuality::Suspended4 => "sus4",
+            // ChordQuality::Dominant => "dom",
         }
     }
 }
@@ -211,10 +219,11 @@ impl Chord {
             return None
         }
 
-        let i1 = Interval::new(ps[0], ps[1]);
-        let i2 = Interval::new(ps[1], ps[2]);
+        let i12 = Interval::new(ps[0], ps[1]);
+        let i23 = Interval::new(ps[1], ps[2]);
+        let i13 = Interval::new(ps[0], ps[2]);
 
-        if i1.kind() == IntervalKind::Major3rd && i2.kind() == IntervalKind::Minor3rd {
+        if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Minor3rd {
             Some(Chord {
                 pitches : ps,
                 baseix: 0,
@@ -222,7 +231,8 @@ impl Chord {
                 inversion: ChordInversion::Zeroth,
                 extension: ChordExtension::None
             })
-        } else if i1.kind() == IntervalKind::Minor3rd && i2.kind() == IntervalKind::Major3rd {
+        }
+        else if i12.kind() == IntervalKind::Minor3rd && i23.kind() == IntervalKind::Major3rd {
             Some(Chord {
                 pitches : ps,
                 baseix: 0,
@@ -230,7 +240,47 @@ impl Chord {
                 inversion: ChordInversion::Zeroth,
                 extension: ChordExtension::None
             })
-        } else {
+        }
+        else if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Major3rd {
+            Some(Chord {
+                pitches : ps,
+                baseix: 0,
+                quality: ChordQuality::Augmented,
+                inversion: ChordInversion::Zeroth,
+                extension: ChordExtension::None
+            })
+        }
+        else if i12.kind() == IntervalKind::Minor3rd && i23.kind() == IntervalKind::Minor3rd {
+            Some(Chord {
+                pitches : ps,
+                baseix: 0,
+                quality: ChordQuality::Diminished,
+                inversion: ChordInversion::Zeroth,
+                extension: ChordExtension::None
+            })
+        }
+        // The term is borrowed from the contrapuntal technique of suspension,
+        // where a note from a previous chord is carried over to the next chord,
+        // and then resolved down to the third or tonic, suspending a note from
+        // the previous chord.
+        else if i12.kind() == IntervalKind::Major2nd && i13.kind() == IntervalKind::PerfectFifth {
+            Some(Chord {
+                pitches : ps,
+                baseix: 0,
+                quality: ChordQuality::Suspended2,
+                inversion: ChordInversion::Zeroth,
+                extension: ChordExtension::None
+            })
+        } else if i12.kind() == IntervalKind::PerfectFourth && i13.kind() == IntervalKind::PerfectFifth {
+            Some(Chord {
+                pitches : ps,
+                baseix: 0,
+                quality: ChordQuality::Suspended4,
+                inversion: ChordInversion::Zeroth,
+                extension: ChordExtension::None
+            })
+        }
+         else {
             None
         }
     }
