@@ -1,17 +1,10 @@
 use serde::{Serialize, Deserialize};
-
-use std::hash::{Hasher};
 use std::time::SystemTime;
-use std::{collections::HashMap};
-
-
-
-
-
+use std::collections::HashMap;
 use tracing::{event, Level};
 
 use crate::counterpoint1::CounterpointLints;
-use crate::{midi::track_get_note_events_at_time};
+use crate::midi::track_get_note_events_at_time;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 
@@ -104,8 +97,6 @@ pub struct PlayerNote {
     pub pitch : Pitch,
 }
 
-
-
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize, Copy)]
 enum NoteSelectionPositioning {
     NoteStartsAfterSelection,
@@ -117,7 +108,7 @@ enum NoteSelectionPositioning {
 }
 
 impl NoteSelectionPositioning {
-    pub fn playsSound (&self) -> bool {
+    pub fn plays_sound (&self) -> bool {
         match self {
             NoteSelectionPositioning::NoteStartsAtSelection |
             NoteSelectionPositioning::NoteProperlyContainsSelection => true,
@@ -125,7 +116,7 @@ impl NoteSelectionPositioning {
         }
     }
 
-    pub fn insideOrEndsAt (&self) -> bool {
+    pub fn inside_or_ends_at (&self) -> bool {
         match self {
             NoteSelectionPositioning::NoteProperlyContainsSelection |
             NoteSelectionPositioning::NoteEndsAtSelection => true,
@@ -266,51 +257,51 @@ impl PlayerNote {
 
 #[derive (Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Hitbox {
-    startsOrContains : HashMap<(u64, u64), usize>,
-    containsOrEndsAt : HashMap<(u64, u64), usize>,
+    starts_or_contains : HashMap<(u64, u64), usize>,
+    contains_or_ends_at : HashMap<(u64, u64), usize>,
 }
 
 impl Hitbox {
     pub fn new() -> Hitbox {
         Hitbox {
-            startsOrContains : HashMap::new(),
-            containsOrEndsAt : HashMap::new(),
+            starts_or_contains : HashMap::new(),
+            contains_or_ends_at : HashMap::new(),
         }
     }
 
-    fn startsOrContains (&self, selection : &Selection) -> Option<usize> {
-        match self.startsOrContains.get(&(selection.x, selection.y)) {
+    fn starts_or_contains (&self, selection : &Selection) -> Option<usize> {
+        match self.starts_or_contains.get(&(selection.x, selection.y)) {
             Some(&ix) => Some(ix),
             None => None,
         }
     }
 
-    fn containsOrEndsAt (&self, selection : &Selection) -> Option<usize> {
-        match self.containsOrEndsAt.get(&(selection.x, selection.y)) {
+    fn contains_or_ends_at (&self, selection : &Selection) -> Option<usize> {
+        match self.contains_or_ends_at.get(&(selection.x, selection.y)) {
             Some(&ix) => Some(ix),
             None => None,
         }
     }
 
     fn build (notes : &Vec<PlayerNote>) -> Hitbox {
-        let mut startsOrContains = HashMap::new();
-        let mut containsOrEndsAt = HashMap::new();
+        let mut starts_or_contains = HashMap::new();
+        let mut contains_or_ends_at = HashMap::new();
         for (ix, note) in notes.iter().enumerate() {
             assert!(note.nsteps > 0);
             for y in note.start..note.start + (note.nsteps as u64) + 1{
                 assert!(note.start != 0);
                 // can't have another note at the same location.
                 if y != (note.start + note.nsteps as u64) {
-                    assert!(!startsOrContains.contains_key(&(note.x, y)));
-                    startsOrContains.insert((note.x, y), ix);
+                    assert!(!starts_or_contains.contains_key(&(note.x, y)));
+                    starts_or_contains.insert((note.x, y), ix);
                 }
                 if y != note.start {
-                    assert!(!containsOrEndsAt.contains_key(&(note.x, y)));
-                    containsOrEndsAt.insert((note.x, y), ix);
+                    assert!(!contains_or_ends_at.contains_key(&(note.x, y)));
+                    contains_or_ends_at.insert((note.x, y), ix);
                 }
             }
         }
-        Hitbox {  startsOrContains, containsOrEndsAt }
+        Hitbox {  starts_or_contains, contains_or_ends_at }
     }
 
 }
@@ -378,7 +369,7 @@ impl PlayerTrack {
 
 
     pub fn get_note_from_coord (&self, x : u64, y : u64) -> Option<PlayerNote> {
-        match self.hitbox.startsOrContains(&Selection { x, y }) {
+        match self.hitbox.starts_or_contains(&Selection { x, y }) {
             Some(ix) =>
               Some(self.notes[ix]),
             None => None,
@@ -386,7 +377,7 @@ impl PlayerTrack {
     }
 
     pub fn get_note_ix_from_coord (&self, x : u64, y : u64) -> Option<usize> {
-        match self.hitbox.startsOrContains(&Selection {x, y}) {
+        match self.hitbox.starts_or_contains(&Selection {x, y}) {
             Some(ix) => Some(ix),
             None => None,
         }
@@ -416,9 +407,8 @@ impl PlayerTrack {
     // return true if something was consumed.
     fn delete_line (&mut self, selection : Selection) -> bool {
         self.last_modified.modified();
-        match self.hitbox.startsOrContains(&selection) {
+        match self.hitbox.starts_or_contains(&selection) {
             Some(ix) => {
-                let mut consumed = false;
                 let mut note = self.notes[ix];
 
                 assert!(note.nsteps >= 1);
@@ -428,9 +418,8 @@ impl PlayerTrack {
                 } else {
                     self.notes[ix] = note;
                 }
-                consumed = true;
                 self.hitbox = Hitbox::build(&self.notes);
-                return consumed;
+                return true;
             }
 
             None => {
@@ -454,15 +443,15 @@ impl PlayerTrack {
 
     fn increase_nsteps (&mut self, selection : Selection) {
         self.last_modified.modified();
-        if let Some(ix) = self.hitbox.startsOrContains(&selection) {
+        if let Some(ix) = self.hitbox.starts_or_contains(&selection) {
             let note = self.notes[ix];
 
             // do we need to make space for more notes? yes we do!
-            for bumpedNote in self.notes.iter_mut() {
+            for bumped_note in self.notes.iter_mut() {
                 // the other note starts at or after the note we just bumped,
                 // so we need to push it down to make space for it!
-                if bumpedNote.x == selection.x &&  bumpedNote.start >= note.start + note.nsteps as u64 {
-                    bumpedNote.start += 1;
+                if bumped_note.x == selection.x &&  bumped_note.start >= note.start + note.nsteps as u64 {
+                    bumped_note.start += 1;
                 }
             }
 
@@ -475,22 +464,22 @@ impl PlayerTrack {
 
     fn decrease_nsteps (&mut self, selection : Selection) {
         self.last_modified.modified();
-        if let Some(ix) = self.hitbox.startsOrContains(&selection) {
+        if let Some(ix) = self.hitbox.starts_or_contains(&selection) {
             let note = self.notes[ix];
 
             // we need to delete space that was occupied by this note.
-            for bumpedNote in self.notes.iter_mut() {
+            for bumped_note in self.notes.iter_mut() {
                 // the other note starts at or after the note we just bumped,
                 // so we need to push it down to make space for it!
-                if bumpedNote.x == selection.x &&
-                    bumpedNote.start >= note.start + note.nsteps as u64 {
-                    assert!(bumpedNote.start >= 2);
-                    bumpedNote.start -= 1;
+                if bumped_note.x == selection.x &&
+                    bumped_note.start >= note.start + note.nsteps as u64 {
+                    assert!(bumped_note.start >= 2);
+                    bumped_note.start -= 1;
                 }
             }
 
-            if let Some(newNote) = note.decrease_nsteps() {
-                self.notes[ix] = newNote; // we've decreased the duration of this note.
+            if let Some(new_note) = note.decrease_nsteps() {
+                self.notes[ix] = new_note; // we've decreased the duration of this note.
             } else {
                 // we've deleted this note.
                 // TODO: keep this around, until someone tells us that the increase/decrease manipulation
@@ -679,7 +668,7 @@ impl Selection {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-enum Action {
+pub enum Action {
     CursorMoveLeftOne,
     CursorMoveRightOne,
     CursorMoveDownOne,
@@ -1056,10 +1045,10 @@ impl Project {
             assert!(end > note.start);
             max_time = max_time.max(end);
         }
-        let TIME_DELTA : u32 = (256.0 / self.playback_speed) as u32;
+        let time_delta : u32 = (256.0 / self.playback_speed) as u32;
         let mut time_delta_accum = 0;
         for t in 0..max_time+1 {
-            time_delta_accum += TIME_DELTA; // for this instant of time, add time.
+            time_delta_accum += time_delta; // for this instant of time, add time.
             let player_notes = track_get_note_events_at_time(&self.track, t);
             for (_i, player_note) in player_notes.iter().enumerate() {
                 let time_delta = time_delta_accum;

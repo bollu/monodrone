@@ -196,9 +196,9 @@ impl MidiSequencer {
                 self.playing = false;
                 return;
             }
-            let NUM_INSTANTS_WAIT_BEFORE_LOOP = 2;
+            let num_instants_wait_before_loop = 2;
             self.num_instants_wait_before_loop += 1;
-            if self.num_instants_wait_before_loop >= NUM_INSTANTS_WAIT_BEFORE_LOOP {
+            if self.num_instants_wait_before_loop >= num_instants_wait_before_loop {
                 self.cur_instant = self.start_instant as f32;
                 self.last_rendered_instant = self.start_instant;
                 self.playing = true;

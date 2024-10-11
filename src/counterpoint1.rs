@@ -91,7 +91,7 @@ impl Motion {
 
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-enum LintKind {
+pub enum LintKind {
     ParallelPerfectConsonance,
 }
 
@@ -99,8 +99,8 @@ enum LintKind {
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub struct Lint {
     pub kind : LintKind,
-    pub locStart : (i32, i32), // (x, y)
-    pub numNotes : i32,
+    pub loc_start : (i32, i32), // (x, y)
+    pub num_notes : i32,
 }
 
 
@@ -146,8 +146,8 @@ impl CounterpointLints {
             if assonance.is_perfect() && motion == Motion::Parallel {
                 let lint = Lint {
                     kind : LintKind::ParallelPerfectConsonance,
-                    locStart : (0, i as i32),
-                    numNotes : 1,
+                    loc_start : (0, i as i32),
+                    num_notes : 1,
                 };
 
                 lints.lints.push(lint);

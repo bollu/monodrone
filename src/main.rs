@@ -1,5 +1,5 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
-
+#![allow(dead_code)]
 
 use egui::Key;
 
@@ -9,26 +9,22 @@ use rand::seq::SliceRandom; // 0.7.2
 use ron;
 
 use tracing_subscriber::fmt::MakeWriter;
-
-
 use std::error::Error;
-use std::path::{PathBuf};
-
-
-use std::thread::{sleep};
+use std::path::PathBuf;
+use std::thread::sleep;
 use std::time::Duration;
 use std::{fs::File, sync::Arc};
 
-use tinyaudio::{OutputDeviceParameters};
+use tinyaudio::OutputDeviceParameters;
 use eframe::egui;
 use egui::*;
 
 
-const GOLDEN_RATIO: f32 = 1.618_034;
+// const GOLDEN_RATIO: f32 = 1.618_034;
 
 use midir::{Ignore, MidiInput, MidiInputPort};
 use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
-use std::io::{stdin};
+use std::io::stdin;
 use tracing::{event, Level};
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -421,7 +417,6 @@ impl IDEImage {
                 return default;
             }
         }
-        default
     }
 
     pub fn new(&mut self) {
@@ -466,7 +461,7 @@ impl IDEImage {
     }
 }
 
-fn mainLoop() {
+fn main_loop() {
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
     // Load the SoundFont.
@@ -498,14 +493,14 @@ fn mainLoop() {
     let mut settings = IDEImage::load();
 
 
-    let mut debounceMovement = Debouncer::new(80.0 / 1000.0);
-    let mut debounceUndo = Debouncer::new(150.0 / 1000.0);
+    let mut debounce_movement = Debouncer::new(80.0 / 1000.0);
+    let mut debounce_undo = Debouncer::new(150.0 / 1000.0);
 
-    let mut cameraEaser = Easer::new(Vec2::ZERO);
-    let mut nowPlayingEaser = Easer::new(Pos2::ZERO);
-    let mut cursorEaser = Easer::new(Pos2::ZERO);
+    let mut camera_easer = Easer::new(Vec2::ZERO);
+    let mut now_playing_easer = Easer::new(Pos2::ZERO);
+    let mut cursor_easer = Easer::new(Pos2::ZERO);
 
-    nowPlayingEaser.damping = 0.1;
+    now_playing_easer.damping = 0.1;
 
 
     let _ = eframe::run_simple_native(format!("monodrone({})", settings.ctx_mut().track_name).as_str(),
@@ -571,8 +566,8 @@ fn mainLoop() {
             // return;
             // let time_elapsed = rl.get_frame_time();
             let time_elapsed = 0.01; // TODO: fix this!
-            debounceMovement.add_time_elapsed(time_elapsed);
-            debounceUndo.add_time_elapsed(time_elapsed);
+            debounce_movement.add_time_elapsed(time_elapsed);
+            debounce_undo.add_time_elapsed(time_elapsed);
 
 
             // TODO: refactor into a widget that requests focus.
@@ -716,31 +711,31 @@ fn mainLoop() {
             let font_size_note : f32 = 10.0;
             let font_size_octave : f32 = 10.0;
 
-            cameraEaser.set(Vec2::new(0.,
+            camera_easer.set(Vec2::new(0.,
                 (settings.ctx_mut().selection.cursor().y *
                     (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
             );
-            cameraEaser.step();
+            camera_easer.step();
 
 
 
             let logical_to_sidebar_text_min = |logical: egui::Pos2| -> egui::Pos2 {
                 avail_rect.min + window_padding +
-                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get()
+                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - camera_easer.get()
             };
 
             // now playing.
             let logical_to_draw_min = |logical: egui::Pos2| -> egui::Pos2 {
                 avail_rect.min + window_padding + Vec2::new(sidebar_left_width, 0.0) +
-                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - cameraEaser.get()
+                logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - camera_easer.get()
             };
 
 
             {
                 let cur_instant = sequencer_io.sequencer.lock().as_ref().unwrap().cur_instant;
                 let now_playing_box_y : i32 = cur_instant as i32 - 1;
-                nowPlayingEaser.set(logical_to_draw_min(Pos2::new(0., now_playing_box_y as f32)));
-                nowPlayingEaser.step();
+                now_playing_easer.set(logical_to_draw_min(Pos2::new(0., now_playing_box_y as f32)));
+                now_playing_easer.step();
             }
 
             for x in 0u64..datastructures::NTRACKS {
@@ -763,9 +758,9 @@ fn mainLoop() {
                 } else {
                     cursor_box_top_left
                 };
-            cursorEaser.set(cursor_loc);
-            cursorEaser.damping = 0.2; cursorEaser.step();
-            let cursor_loc = cursorEaser.get();
+            cursor_easer.set(cursor_loc);
+            cursor_easer.damping = 0.2; cursor_easer.step();
+            let cursor_loc = cursor_easer.get();
 
 
             let draw = logical_to_draw_min(Pos2::new(settings.ctx_mut().selection.x as f32, settings.ctx_mut().selection.y as f32));
@@ -805,7 +800,7 @@ fn mainLoop() {
                 }
             }
 
-            painter.rect_filled (Rect::from_min_size(nowPlayingEaser.get(),
+            painter.rect_filled (Rect::from_min_size(now_playing_easer.get(),
                 box_dim * Vec2::new(0.1, 1.0)),
                 Rounding::default().at_least(4.0),
                 box_now_playing_color);
@@ -877,7 +872,7 @@ impl Opz {
     }
 }
 
-fn testMidiInOpZ() -> Result<MidiInputPort, Box<dyn Error>> {
+fn test_midi_in_op_z() -> Result<MidiInputPort, Box<dyn Error>> {
     let mut input = String::new();
 
     let mut midi_in = MidiInput::new("midir reading input")?;
@@ -930,9 +925,8 @@ fn testMidiInOpZ() -> Result<MidiInputPort, Box<dyn Error>> {
     // 463667691423: [181, 1/2/3/4, value]: 4 scroll wheels (len = 3)
     // keys: [149, 65...(key number), 0/100 up/down]: 65-69
     //
-    println!("Closing connection");
-    panic!("done");
-    Ok(opz)
+    // println!("Closing connection");
+    // Ok(opz)
 }
 
 // TODO: implement file drag and drop with rl::IsFileDropped: https://github.com/raysan5/raylib/blob/master/examples/core/core_drop_files.c
@@ -946,5 +940,5 @@ fn main() {
 
     // let mut opz = Opz::new();
     // opz.find_port();
-    mainLoop();
+    main_loop();
 }
