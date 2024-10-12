@@ -128,10 +128,9 @@ pub struct Triad {
 }
 
 impl Triad {
-    pub fn identify(ps : Vec<Pitch>) -> Triad {
-        assert!(ps.len() == 3);
-
-        let mut ps = ps;
+    pub fn identify(ps_orig : Vec<Pitch>) -> Triad {
+        assert!(ps_orig.len() == 3);
+        let mut ps = ps_orig.clone();
         ps.sort_by(|p1, p2| {
             p1.pitch().cmp(&p2.pitch())
         });
@@ -206,7 +205,7 @@ impl Triad {
         }
          else {
             Triad {
-                pitches : ps,
+                pitches : ps_orig,
                 quality: TriadQuality::NoCommonName,
             }
         }
@@ -219,8 +218,8 @@ impl Triad {
     pub fn string(&self) -> String {
         match self.quality {
             TriadQuality::NoCommonName => {
-                let i12 = Interval::new(self.pitches[0], self.pitches[1]);
-                let i13 = Interval::new(self.pitches[0], self.pitches[2]);
+                let i12 = self.pitches[1] - self.pitches[0];
+                let i13 = self.pitches[2] - self.pitches[1];
                 format!("{}-{}", i12, i13).to_string()
             },
             _ => {
@@ -245,11 +244,17 @@ pub struct Seventh {
 }
 
 impl Seventh {
-    pub fn identify(ps : Vec<Pitch>) -> Option<Seventh> {
-        assert!(ps.len() == 4);
-        if !(ps[0].pitch() < ps[1].pitch() && ps[1].pitch() < ps[2].pitch() && ps[2].pitch() < ps[3].pitch()) {
-            return None
-        }
+    pub fn identify(ps_orig : Vec<Pitch>) -> Seventh {
+        assert!(ps_orig.len() == 4);
+        let mut ps = ps_orig.clone();
+        ps.sort_by(|p1, p2| {
+            p1.pitch().cmp(&p2.pitch())
+
+        });
+
+        assert!(ps[0].pitch() <= ps[1].pitch());
+        assert!(ps[1].pitch() <= ps[2].pitch());
+        assert!(ps[2].pitch() <= ps[3].pitch());
 
         // grab the triad first, now identify the seventh.
         let triad = Triad::identify(ps[0..3].to_vec());
@@ -260,100 +265,100 @@ impl Seventh {
             // triad: M, 7 : M3
             // C E G B | all notes from the major scale
             (TriadQuality::Major, IntervalKind::Major3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Major,
-                })
+                }
             },
             // triad: m, 7 : m3
             // C Eb G Bb // notes from the minor scale!
             (TriadQuality::Minor, IntervalKind::Minor3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Minor,
-                })
+                }
             },
             // triad: M, 7: m3
             // C E G Bb
             (TriadQuality::Major, IntervalKind::Minor3rd) => { // usual 7th chord that I play
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Dominant,
-                })
+                }
             },
             // triad: dim, 7 : M3
             // C Eb Gb Bb
             (TriadQuality::Diminished, IntervalKind::Major3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::HalfDiminished,
-                })
+                }
             },
             // triad: dim, 7 : m3
             // C Eb Gb Bbb | confusing! we need the Gb to create enough space for Bbb.
             // stack of minor 3rd.
             (TriadQuality::Diminished, IntervalKind::Minor3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Diminished,
-                })
+                }
             },
             // triad: m, 7 : M3
             // C Eb G B
             (TriadQuality::Minor, IntervalKind::Major3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::MinorMajor, // mysterious sound.
-                })
+                }
             },
             // triad: aug/+, 7 : M3
             // C E G# B
             (TriadQuality::Augmented, IntervalKind::Major3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::AugmentedMajor,
-                })
+                }
 
             }
 
             // --- end of table 1 ---
             // C E G# Bb
             (TriadQuality::Augmented, IntervalKind::Major2nd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Augmented,
-                })
+                }
             },
 
             // triad: dim, 7 : augmented / perfect 4th
             // C Eb Gb B
             (TriadQuality::Diminished, IntervalKind::PerfectFourth) => {
-                Some (Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::DiminshedMajor,
-                })
+                }
             }
             // Dominant 7th flat 5
             // C E Gb Bb
             (TriadQuality::MajorFlat5, IntervalKind::Major3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::DominantFlat5,
-                })
+                }
             },
             // major 7th flat 5
             // C E Gb B
             (TriadQuality::MajorFlat5, IntervalKind::Minor3rd) => {
-                Some(Seventh {
+                Seventh {
                     pitches : ps,
                     quality: SeventhQuality::Major,
-                })
+                }
             },
             _ => {
-                Some(Seventh {
-                    pitches : ps,
+                Seventh {
+                    pitches : ps_orig,
                     quality: SeventhQuality::NoCommonName,
-                })
+                }
             }
         }
     }
@@ -367,8 +372,8 @@ impl Seventh {
         match self.quality {
             SeventhQuality::NoCommonName => {
                 let i12 = self.pitches[1] - self.pitches[0];
-                let i13 = self.pitches[2] - self.pitches[0];
-                let i14 = self.pitches[3] - self.pitches[0];
+                let i13 = self.pitches[2] - self.pitches[1];
+                let i14 = self.pitches[3] - self.pitches[2];
                 format!("{}-{}-{}", i12, i13, i14).to_string()
             },
             _ => {
@@ -406,10 +411,7 @@ impl NoteGroup {
         } else if ps.len() == 3 {
             NoteGroup::Three(Triad::identify(ps))
         } else if ps.len() == 4 {
-            match Seventh::identify(ps) {
-                Some(c) => NoteGroup::Four(c),
-                None => NoteGroup::Unknown,
-            }
+            NoteGroup::Four(Seventh::identify(ps))
         } else {
             NoteGroup::Unknown
         }

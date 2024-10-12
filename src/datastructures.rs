@@ -221,7 +221,7 @@ impl IntervalKind {
 
     pub fn str(&self) -> &str {
         match self {
-            IntervalKind::Unison => "unison",
+            IntervalKind::Unison => "0",
             IntervalKind::Minor2nd => "m2",
             IntervalKind::Major2nd => "△2",
             IntervalKind::Minor3rd => "m3",
@@ -1138,7 +1138,7 @@ impl From<ProjectSaveInfo> for Project {
             last_modified: LastModified::new(),
             track,
             selection: Selection::new(),
-            playback_speed: 1.0,
+            playback_speed: 0.2,
             track_name: info.track_name,
             artist_name: info.artist_name,
             time_signature: info.time_signature,

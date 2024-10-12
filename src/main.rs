@@ -45,30 +45,16 @@ fn main_loop() {
     // via the sequencer that takes a sequence of MIDI events and plays them back.
     let mut sequencer_io: MidiSequencerIO = MidiSequencerIO::new(sound_font, params);
 
-    event!(Level::INFO, "Starting up");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_maximized(true)
             .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../favicon.png")).unwrap()),
         ..Default::default()
     };
-
-    event!(Level::INFO, "creating context");
-
     let mut ide_image = IDEImage::load();
     let mut editor_ui_state = EditorUIState::new();
 
-    // let mut debounce_movement = Debouncer::new(80.0 / 1000.0);
-    // let mut debounce_undo = Debouncer::new(150.0 / 1000.0);
-
-    // let mut camera_easer = Easer::new(Vec2::ZERO);
-    // let mut now_playing_easer = Easer::new(Pos2::ZERO);
-    // let mut cursor_easer = Easer::new(Pos2::ZERO);
-
-    // now_playing_easer.damping = 0.1;
-
-
-    let _ = eframe::run_simple_native(format!("monodrone({})", ide_image.ctx_mut().track_name).as_str(),
+    let _ = eframe::run_simple_native("monodrone",
         options, move |ctx, _frame| {
 
         ide_image.save();
@@ -79,9 +65,13 @@ fn main_loop() {
                 ui.add(&mut ide_image.ctx_mut().key_signature);
 
                 ui.label("Playback Speed");
-                if ui.add(egui::DragValue::new(&mut ide_image.ctx_mut().playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
+                if ui.add(egui::DragValue::new(&mut ide_image.ctx_mut().playback_speed)
+                    .clamp_range(0.01..=3.0)
+                    .update_while_editing(false)
+                    .speed(0.05)).changed() {
                     sequencer_io.set_playback_speed(ide_image.ctx_mut().playback_speed as f32);
-                    event!(Level::INFO, "new Playback speed: {:?}", ide_image.ctx_mut().playback_speed);
+                    event!(Level::INFO, "new Playback speed: {:?}",
+                        ide_image.ctx_mut().playback_speed);
                 }
                 ui.label("Time Signature");
                 ui.add(egui::DragValue::new(&mut ide_image.ctx_mut().time_signature.0)
@@ -111,7 +101,8 @@ fn main_loop() {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui_editor(&mut editor_ui_state, &mut ide_image, &mut sequencer_io, ctx, ui);
+            egui_editor(&mut editor_ui_state,
+                &mut ide_image, &mut sequencer_io, ctx, ui);
         });
     });
 
