@@ -1144,7 +1144,7 @@ impl From<ProjectSaveInfo> for Project {
             time_signature: info.time_signature,
             history: info.history.into(),
             counterpoint1 : cp,
-            chord_info : chord_info,
+            chord_info,
             key_signature : info.key_signature,
         }
     }
@@ -1461,7 +1461,7 @@ impl Clone for Project {
             history: self.history.clone(),
             counterpoint1 : self.counterpoint1.clone(),
             chord_info : self.chord_info.clone(),
-            key_signature : self.key_signature.clone(),
+            key_signature : self.key_signature,
         }
     }
 }

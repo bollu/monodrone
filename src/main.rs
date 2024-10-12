@@ -1,8 +1,8 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 #![allow(dead_code)]
 
-use chords::NoteGroup;
-use egui::Key;
+
+
 use std::sync::Arc;
 use tinyaudio::OutputDeviceParameters;
 use eframe::egui;
@@ -97,7 +97,7 @@ fn main_loop() {
         });
 
         egui::SidePanel::right("Projects").show(ctx, |ui| {
-            egui_project_picker(&ctx, ui, &mut ide_image);
+            egui_project_picker(ctx, ui, &mut ide_image);
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

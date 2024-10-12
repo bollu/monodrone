@@ -1,24 +1,24 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 #![allow(dead_code)]
 
-use chords::NoteGroup;
-use egui::Key;
+
+
 use serde::{Deserialize, Serialize};
-use rand::seq::SliceRandom; // 0.7.2
+ // 0.7.2
 use tracing_subscriber::fmt::MakeWriter;
-use std::error::Error;
+
 use std::path::PathBuf;
-use std::thread::sleep;
+
 use std::time::Duration;
-use std::{fs::File, sync::Arc};
-use tinyaudio::OutputDeviceParameters;
+use std::{fs::File};
+
 use eframe::egui;
 use egui::*;
-use midir::{Ignore, MidiInput, MidiInputPort};
-use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
-use std::io::stdin;
+
+
+
 use tracing::{event, Level};
-use tracing_subscriber::layer::SubscriberExt;
+
 
 use crate::*;
 
@@ -168,7 +168,7 @@ impl IDEImage {
 }
 
 
-pub fn egui_project_picker(ctx : &egui::Context, ui: &mut egui::Ui, settings : &mut IDEImage) {
+pub fn egui_project_picker(_ctx : &egui::Context, ui: &mut egui::Ui, settings : &mut IDEImage) {
     ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
         let mut selected_ix : i32 = settings.ix ;
         for (i, ctx) in settings.contexts.iter().enumerate() {

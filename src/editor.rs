@@ -5,31 +5,31 @@ use chords::NoteGroup;
 use egui::Key;
 
 
-use serde::{Deserialize, Serialize};
-use rand::seq::SliceRandom; // 0.7.2
+
+ // 0.7.2
 
 
-use tracing_subscriber::fmt::MakeWriter;
-use std::error::Error;
-use std::path::PathBuf;
-use std::thread::sleep;
-use std::time::Duration;
-use std::{fs::File, sync::Arc};
 
-use tinyaudio::OutputDeviceParameters;
+
+
+
+
+
+
+
 use eframe::egui;
 use egui::*;
 
 
 // const GOLDEN_RATIO: f32 = 1.618_034;
 
-use midir::{Ignore, MidiInput, MidiInputPort};
-use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
-use std::io::stdin;
-use tracing::{event, Level};
-use tracing_subscriber::layer::SubscriberExt;
 
-use self::midi::*;
+
+
+
+
+
+
 use crate::{*, MidiSequencerIO};
 use crate::ideimage::*;
 use crate::constants::*;
@@ -298,8 +298,8 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
         };
         painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
             Align2::LEFT_TOP, text, FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_LEADING);
-        let octave_text_padding = Vec2::new(2., 2.);
-        let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
+        let _octave_text_padding = Vec2::new(2., 2.);
+        let _octave_text_color = egui::Color32::from_rgb(104, 159, 56);
     }
 
     if !focused {

@@ -26,7 +26,7 @@
 //     Tritone    | 6 semitones  |  T
 
 use core::fmt;
-use std::{collections::{HashMap, HashSet},  time::Duration};
+use std::{collections::{HashMap}};
 
 use crate::datastructures::*;
 use crate::constants::*;
@@ -258,7 +258,7 @@ impl Seventh {
 
         // grab the triad first, now identify the seventh.
         let triad = Triad::identify(ps[0..3].to_vec());
-        let seventh = ps[3];
+        let _seventh = ps[3];
         // https://en.wikipedia.org/wiki/Seventh_chord
         let p34 = Interval::new(ps[2], ps[3]);
         match (triad.quality, p34.kind()) {
@@ -402,7 +402,7 @@ pub enum NoteGroup {
 
 impl NoteGroup {
     pub fn mk(ps : Vec<Pitch>) -> NoteGroup {
-        if ps.len() == 0 {
+        if ps.is_empty() {
             NoteGroup::None
         } else if ps.len() == 1 {
             NoteGroup::Single(ps[0])
