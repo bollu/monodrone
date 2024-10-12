@@ -44,6 +44,7 @@ pub enum TriadQuality {
     Suspended4,
     Dominant,
     MajorFlat5,
+    NoCommonName,
 }
 
 impl TriadQuality {
@@ -57,6 +58,7 @@ impl TriadQuality {
             TriadQuality::Suspended4 => "sus4",
             TriadQuality::Dominant => "7",
             TriadQuality::MajorFlat5 => "M♭5",
+            TriadQuality::NoCommonName => "NoName",
         }
     }
 }
@@ -67,12 +69,6 @@ impl fmt::Display for TriadQuality {
     }
 }
 
-
-impl fmt::Display for Triad {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.base().str_no_octave(), self.quality)
-    }
-}
 
 // this is called quality in music theory:
 // https://en.wikipedia.org/wiki/Interval_(music)#Quality
@@ -89,6 +85,7 @@ pub enum SeventhQuality {
     DominantFlat5,
     MajorFlat5,
     Dominant,
+    NoCommonName, // it's a fourth chord, without a name.
 }
 
 // Major is Δ
@@ -113,6 +110,7 @@ impl SeventhQuality {
             SeventhQuality::DiminshedMajor => "-Δ7♭5",
             SeventhQuality::DominantFlat5 => "7♭5",
             SeventhQuality::MajorFlat5 => "M♭5",
+            SeventhQuality::NoCommonName => "NoName"
         }
     }
 }
@@ -130,12 +128,16 @@ pub struct Triad {
 }
 
 impl Triad {
-    pub fn identify(ps : Vec<Pitch>) -> Option<Triad> {
+    pub fn identify(ps : Vec<Pitch>) -> Triad {
         assert!(ps.len() == 3);
 
-        if !(ps[0].pitch() < ps[1].pitch() && ps[1].pitch() < ps[2].pitch()) {
-            return None
-        }
+        let mut ps = ps;
+        ps.sort_by(|p1, p2| {
+            p1.pitch().cmp(&p2.pitch())
+        });
+
+        assert!(ps[0].pitch() <= ps[1].pitch());
+        assert!(ps[1].pitch() <= ps[2].pitch());
 
         let i12 = Interval::new(ps[0], ps[1]);
         let i23 = Interval::new(ps[1], ps[2]);
@@ -143,39 +145,39 @@ impl Triad {
 
         // C E G
         if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Minor3rd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Major,
 
-            })
+            }
         }
         // C Eb G
         else if i12.kind() == IntervalKind::Minor3rd && i23.kind() == IntervalKind::Major3rd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Minor,
-            })
+            }
         }
         // C E G#
         else if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Major3rd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Augmented,
-            })
+            }
         }
         // C E G#
         else if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Major3rd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Augmented,
-            })
+            }
         }
         // C Eb Gb
         else if i12.kind() == IntervalKind::Minor3rd && i23.kind() == IntervalKind::Minor3rd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Diminished,
-            })
+            }
         }
         // The term is borrowed from the contrapuntal technique of suspension,
         // where a note from a previous chord is carried over to the next chord,
@@ -183,27 +185,30 @@ impl Triad {
         // the previous chord.
         // C D G
         else if i12.kind() == IntervalKind::Major2nd && i13.kind() == IntervalKind::PerfectFifth {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Suspended2,
-            })
+            }
         }
         // C F G
         else if i12.kind() == IntervalKind::PerfectFourth && i13.kind() == IntervalKind::PerfectFifth {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::Suspended4,
-            })
+            }
         }
         // C E Gb
         else if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Major2nd {
-            Some(Triad {
+            Triad {
                 pitches : ps,
                 quality: TriadQuality::MajorFlat5,
-            })
+            }
         }
          else {
-            None
+            Triad {
+                pitches : ps,
+                quality: TriadQuality::NoCommonName,
+            }
         }
     }
 
@@ -212,7 +217,23 @@ impl Triad {
     }
 
     pub fn string(&self) -> String {
-        format!("{}{}", self.base().str_no_octave(), self.quality).to_string()
+        match self.quality {
+            TriadQuality::NoCommonName => {
+                let i12 = Interval::new(self.pitches[0], self.pitches[1]);
+                let i13 = Interval::new(self.pitches[0], self.pitches[2]);
+                format!("{}-{}", i12, i13).to_string()
+            },
+            _ => {
+                format!("{}-{}", self.base().str_no_octave(), self.quality).to_string()
+            }
+        }
+    }
+}
+
+
+impl fmt::Display for Triad {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.string())
     }
 }
 
@@ -231,7 +252,7 @@ impl Seventh {
         }
 
         // grab the triad first, now identify the seventh.
-        let triad = Triad::identify(ps[0..3].to_vec())?;
+        let triad = Triad::identify(ps[0..3].to_vec());
         let seventh = ps[3];
         // https://en.wikipedia.org/wiki/Seventh_chord
         let p34 = Interval::new(ps[2], ps[3]);
@@ -328,7 +349,12 @@ impl Seventh {
                     quality: SeventhQuality::Major,
                 })
             },
-            _ => None
+            _ => {
+                Some(Seventh {
+                    pitches : ps,
+                    quality: SeventhQuality::NoCommonName,
+                })
+            }
         }
     }
 
@@ -338,7 +364,17 @@ impl Seventh {
     }
 
     pub fn string(&self) -> String {
-        format!("{}{}{}", self.base().name, self.base().accidental, self.quality).to_string()
+        match self.quality {
+            SeventhQuality::NoCommonName => {
+                let i12 = self.pitches[1] - self.pitches[0];
+                let i13 = self.pitches[2] - self.pitches[0];
+                let i14 = self.pitches[3] - self.pitches[0];
+                format!("{}-{}-{}", i12, i13, i14).to_string()
+            },
+            _ => {
+                format!("{}{}", self.base().str_no_octave(), self.quality).to_string()
+            }
+        }
     }
 }
 
@@ -368,10 +404,7 @@ impl NoteGroup {
         } else if ps.len() == 2 {
             NoteGroup::Two(Interval::new(ps[0], ps[1]))
         } else if ps.len() == 3 {
-            match Triad::identify(ps) {
-                Some(t) => NoteGroup::Three(t),
-                None => NoteGroup::Unknown,
-            }
+            NoteGroup::Three(Triad::identify(ps))
         } else if ps.len() == 4 {
             match Seventh::identify(ps) {
                 Some(c) => NoteGroup::Four(c),

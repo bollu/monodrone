@@ -221,7 +221,7 @@ impl IntervalKind {
 
     pub fn str(&self) -> &str {
         match self {
-            IntervalKind::Unison => "octave",
+            IntervalKind::Unison => "unison",
             IntervalKind::Minor2nd => "m2",
             IntervalKind::Major2nd => "△2",
             IntervalKind::Minor3rd => "m3",
