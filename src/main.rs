@@ -3,7 +3,6 @@
 
 use chords::NoteGroup;
 use egui::Key;
-use keypicker::egui_key_signature_picker;
 use std::sync::Arc;
 use tinyaudio::OutputDeviceParameters;
 use eframe::egui;
@@ -77,7 +76,6 @@ fn main_loop() {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             // TODO: move into ide_image?
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.label("Key signature");
                 ui.add(&mut ide_image.ctx_mut().key_signature);
 
                 ui.label("Playback Speed");
