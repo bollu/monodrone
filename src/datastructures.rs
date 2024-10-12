@@ -90,6 +90,13 @@ impl Pitch {
         self.octave += 1;
     }
 
+    pub fn str_no_octave (&self) -> String {
+        format!("{}{}", self.name.str(), self.accidental.str())
+    }
+
+    pub fn str(&self) -> String {
+        format!("{}{}{}", self.name.str(), self.accidental.str(), self.octave)
+    }
 }
 
 

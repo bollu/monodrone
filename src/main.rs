@@ -695,7 +695,8 @@ fn main_loop() {
                 let ng = settings.ctx_mut().chord_info.get(y);
                 let text = match ng {
                     NoteGroup::Unknown => "?".to_string(),
-                    NoteGroup::More(c) => c.string(),
+                    NoteGroup::Three(c) => c.string(),
+                    NoteGroup::Four(c) => c.string(),
                     NoteGroup::Two(i) => i.string(),
                     NoteGroup::Single(p) => p.name.str().to_string(),
                     NoteGroup::None => "".to_string()
