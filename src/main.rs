@@ -18,11 +18,13 @@ mod chords;
 mod opz;
 mod editor;
 mod ideimage;
+mod keypicker;
+mod constants;
+mod egui_input;
 
 
 use midi::*;
 use datastructures::*;
-use opz::*;
 use editor::*;
 use ideimage::*;
 
@@ -89,7 +91,6 @@ fn main_loop() {
                 ui.text_edit_singleline(&mut ide_image.ctx_mut().artist_name);
                 ui.label("Title");
                 ui.text_edit_singleline(&mut ide_image.ctx_mut().track_name);
-
 
             });
         });

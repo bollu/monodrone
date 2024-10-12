@@ -7,6 +7,7 @@ use tracing::{event, Level};
 use crate::counterpoint1::CounterpointLints;
 use crate::midi::track_get_note_events_at_time;
 use crate::chords::*;
+use crate::constants::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 // TODO: read midi
@@ -673,10 +674,6 @@ impl fmt::Display for Accidental {
         write!(f, "{}", self.str())
     }
 }
-
-pub const NTRACKS : u64 = 4;
-pub const TRACK_LENGTH : u64 = 100;
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 pub struct Selection {

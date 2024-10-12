@@ -32,6 +32,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use self::midi::*;
 use crate::{*, MidiSequencerIO};
 use crate::ideimage::*;
+use crate::constants::*;
 
 // state of the editor UI
 pub struct EditorUIState {
@@ -189,44 +190,25 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
         }
     }
 
-    // let (response, painter) = ui.allocate_painter(size, Sense::hover());
     let painter = ui.painter_at(ui.available_rect_before_wrap());
-
-    let box_dim = Vec2::new(25., 25.);
-    let box_padding_min = Vec2::new(3., 3.);
-    let box_padding_max = Vec2::new(3., 3.);
-    let window_padding = Vec2::new(10.0, box_padding_min.y);
-    let sidebar_left_width = 15.0;
     let avail_rect = ui.available_rect_before_wrap();
-
-    let box_deselected_color = egui::Color32::from_rgb(66, 66, 66);
-    let _box_selected_background_color = egui::Color32::from_rgb(255, 0, 100);
-    let box_cursored_color = egui::Color32::from_rgb(189, 189, 189);
-    let box_cursor_color = egui::Color32::from_rgb(250, 250, 250);
-    let box_now_playing_color = egui::Color32::from_rgb(255, 143, 0);
-    let text_color_leading = egui::Color32::from_rgb(207, 216, 220);
-    let text_color_following = egui::Color32::from_rgb(99, 99, 99);
-
-    let font_size_note : f32 = 10.0;
-    let font_size_octave : f32 = 10.0;
 
     this.camera_easer.set(Vec2::new(0.,
         (settings.ctx_mut().selection.cursor().y *
-            (box_dim.y + box_padding_min.y + box_padding_max.y) - avail_rect.height() * 0.5).max(0.0))
+            (BOX_DIM.y + BOX_PADDING_MIN.y + BOX_PADDING_MAX.y) - avail_rect.height() * 0.5).max(0.0))
     );
     this.camera_easer.step();
 
 
-
     let logical_to_sidebar_text_min = |logical: egui::Pos2| -> egui::Pos2 {
-        avail_rect.min + window_padding +
-        logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - this.camera_easer.get()
+        avail_rect.min + WINDOW_PADDING +
+        logical.to_vec2() * (BOX_DIM + BOX_PADDING_MIN + BOX_PADDING_MAX) - this.camera_easer.get()
     };
 
     // now playing.
     let logical_to_draw_min = |logical: egui::Pos2| -> egui::Pos2 {
-        avail_rect.min + window_padding + Vec2::new(sidebar_left_width, 0.0) +
-        logical.to_vec2() * (box_dim + box_padding_min + box_padding_max) - this.camera_easer.get()
+        avail_rect.min + WINDOW_PADDING + Vec2::new(SIDEBAR_LEFT_WIDTH, 0.0) +
+        logical.to_vec2() * (BOX_DIM + BOX_PADDING_MIN + BOX_PADDING_MAX) - this.camera_easer.get()
     };
 
 
@@ -240,20 +222,20 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
     for x in 0u64..NTRACKS {
         for y in 0u64..TRACK_LENGTH {
             let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
-            painter.rect_filled (Rect::from_min_size(draw, box_dim),
+            painter.rect_filled (Rect::from_min_size(draw, BOX_DIM),
                 egui::Rounding::default().at_least(2.0),
-                box_deselected_color);
+                BOX_DESELECTED_COLOR);
         }
     }
 
     // TODO: for the love of got, clean this up.
-    let cursor_dim = box_dim * Vec2::new(1., 0.2);
+    let cursor_dim = BOX_DIM * Vec2::new(1., 0.2);
     let cursor_box_top_left = logical_to_draw_min(settings.ctx_mut().selection.cursor());
 
     // place cursor at *end* of the box, if the box is filled.
     let cursor_loc =
         if settings.ctx().track.get_note_from_coord(settings.ctx().selection.x, settings.ctx().selection.y).is_some() {
-            cursor_box_top_left + box_dim - cursor_dim
+            cursor_box_top_left + BOX_DIM - cursor_dim
         } else {
             cursor_box_top_left
         };
@@ -263,17 +245,17 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
 
 
     let draw = logical_to_draw_min(Pos2::new(settings.ctx_mut().selection.x as f32, settings.ctx_mut().selection.y as f32));
-    painter.rect_filled (Rect::from_min_size(draw, box_dim),
+    painter.rect_filled (Rect::from_min_size(draw, BOX_DIM),
         egui::Rounding::default().at_least(2.0),
-        box_cursored_color);
+        BOX_CURSORED_COLOR);
 
     painter.rect_filled (Rect::from_min_size(cursor_loc, cursor_dim),
         Rounding::default().at_least(2.0),
-        box_cursor_color);
+        BOX_CURSOR_COLOR);
 
     for y in 0u64..TRACK_LENGTH {
         let draw = logical_to_sidebar_text_min(Pos2::new(0f32, y as f32));
-        painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y), FontId::monospace(font_size_note), text_color_following);
+        painter.text(draw, Align2::LEFT_TOP, &format!("{:02}", y), FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_FOLLOWING);
     }
 
     for x in 0u64..NTRACKS {
@@ -281,28 +263,28 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
             let draw = logical_to_draw_min(Pos2::new(x as f32, y as f32));
             if let Some(note) = settings.ctx_mut().track.get_note_from_coord(x, y) {
                 let text_color = if note.x == x && note.y() == y {
-                    text_color_leading
+                    TEXT_COLOR_LEADING
                 } else {
-                    text_color_following
+                    TEXT_COLOR_FOLLOWING
                 };
 
                 let note_text_padding = Vec2::splat(5.0);
                 painter.text(draw + note_text_padding,
-                    Align2::LEFT_TOP, note.str(), FontId::monospace(font_size_note), text_color);
+                    Align2::LEFT_TOP, note.str(), FontId::monospace(FONT_SIZE_NOTE), text_color);
                 let octave_text_padding = Vec2::new(2., 2.);
                 let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
                 let octave_text = painter.layout_no_wrap(note.pitch.octave.to_string(),
-                    FontId::monospace(font_size_octave), octave_text_color);
-                let text_pos = draw + box_dim - octave_text_padding - octave_text.rect.size();
+                    FontId::monospace(FONT_SIZE_OCTAVE), octave_text_color);
+                let text_pos = draw + BOX_DIM - octave_text_padding - octave_text.rect.size();
                 painter.galley(text_pos, octave_text, octave_text_color);
             };
         }
     }
 
     painter.rect_filled (Rect::from_min_size(this.now_playing_easer.get(),
-        box_dim * Vec2::new(0.1, 1.0)),
+        BOX_DIM * Vec2::new(0.1, 1.0)),
         Rounding::default().at_least(4.0),
-        box_now_playing_color);
+        BOX_NOW_PLAYING_COLOR);
 
     for y in 0u64..TRACK_LENGTH {
         let ng = settings.ctx_mut().chord_info.get(y);
@@ -315,7 +297,7 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
             NoteGroup::None => "".to_string()
         };
         painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
-            Align2::LEFT_TOP, text, FontId::monospace(font_size_note), text_color_leading);
+            Align2::LEFT_TOP, text, FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_LEADING);
         let octave_text_padding = Vec2::new(2., 2.);
         let octave_text_color = egui::Color32::from_rgb(104, 159, 56);
     }

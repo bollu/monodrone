@@ -1,5 +1,6 @@
 // This is two voice counterpoint.
-use crate::{datastructures::{Pitch}, PlayerTrack, TRACK_LENGTH};
+use crate::{datastructures::{Pitch}, PlayerTrack};
+use crate::constants::{TRACK_LENGTH};
 
 // list the errors in counterpoint from Fux's book:
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
