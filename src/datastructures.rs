@@ -136,10 +136,39 @@ impl Pitch {
     (self.octave as i64 + 1) * 12 + self.name.pitch() + self.accidental.pitch()
   }
 
+  pub fn from_pitch (raw_pitch : i64) -> Self {
+    assert!(raw_pitch >= 0);
+    let octave = raw_pitch / 12 - 1;
+    let pitch = raw_pitch % 12;
+    let name = match pitch {
+        0 => PitchName::C,
+        2 => PitchName::D,
+        4 => PitchName::E,
+        5 => PitchName::F,
+        7 => PitchName::G,
+        9 => PitchName::A,
+        11 => PitchName::B,
+        _ => unreachable!("Impossible case, number is modulo 12: {}", pitch),
+    };
+    let accidental = match pitch {
+        1 => Accidental::Sharp,
+        3 => Accidental::Flat,
+        6 => Accidental::Sharp,
+        8 => Accidental::Flat,
+        10 => Accidental::Flat,
+        _ => Accidental::Natural,
+    };
+    Pitch { name, accidental, octave: octave as u64 }
+  }
+
   pub fn lower_octave(&mut self) {
         if self.octave > 0 {
             self.octave -= 1;
         }
+    }
+
+    pub fn change_semitones_by(&mut self, delta : i64) -> Pitch {
+        Pitch::from_pitch(self.pitch() + delta)
     }
 
   pub fn raise_octave(&mut self) {
@@ -152,6 +181,236 @@ impl Pitch {
 
     pub fn str(&self) -> String {
         format!("{}{}{}", self.name.str(), self.accidental.str(), self.octave)
+    }
+}
+
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Eq, Hash, Ord, Copy)]
+pub enum IntervalKind {
+    Unison,
+    Minor2nd,
+    Major2nd, // diminished
+    Minor3rd,
+    Major3rd,
+    PerfectFourth,
+    Tritone,
+    PerfectFifth,
+    MinorSixth,
+    MajorSixth,
+    MinorSeventh,
+    MajorSeventh,
+}
+
+impl IntervalKind {
+    pub fn pitch(&self) -> i64 {
+        match self {
+            IntervalKind::Unison => 0,
+            IntervalKind::Minor2nd => 1,
+            IntervalKind::Major2nd => 2,
+            IntervalKind::Minor3rd => 3,
+            IntervalKind::Major3rd => 4,
+            IntervalKind::PerfectFourth => 5,
+            IntervalKind::Tritone => 6,
+            IntervalKind::PerfectFifth => 7,
+            IntervalKind::MinorSixth => 8,
+            IntervalKind::MajorSixth => 9,
+            IntervalKind::MinorSeventh => 10,
+            IntervalKind::MajorSeventh => 11,
+        }
+    }
+
+    pub fn str(&self) -> &str {
+        match self {
+            IntervalKind::Unison => "octave",
+            IntervalKind::Minor2nd => "m2",
+            IntervalKind::Major2nd => "△2",
+            IntervalKind::Minor3rd => "m3",
+            IntervalKind::Major3rd => "△3",
+            IntervalKind::PerfectFourth => "P4",
+            IntervalKind::Tritone => "tritone",
+            IntervalKind::PerfectFifth => "P5",
+            IntervalKind::MinorSixth => "m6",
+            IntervalKind::MajorSixth => "△6",
+            IntervalKind::MinorSeventh => "m7",
+            IntervalKind::MajorSeventh => "M7",
+        }
+    }
+
+    pub fn diminish(&self) -> IntervalKind {
+        match self {
+            IntervalKind::Unison => IntervalKind::MajorSeventh,
+            IntervalKind::Minor2nd => IntervalKind::Unison,
+            IntervalKind::Major2nd => IntervalKind::Minor2nd,
+            IntervalKind::Minor3rd => IntervalKind::Major2nd,
+            IntervalKind::Major3rd => IntervalKind::Minor3rd,
+            IntervalKind::PerfectFourth => IntervalKind::Major3rd,
+            IntervalKind::Tritone => IntervalKind::PerfectFourth,
+            IntervalKind::PerfectFifth => IntervalKind::Tritone,
+            IntervalKind::MinorSixth => IntervalKind::PerfectFifth,
+            IntervalKind::MajorSixth => IntervalKind::MinorSixth,
+            IntervalKind::MinorSeventh => IntervalKind::MajorSixth,
+            IntervalKind::MajorSeventh => IntervalKind::MinorSeventh,
+        }
+    }
+    pub fn augment(&self) -> IntervalKind {
+        match self {
+            IntervalKind::Unison => IntervalKind::Minor2nd,
+            IntervalKind::Minor2nd => IntervalKind::Major2nd,
+            IntervalKind::Major2nd => IntervalKind::Minor3rd,
+            IntervalKind::Minor3rd => IntervalKind::Major3rd,
+            IntervalKind::Major3rd => IntervalKind::PerfectFourth,
+            IntervalKind::PerfectFourth => IntervalKind::Tritone,
+            IntervalKind::Tritone => IntervalKind::PerfectFifth,
+            IntervalKind::PerfectFifth => IntervalKind::MinorSixth,
+            IntervalKind::MinorSixth => IntervalKind::MajorSixth,
+            IntervalKind::MajorSixth => IntervalKind::MinorSeventh,
+            IntervalKind::MinorSeventh => IntervalKind::MajorSeventh,
+            IntervalKind::MajorSeventh => IntervalKind::Unison,
+        }
+    }
+
+    pub fn third() -> IntervalKind {
+        IntervalKind::Major3rd
+    }
+
+    pub fn diminished_third() -> IntervalKind {
+        IntervalKind::Minor3rd
+    }
+
+    pub fn augmented_third() -> IntervalKind {
+        IntervalKind::PerfectFourth
+    }
+
+    pub fn fifth() -> IntervalKind {
+        IntervalKind::PerfectFifth
+    }
+
+    pub fn diminished_fifth() -> IntervalKind {
+        IntervalKind::Tritone
+    }
+
+    pub fn augmented_fifth() -> IntervalKind {
+        IntervalKind::MinorSixth
+    }
+
+    pub fn seventh() -> IntervalKind {
+        IntervalKind::MajorSeventh
+    }
+
+    pub fn diminished_seventh() -> IntervalKind {
+        IntervalKind::MinorSeventh
+    }
+
+    // doesn't make much sense to augment a 7th.
+    pub fn augmented_seventh() -> IntervalKind {
+        IntervalKind::Unison
+    }
+}
+
+impl Pitch {
+    fn increase_pitch(&self, interval: IntervalKind) -> Pitch {
+        Pitch::from_pitch(self.pitch() + interval.pitch())
+    }
+
+    fn decrease_pitch(&self, interval: IntervalKind) -> Pitch {
+        Pitch::from_pitch(self.pitch() - interval.pitch())
+    }
+}
+
+// implement Pitch + Interval => Pitch
+impl std::ops::Add<IntervalKind> for Pitch {
+    type Output = Pitch;
+
+    fn add(self, interval: IntervalKind) -> Pitch {
+        self.increase_pitch(interval)
+    }
+}
+
+// impl Pitch - Interval => Pitch
+impl std::ops::Sub<IntervalKind> for Pitch {
+    type Output = Pitch;
+
+    fn sub(self, interval: IntervalKind) -> Pitch {
+        self.decrease_pitch(interval)
+    }
+}
+
+// an interval is a pair of pitches.
+#[derive(Debug, PartialEq, Clone, Hash, Eq, Copy)]
+pub struct Interval {
+    pitches : (Pitch, Pitch),
+}
+
+impl Interval {
+    pub fn new (p: Pitch, q: Pitch) -> Interval {
+        Interval { pitches: (p, q) }
+    }
+
+    pub fn kind(&self) -> IntervalKind {
+        let p = self.pitches.0;
+        let q = self.pitches.1;
+        let diff = if p.pitch() > q.pitch() {
+            p.pitch() - q.pitch()
+        } else {
+            q.pitch() - p.pitch()
+        };
+        match diff {
+            0 => IntervalKind::Unison,
+            1 => IntervalKind::Minor2nd,
+            2 => IntervalKind::Major2nd,
+            3 => IntervalKind::Minor3rd,
+            4 => IntervalKind::Major3rd,
+            5 => IntervalKind::PerfectFourth,
+            6 => IntervalKind::Tritone,
+            7 => IntervalKind::PerfectFifth,
+            8 => IntervalKind::MinorSixth,
+            9 => IntervalKind::MajorSixth,
+            10 => IntervalKind::MinorSeventh,
+            11 => IntervalKind::MajorSeventh,
+            _ => unreachable!("diff is modulo 12, so can only have values 1..11")
+        }
+    }
+
+    pub fn string(&self) -> String {
+        self.kind().str().to_string()
+    }
+}
+
+impl fmt::Display for Interval {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.string())
+    }
+}
+// impl Pitch - Pitch => Interval
+impl std::ops::Sub<Pitch> for Pitch {
+    type Output = Interval;
+
+    fn sub(self, other: Pitch) -> Interval {
+        Interval::new(self, other)
+    }
+}
+
+// impl Pitch + Interval => Pitch
+impl std::ops::Add<Interval> for Pitch {
+    type Output = Pitch;
+
+    fn add(self, interval: Interval) -> Pitch {
+        self + interval.kind()
+    }
+}
+
+// impl Pitch - Interval => Pitch
+impl std::ops::Sub<Interval> for Pitch {
+    type Output = Pitch;
+
+    fn sub(self, interval: Interval) -> Pitch {
+        self - interval.kind()
+    }
+}
+
+impl fmt::Display for IntervalKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
     }
 }
 
