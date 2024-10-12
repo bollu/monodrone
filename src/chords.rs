@@ -553,7 +553,7 @@ impl ChordInfo {
         self.last_modified.union(&track.last_modified);
 
         // We're not dirty, so return.
-        if !self.last_modified.dirty {
+        if !self.last_modified.is_dirty() {
             return
         }
 

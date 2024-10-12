@@ -3,29 +3,11 @@
 
 use chords::NoteGroup;
 use egui::Key;
-
-
-use serde::{Deserialize, Serialize};
-use rand::seq::SliceRandom; // 0.7.2
-
-
-use tracing_subscriber::fmt::MakeWriter;
-use std::error::Error;
-use std::path::PathBuf;
-use std::thread::sleep;
-use std::time::Duration;
-use std::{fs::File, sync::Arc};
-
+use std::sync::Arc;
 use tinyaudio::OutputDeviceParameters;
 use eframe::egui;
 use egui::*;
-
-
-// const GOLDEN_RATIO: f32 = 1.618_034;
-
-use midir::{Ignore, MidiInput, MidiInputPort};
-use rustysynth::{SoundFont, Synthesizer, SynthesizerSettings};
-use std::io::stdin;
+use rustysynth::SoundFont;
 use tracing::{event, Level};
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -33,324 +15,22 @@ mod datastructures;
 mod midi;
 mod counterpoint1;
 mod chords;
+mod opz;
+mod editor;
+mod ideimage;
+
 
 use midi::*;
 use datastructures::*;
+use opz::*;
+use editor::*;
+use ideimage::*;
 
-
-
-fn whimsical_file_name() -> String {
-    let cool_nouns = vec![
-        "griffin",
-        "chimera",
-        "phoenix",
-        "dragon",
-        "unicorn",
-        "pegasus",
-        "sphinx",
-        "minotaur",
-        "centaur",
-        "tengu",
-        "kappa",
-        "kitsune",
-        "oni",
-        "yamauba",
-        "yokai",
-        "amaterasu",
-        "susano",
-    ];
-
-    let cool_adjectives = vec![
-        "golden",
-        "silver",
-        "crimson",
-        "azure",
-        "emerald",
-        "lunar",
-        "solar",
-        "celestial",
-        "earthly",
-        "mystic",
-        "fearsome",
-        "terrifying",
-        "magnificent",
-        "divine",
-        "sacred",
-        "profane",
-        "demonic",
-        "eldritch",
-        "sylvan",
-        "escathonic",
-        "cosmic",
-        "abyssal",
-        "infernal",
-    ];
-
-    // events-of-adjective-noun
-    // lighting-of-mystic-dragon
-    let events = vec![
-        "lighting",
-        "summoning",
-        "banishment",
-        "binding",
-        "unleashing",
-        "awakening",
-        "calling",
-        "sealing",
-        "unsealing",
-        "breaking",
-        "shattering",
-        "revealing",
-        "concealing",
-        "slaying",
-        "vanquishing",
-        "reanimation",
-        "resurrection",
-        "rebirth",
-        "spellcasting",
-        "hexing",
-        "cursing",
-    ];
-
-    // choose a random event, random adjective, random noun and concatenate them in kebab case
-    let mut rng = rand::thread_rng();
-    let random_event = events.choose(&mut rng).unwrap();
-    let random_adjective = cool_adjectives.choose(&mut rng).unwrap();
-    let random_noun = cool_nouns.choose(&mut rng).unwrap();
-
-    format!("{}-of-{}-{}", random_event, random_adjective, random_noun)
-}
-
-fn audio_dir() -> PathBuf {
-    let mut out = directories::UserDirs::new().unwrap().audio_dir().unwrap().to_path_buf();
-    out.push("Monodrone");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
-fn ide_image_file_path() -> PathBuf {
-    let mut out = audio_dir();
-    let filename = "monodrone-settings.json";
-    out.push(filename);
-    out
-}
-
-// TODO: read midi
-struct Debouncer {
-    time_to_next_event: f32,
-    debounce_time_sec: f32,
-}
-
-impl Debouncer {
-    fn new(debounce_time_sec: f32) -> Self {
-        Self {
-            time_to_next_event: 0.0,
-            debounce_time_sec,
-        }
-    }
-
-    fn add_time_elapsed(&mut self, time_elapsed: f32) {
-        self.time_to_next_event += time_elapsed;
-    }
-
-    fn debounce(&mut self, val: bool) -> bool {
-        let out = val && (self.time_to_next_event > self.debounce_time_sec);
-        if out { self.time_to_next_event = 0.0; }
-        out
-    }
-}
-
-struct Easer<T> where {
-    pub target: T,
-    cur: T,
-    pub damping: f32,
-}
-
-impl<T, D> Easer<T>
-where
-    D : Copy + std::ops::Mul<f32, Output = D>, // delta
-    T: Copy + std::ops::Add<D, Output = T> + std::ops::Sub<Output = D>, {
-
-    fn new(value: T) -> Easer<T> {
-        Easer {
-            target: value,
-            cur: value,
-            damping: 0.2,
-        }
-    }
-
-    fn get(&self) -> T {
-        self.cur
-    }
-
-    fn set(&mut self, value: T) {
-        self.target = value;
-    }
-
-    fn step(&mut self) {
-        self.cur = self.cur + ((self.target - self.cur) * self.damping);
-    }
-}
-
-#[derive(Debug)]
-struct SequenceNumbered<T> {
-    seq: u64,
-    value: T,
-}
-
-impl<T> SequenceNumbered<T> {
-    fn new(value: T) -> Self {
-        Self {
-            seq: 0,
-            value,
-        }
-    }
-
-    fn update_seq(&mut self, seq: u64) -> bool {
-        let updated = seq != self.seq;
-        self.seq = seq;
-        updated
-    }
-
-    fn set_value(&mut self, value: T) {
-        self.value = value;
-    }
-}
-
-// The image file, that has all the state.
-#[derive(Debug, Serialize, Deserialize)]
-struct IDEImage {
-    contexts : Vec<datastructures::Project>,
-    last_modified : datastructures::LastModified,
-    ix : i32,
-}
-
-
-pub fn save_context(ctx : &datastructures::Project) {
-    // let midi_filepath = dir ctx.get_midi_export_file_path();
-    let mut path = audio_dir();
-    path.push(format!("{}.mid", ctx.track_name.clone()));
-
-    let midi_file = match File::create(path.clone()) {
-        Ok(file) => file,
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to create MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-            return;
-        }
-    };
-    let (header, tracks) = ctx.to_smf();
-    match midly::write_std(&header, tracks.iter(), midi_file) {
-        Ok(()) => {
-            event!(Level::INFO, "Successfully saved MIDI file '{}'", path.to_string_lossy());
-        }
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to save MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error writing MIDI file: {:?}", e);
-        }
-    }
-}
-
-
-impl IDEImage {
-    pub fn ctx_mut(&mut self) -> &mut datastructures::Project {
-        &mut self.contexts[self.ix as usize]
-    }
-
-    // TODO: rename ctx to ctx_mut.
-    pub fn ctx(&self) -> &datastructures::Project {
-        &self.contexts[self.ix as usize]
-    }
-
-    pub fn load() -> Self {
-        let mut default =
-            IDEImage {
-                contexts : vec![datastructures::Project::new("track-0".to_string())],
-                ix : 0,
-                last_modified : datastructures::LastModified::new(),
-            };
-        let path = ide_image_file_path();
-        let file =
-            match File::open(path.clone()) {
-                Ok(file) => {
-                    event!(Level::INFO, "opened settings fil at '{}'", path.to_string_lossy());
-                    file
-                }
-                Err(err) => {
-                    event!(Level::ERROR, "error loading settings file at '{}': {:?}", path.to_string_lossy(), err);
-                    default.save();
-                    return default
-                }
-            };
-
-        let reader = std::io::BufReader::new(file);
-        match ron::de::from_reader(reader) {
-            Ok(settings) => {
-                event!(Level::INFO, "loaded settings from file: {:?}", path);
-                settings
-            }
-            Err(err) => {
-                event!(Level::ERROR, "failed to load settings file: '{:?}'", err);
-                default.save();
-                default
-            }
-        }
-    }
-
-    pub fn new(&mut self) {
-        let ix = self.contexts.len();
-        let ctx = datastructures::Project::new(format!("track-{}", ix));
-        self.contexts.push(ctx);
-        self.ix = ix as i32;
-    }
-
-    // save the settings to the settings file.
-    pub fn save(&mut self) {
-        for ctx in &mut self.contexts {
-            // TODO: make this a trait.
-            self.last_modified.union(&ctx.last_modified);
-        }
-
-        // only save if we are both (a) dirty, and (b) have been idle for X seconds.
-        if !self.last_modified.is_dirty_and_idle_for(Duration::from_secs(1)) {
-            return;
-        }
-        self.last_modified.clean();
-
-        let path = ide_image_file_path();
-        match File::create(path.clone()) {
-            Ok(file) => {
-                let writer = file.make_writer();
-                ron::ser::to_writer(writer, &self).unwrap();
-                event!(Level::INFO, "Successfully saved settings file to path {:?}", path.to_string_lossy());
-            }
-            Err(e) => {
-                event!(Level::ERROR, "Error saving settings file '{}': {:?}", path.to_string_lossy(),
-                    e);
-            }
-        }
-        save_context(self.ctx());
-    }
-
-    pub fn switch_to(&mut self, ix: i32) {
-        assert!(ix < self.contexts.len() as i32);
-        assert!(ix >= 0);
-        self.ix = ix;
-    }
-}
 
 fn main_loop() {
+    // Load the SoundFont.
     let sf2 = include_bytes!("../resources/TimGM6mb.sf2");
     let mut sf2_cursor = std::io::Cursor::new(sf2);
-    // Load the SoundFont.
     let sound_font = Arc::new(SoundFont::new(&mut sf2_cursor).unwrap());
 
     let params = OutputDeviceParameters {
@@ -359,11 +39,9 @@ fn main_loop() {
         channel_sample_count: 4410,
     };
 
-    // Create the MIDI file sequencer.
-    let settings = SynthesizerSettings::new(params.sample_rate as i32);
-    let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
-    let mut sequencer_io: MidiSequencerIO =
-        MidiSequencerIO::new(MidiSequencer::new(synthesizer), params);
+    // Create the MIDI sequencer to let us send our MIDI events to the synthesizer,
+    // via the sequencer that takes a sequence of MIDI events and plays them back.
+    let mut sequencer_io: MidiSequencerIO = MidiSequencerIO::new(sound_font, params);
 
     event!(Level::INFO, "Starting up");
     let options = eframe::NativeOptions {
@@ -394,16 +72,8 @@ fn main_loop() {
 
         settings.save();
 
-        // ctrl+p command palette.
-        // egui::Window::new("Monodrone").show(ctx, |ui| {
-        //     ui.label("Welcome to Monodrone!");
-        //     ui.label("This is a music composition tool.");
-        //     ui.label("It is a work in progress.");
-        //     ui.label("Please enjoy your stay.");
-        // });
-
-
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
+            // TODO: move into ide_image?
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.label("Playback Speed");
                 if ui.add(egui::DragValue::new(&mut settings.ctx_mut().playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
@@ -433,24 +103,10 @@ fn main_loop() {
             });
         });
 
-        egui::SidePanel::left("Compositional Errors").show(ctx, |_ui| {
-        });
-
         egui::SidePanel::right("Projects").show(ctx, |ui| {
-            ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
-                let mut selected_ix : i32 = settings.ix ;
-                for (i, ctx) in settings.contexts.iter().enumerate() {
-                    if ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked() {
-                        selected_ix = i as i32;
-                    }
-                }
-
-                settings.switch_to(selected_ix);
-            });
+            egui_project_picker(&ctx, ui, &mut settings);
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            // return;
-            // let time_elapsed = rl.get_frame_time();
             let time_elapsed = 0.01; // TODO: fix this!
             debounce_movement.add_time_elapsed(time_elapsed);
             debounce_undo.add_time_elapsed(time_elapsed);
@@ -716,122 +372,6 @@ fn main_loop() {
 
     });
 }
-
-// represents a connection to an Op-z instance
-struct Opz {
-    // port : Option<MidiInputPort>, // MIDI input port.
-    conn : Option<midir::MidiInputConnection<()>>,
-}
-
-impl Opz {
-    fn new() -> Opz {
-        event!(Level::INFO, "making new OP-Z.");
-
-        Opz {
-            // port: None,
-            conn : None,
-
-        }
-    }
-
-    fn find_port(&mut self) {
-        event!(Level::INFO, "finding OP-Z...");
-
-        let mut midi_in = MidiInput::new("midir reading input").unwrap();
-        midi_in.ignore(Ignore::None);
-
-        let in_ports = midi_in.ports();
-
-        let mut port = None;
-        for p in in_ports {
-            if midi_in.port_name(&p).unwrap() == "OP-Z" {
-                port = Some(p);
-            }
-        };
-
-        self.conn = if let Some(p) = port {
-            event!(Level::INFO, "found OP-Z!");
-            midi_in.connect(
-                &p,
-                "midir-read-input",
-                move |stamp, message, _| {
-                    event!(Level::INFO, "message received from OP-Z. message: {:?}", message);
-                    if message.len() <= 1 {
-                        return;
-                    }
-                    println!("{}: {:?} (len = {})", stamp, message, message.len());
-                },
-                (),
-            ).ok()
-        } else {
-            event!(Level::INFO, "Unable to find OP-Z.");
-            None
-        };
-
-        // while true {
-        //     sleep(core::time::Duration::from_secs(1));
-        // };
-    }
-}
-
-fn test_midi_in_op_z() -> Result<MidiInputPort, Box<dyn Error>> {
-    let mut input = String::new();
-
-    let mut midi_in = MidiInput::new("midir reading input")?;
-    midi_in.ignore(Ignore::None);
-
-    // Get an input port (read from console if multiple are available)
-    let in_ports = midi_in.ports();
-    let opz_opt = {
-        let mut out = None;
-        for port in in_ports {
-            if midi_in.port_name(&port).unwrap() == "OP-Z" {
-                out = Some(port);
-            }
-        }
-        out
-    };
-
-    let opz = match opz_opt  {
-        None => {
-        event!(Level::INFO, "Unable to find OP-Z.");
-        return Err("OP-Z not found".into());
-        },
-        Some(port) => {
-            event!(Level::INFO, "found OP-Z!");
-            port
-        }
-    };
-
-    let _conn = midi_in.connect(
-        &opz,
-        "midir-read-input",
-        move |stamp, message, _| {
-            event!(Level::INFO, "message received from OP-Z. message: {:?}", message);
-            if message.len() <= 1 {
-                return;
-            }
-            println!("{}: {:?} (len = {})", stamp, message, message.len());
-        },
-        (),
-    ).unwrap();
-
-
-    input.clear();
-    stdin().read_line(&mut input)?; // wait for next enter key press
-
-    loop {
-        sleep(core::time::Duration::from_secs(1));
-    };
-
-    // 463667691423: [181, 1/2/3/4, value]: 4 scroll wheels (len = 3)
-    // keys: [149, 65...(key number), 0/100 up/down]: 65-69
-    //
-    // println!("Closing connection");
-    // Ok(opz)
-}
-
-// TODO: implement file drag and drop with rl::IsFileDropped: https://github.com/raysan5/raylib/blob/master/examples/core/core_drop_files.c
 
 fn main() {
     tracing_subscriber::fmt().init();

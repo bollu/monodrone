@@ -8,13 +8,69 @@ use crate::counterpoint1::CounterpointLints;
 use crate::midi::track_get_note_events_at_time;
 use crate::chords::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+// TODO: read midi
+pub struct Debouncer {
+    time_to_next_event: f32,
+    debounce_time_sec: f32,
+}
 
+impl Debouncer {
+    pub fn new(debounce_time_sec: f32) -> Self {
+        Self {
+            time_to_next_event: 0.0,
+            debounce_time_sec,
+        }
+    }
+
+    pub fn add_time_elapsed(&mut self, time_elapsed: f32) {
+        self.time_to_next_event += time_elapsed;
+    }
+
+    pub fn debounce(&mut self, val: bool) -> bool {
+        let out = val && (self.time_to_next_event > self.debounce_time_sec);
+        if out { self.time_to_next_event = 0.0; }
+        out
+    }
+}
+
+pub struct Easer<T> where {
+    pub target: T,
+    cur: T,
+    pub damping: f32,
+}
+
+impl<T, D> Easer<T>
+where
+    D : Copy + std::ops::Mul<f32, Output = D>, // delta
+    T: Copy + std::ops::Add<D, Output = T> + std::ops::Sub<Output = D>, {
+
+    pub fn new(value: T) -> Easer<T> {
+        Easer {
+            target: value,
+            cur: value,
+            damping: 0.2,
+        }
+    }
+
+    pub fn get(&self) -> T {
+        self.cur
+    }
+
+    pub fn set(&mut self, value: T) {
+        self.target = value;
+    }
+
+    pub fn step(&mut self) {
+        self.cur = self.cur + ((self.target - self.cur) * self.damping);
+    }
+}
 
 // data structure that tracks whether a value is dirty.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub struct LastModified {
-    pub dirty : bool,
-    pub last_modified_ms : SystemTime, // last modified time in milliseconds.
+    dirty : bool,
+    last_modified_ms : SystemTime, // last modified time in milliseconds.
 }
 
 impl Default for LastModified {
@@ -53,15 +109,14 @@ impl LastModified {
         }        self.last_modified_ms.elapsed().unwrap_or(std::time::Duration::from_secs(0)) > duration
     }
 
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
     pub fn clean(&mut self) {
         self.dirty = false;
         self.last_modified_ms = SystemTime::now();
     }
-}
-
-trait Dirt {
-    fn get_dirty(&self) -> &LastModified;
-    fn get_dirty_mut(&self) -> &mut LastModified;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy, Hash, Eq)]

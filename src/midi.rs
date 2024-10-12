@@ -1,13 +1,12 @@
 use tracing::event;
-
-use std::{sync::Arc};
+use std::sync::Arc;
 use tinyaudio::{run_output_device, OutputDeviceParameters};
 use std::sync::Mutex;
-
 use std::collections::HashMap;
-use rustysynth::{Synthesizer};
+use rustysynth::Synthesizer;
 use tinyaudio::prelude::*;
-use tracing::{Level};
+use tracing::Level;
+use rustysynth::{SoundFont, SynthesizerSettings};
 
 use crate::datastructures::*;
 
@@ -244,8 +243,10 @@ pub struct MidiSequencerIO {
 
 
 impl MidiSequencerIO {
-    pub fn new(sequencer: MidiSequencer, params: OutputDeviceParameters) -> Self {
-        let sequencer = Arc::new(Mutex::new(sequencer));
+    pub fn new(sound_font : Arc<SoundFont>, params: OutputDeviceParameters) -> Self {
+        let settings = SynthesizerSettings::new(params.sample_rate as i32);
+        let synthesizer = Synthesizer::new(&sound_font, &settings).unwrap();
+        let sequencer = Arc::new(Mutex::new(MidiSequencer::new(synthesizer)));
         // The output buffer (3 seconds).
         let mut left: Vec<f32> = vec![0_f32; params.channel_sample_count];
         let mut right: Vec<f32> = vec![0_f32; params.channel_sample_count];
