@@ -3,6 +3,7 @@
 
 use chords::NoteGroup;
 use egui::Key;
+use keypicker::egui_key_signature_picker;
 use std::sync::Arc;
 use tinyaudio::OutputDeviceParameters;
 use eframe::egui;
@@ -76,6 +77,9 @@ fn main_loop() {
         egui::TopBottomPanel::bottom("Configuration").show(ctx, |ui| {
             // TODO: move into ide_image?
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.label("Key signature");
+                ui.add(&mut ide_image.ctx_mut().key_signature);
+
                 ui.label("Playback Speed");
                 if ui.add(egui::DragValue::new(&mut ide_image.ctx_mut().playback_speed).clamp_range(0.01..=3.0).update_while_editing(false).speed(0.05)).changed() {
                     sequencer_io.set_playback_speed(ide_image.ctx_mut().playback_speed as f32);
@@ -91,6 +95,7 @@ fn main_loop() {
                 ui.text_edit_singleline(&mut ide_image.ctx_mut().artist_name);
                 ui.label("Title");
                 ui.text_edit_singleline(&mut ide_image.ctx_mut().track_name);
+
 
             });
         });
@@ -111,6 +116,7 @@ fn main_loop() {
             egui_editor(&mut editor_ui_state, &mut ide_image, &mut sequencer_io, ctx, ui);
         });
     });
+
 }
 
 fn main() {

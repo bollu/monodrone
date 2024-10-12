@@ -25,9 +25,9 @@ pub fn consume_pitch_name_key_press(i : &mut egui::InputState) -> Option<PitchNa
 
 // consume a key press of an accidental.
 pub fn consume_accidental_key_press(i : &mut egui::InputState) -> Option<Accidental> {
-    if i.consume_key(Modifiers::NONE | Modifiers::SHIFT, Key::Num2) {
+    if i.consume_key(Modifiers::NONE, Key::Num2) {
         Some(Accidental::Flat)
-    } else if i.consume_key(Modifiers::NONE | Modifiers::SHIFT, Key::Num3) {
+    } else if i.consume_key(Modifiers::NONE, Key::Num3) {
         Some(Accidental::Sharp)
     }else {
         None

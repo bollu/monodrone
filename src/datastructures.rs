@@ -816,6 +816,32 @@ impl History {
     }
 }
 
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+enum MusicMode {
+    Major, // Ionian
+    HarmonicMinor, // Minor
+    // Aeolian / NaturalMinor
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
+pub struct KeySignature {
+    pub key : Pitch,
+}
+
+impl Default for KeySignature {
+    // C minor mode.
+    fn default() -> KeySignature {
+        KeySignature {
+            key : Pitch {
+                name : PitchName::C,
+                accidental : Accidental::Natural,
+                octave : 4,
+            },
+        }
+    }
+}
+
 // information that is saved when a project is saved.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSaveInfo {
@@ -824,6 +850,7 @@ pub struct ProjectSaveInfo {
     pub time_signature : (u8, u8),
     pub track : PlayerTrackSaveInfo,
     pub history : HistorySaveInfo,
+    pub key_signature : KeySignature,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -839,6 +866,7 @@ pub struct Project {
     pub history : History,
     pub counterpoint1 : CounterpointLints,
     pub chord_info : ChordInfo,
+    pub key_signature : KeySignature,
 }
 
 impl From<ProjectSaveInfo> for Project {
@@ -858,6 +886,7 @@ impl From<ProjectSaveInfo> for Project {
             history: info.history.into(),
             counterpoint1 : cp,
             chord_info : chord_info,
+            key_signature : info.key_signature,
         }
     }
 }
@@ -870,6 +899,7 @@ impl From<Project> for ProjectSaveInfo {
             time_signature: val.time_signature,
             track: val.track.into(),
             history: val.history.into(),
+            key_signature : val.key_signature,
         }
     }
 }
@@ -889,6 +919,7 @@ impl Project {
             history: History::new(),
             counterpoint1 : Default::default(),
             chord_info : Default::default(),
+            key_signature : Default::default(),
         }
     }
 
@@ -1171,6 +1202,7 @@ impl Clone for Project {
             history: self.history.clone(),
             counterpoint1 : self.counterpoint1.clone(),
             chord_info : self.chord_info.clone(),
+            key_signature : self.key_signature.clone(),
         }
     }
 }
