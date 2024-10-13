@@ -31,7 +31,7 @@
 //     Diminshed  | 1 semitones  |  D
 //     Tritone    | 6 semitones  |  T
 
-use std::collections::{HashMap, BTreeSet};
+use std::collections::{HashMap, BTreeSet, HashSet};
 use itertools::Itertools;
 use crate::datastructures::*;
 use crate::constants::*;
@@ -222,7 +222,7 @@ impl Chord {
 
     pub fn to_string(&self) -> String {
         let mut out = String::new();
-        // if we have neither third nor seventh..
+        // if we have neither third nor seventh
 
         // if we have only third, then triad.
 
@@ -235,10 +235,10 @@ impl Chord {
             ChordThirdKind::Minor => "m",
             ChordThirdKind::Sus2 => "sus2",
             ChordThirdKind::Sus4 => "sus4",
-            ChordThirdKind::Skip => "(skip 3)"
+            ChordThirdKind::Skip => " (skip 3)"
         });
         out.push_str(match self.fifth {
-            ChordFifthKind::Perfect => "",
+            ChordFifthKind::Perfect => " P5",
             ChordFifthKind::Diminished => " dim5",
             ChordFifthKind::Augmented => " aug5",
             ChordFifthKind::Skip => "(skip 5)"
@@ -283,20 +283,19 @@ impl ChordLookupTable {
                             (fifth_kind != ChordFifthKind::Skip) as usize +
                             (seventh_kind != ChordSeventhKind::Skip) as usize;
                     for p in Permutation::generate(num_notes) {
-                        for root in PitchClass::enumerate() {
-                            let c = Chord {
-                                third : third_kind,
-                                fifth : fifth_kind,
-                                seventh : seventh_kind,
-                                permutation : p.clone(),
-                            };
-                            let iv = c.clone().materialize_at_root(root);
-                            let entry = self.pitch2chords.entry(iv);
-                            entry
-                            .and_modify(|chords| { chords.insert(c.clone()); })
-                            .or_insert(BTreeSet::from([c.clone()]));
-                            num_chords += 1;
-                        }
+                        let root = PitchClass { accidental : Accidental::Natural, name: PitchName::C };
+                        let c = Chord {
+                            third : third_kind,
+                            fifth : fifth_kind,
+                            seventh : seventh_kind,
+                            permutation : p.clone(),
+                        };
+                        let iv = c.clone().materialize_at_root(root);
+                        let entry = self.pitch2chords.entry(iv);
+                        entry
+                        .and_modify(|chords| { chords.insert(c.clone()); })
+                        .or_insert(BTreeSet::from([c.clone()]));
+                        num_chords += 1;
                     }
 
                 }
@@ -305,20 +304,29 @@ impl ChordLookupTable {
         event!(Level::INFO, "generated table (#chords: {:?})", num_chords);
     }
 
-    pub fn match_pitches(&self, pitches : Vec<Pitch>) -> Vec<Chord> {
-        let mut out = Vec::new();
+    pub fn match_pitches(&self, pitches : Vec<Pitch>) -> Vec<(PitchClass, Chord)> {
+        let mut out : Vec<(PitchClass, Chord)> = Vec::new();
+        println!("looking up: {:?}", pitches);
         for root in PitchClass::enumerate() {
-            let key : Vec<i32> =
-                pitches
-                .iter()
-                .map(|p| { (p.into_pitch_class() - root).pitch() as i32 })
-                .collect();
-            println!("looking up: {:?} / root: {:?} |  key {:?}", pitches, root, key);
+            let key : Vec<i32> = {
+                let mut key = Vec::new();
+                let mut seen = HashSet::new();
+                for p in &pitches {
+                    let i = (p.into_pitch_class() - root).pitch();
+                    if seen.contains(&i) { continue; }
+                    seen.insert(i);
+                    key.push(i as i32);
+                }
+                key
+            };
             if let Some(chords) = self.pitch2chords.get(&key) {
-                out.extend(chords.iter().cloned());
+                for chord in chords {
+                    println!("  ->>found {} : {chord:?}", root);
+                    out.push((root, chord.clone()));
+                }
             };
         }
-        out.sort();
+        out.sort_by(|pc1, pc2| { pc1.1.cmp(&pc2.1) } );
         out
     }
 
@@ -334,7 +342,7 @@ impl ChordLookupTable {
 pub enum NoteGroup {
     Single(PitchClass),
     Two(Interval),
-    Chord (Vec<Chord>),
+    Chord (Vec<(PitchClass, Chord)>),
     Empty,
 }
 
@@ -343,7 +351,8 @@ impl NoteGroup {
     pub fn identify(ps : Vec<Pitch>, lut : &ChordLookupTable, _k : KeySignature) -> NoteGroup {
         if ps.is_empty() {
             NoteGroup::Empty
-        } else if ps.len() == 1 {
+        } 
+        else if ps.len() == 1 {
             NoteGroup::Single(ps[0].into())
         } else if ps.len() == 2 {
             NoteGroup::Two(Interval::new(ps[0], ps[1]))

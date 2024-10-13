@@ -3,36 +3,13 @@
 
 use chords::NoteGroup;
 use egui::Key;
-
-
-
- // 0.7.2
-
-
-
-
-
-
-
-
-
-
 use eframe::egui;
 use egui::*;
-
-
-// const GOLDEN_RATIO: f32 = 1.618_034;
-
-
-
-
-
-
-
 
 use crate::{*, MidiSequencerIO};
 use crate::ideimage::*;
 use crate::constants::*;
+use crate::chords::*;
 
 // state of the editor UI
 pub struct EditorUIState {
@@ -293,8 +270,8 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
                 if cs.is_empty() {
                     "?".to_string()
                 } else {
-                    let chord = cs.first().unwrap();
-                    chord.to_string()
+                    let pitch_chord : (PitchClass, Chord) = cs.first().unwrap().clone();
+                    format!("root:{} | kind:{}", pitch_chord.0, pitch_chord.1.to_string())
                 }
             }
             NoteGroup::Two(i) => i.string(),
