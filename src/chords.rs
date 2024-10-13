@@ -279,7 +279,7 @@ impl ChordLookupTable {
                     let num_notes : usize = 1 + (third_kind != ChordThirdKind::Skip) as usize +
                             (fifth_kind != ChordFifthKind::Skip) as usize +
                             (seventh_kind != ChordSeventhKind::Skip) as usize;
-                    for p in Permutation::generate(num_notes as usize) {
+                    for p in Permutation::generate(num_notes) {
                         for root in PitchClass::enumerate() {
                             let c = Chord {
                                 third : third_kind,
@@ -340,7 +340,7 @@ pub enum NoteGroup {
 
 impl NoteGroup {
     // sorted list of notes, based on badness
-    pub fn identify(ps : Vec<Pitch>, lut : &ChordLookupTable, k : KeySignature) -> NoteGroup {
+    pub fn identify(ps : Vec<Pitch>, lut : &ChordLookupTable, _k : KeySignature) -> NoteGroup {
         if ps.is_empty() {
             NoteGroup::Empty
         } else if ps.len() == 1 {

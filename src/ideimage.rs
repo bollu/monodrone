@@ -10,16 +10,16 @@ use tracing_subscriber::fmt::MakeWriter;
 
 use std::path::PathBuf;
 
-use std::sync::mpsc::channel;
+
 use std::time::Duration;
 use std::{fs::File};
 
 use eframe::egui;
 use egui::*;
-use std::sync::Mutex;
+
 
 use tracing::{event, Level};
-use single_value_channel::channel_starting_with;
+
 use std::thread::{self, sleep};
 
 
@@ -105,7 +105,7 @@ fn make_ide_image_saver_thread(mut receiver : single_value_channel::Receiver<Opt
 // to save the data from here on out.
 impl From<IDEImageSaveInfo> for IDEImage {
     fn from(val: IDEImageSaveInfo) -> Self {
-        let (mut receiver, updater) = single_value_channel::channel();
+        let (receiver, updater) = single_value_channel::channel();
         make_ide_image_saver_thread(receiver);
         IDEImage {
             contexts : val.contexts,
@@ -171,7 +171,7 @@ impl IDEImage {
                 event!(Level::ERROR, "failed to load image file: '{:?}'", err);
                 let mut d = default();
                 d.save();
-                return d
+                d
             }
         }
     }

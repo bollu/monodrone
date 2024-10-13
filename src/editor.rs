@@ -290,10 +290,10 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
         let ng = settings.ctx_mut().chord_info.get(y);
         let text = match ng {
             NoteGroup::Chord(cs) => {
-                if cs.len() == 0 {
+                if cs.is_empty() {
                     "?".to_string()
                 } else {
-                    let chord = cs.get(0).unwrap();
+                    let chord = cs.first().unwrap();
                     chord.to_string()
                 }
             }

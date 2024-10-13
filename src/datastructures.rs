@@ -1,4 +1,4 @@
-use egui::Key;
+
 use serde::{Serialize, Deserialize};
 use core::fmt;
 use std::time::SystemTime;
@@ -180,9 +180,9 @@ pub struct Pitch {
 }
 
 // every pitch class represents a pitch.
-impl Into<PitchClass> for Pitch {
-    fn into(self) -> PitchClass {
-        PitchClass { name: self.name, accidental: self.accidental }
+impl From<Pitch> for PitchClass {
+    fn from(val: Pitch) -> Self {
+        PitchClass { name: val.name, accidental: val.accidental }
     }
 }
 
@@ -283,7 +283,7 @@ impl IntervalKind {
         let q = pitch2.pitch() % 12;
         assert!(q + 12 >= p);
         let diff = ((q + 12) - p) % 12;
-        assert!(diff >= 0 && diff < 12);
+        assert!((0..12).contains(&diff));
         match diff {
             0 => IntervalKind::Unison,
             1 => IntervalKind::Minor2nd,
@@ -1155,7 +1155,7 @@ impl History {
         self.actions.push((action, selection, track));
         self.current += 1;
 
-        if (self.actions.len() > NUM_HISTORY_STEPS) {
+        if self.actions.len() > NUM_HISTORY_STEPS {
             self.actions.drain(0..(self.actions.len() - NUM_HISTORY_STEPS));
         }
     }
