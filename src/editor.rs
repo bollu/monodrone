@@ -270,18 +270,28 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
                 if cs.is_empty() {
                     "?".to_string()
                 } else {
-                    let pitch_chord : (PitchClass, Chord) = cs.first().unwrap().clone();
-                    format!("root:{} | kind:{}", pitch_chord.0, pitch_chord.1.to_string())
+                    let mut out = String::new();
+                    for (i, (pitch, chord)) in cs.iter().enumerate() {
+                        if i > 0 {
+                            out += " | ";
+                        }
+                        out += &format!("{}{} ", pitch, chord.to_string())
+                    }
+                    out
                 }
             }
             NoteGroup::Two(i) => i.string(),
             NoteGroup::Single(p) => p.name.str().to_string(),
             NoteGroup::Empty => "".to_string(),
         };
-        painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
-            Align2::LEFT_TOP, text, FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_LEADING);
-        let _octave_text_padding = Vec2::new(2., 2.);
-        let _octave_text_color = egui::Color32::from_rgb(104, 159, 56);
+        // TODO: use this to render the chord!
+         ui.allocate_ui_at_rect(Rect::from_min_size(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)), Vec2::new(500.0, 15.0)), |ui| {
+             ui.monospace(RichText::new(text).font(FontId::monospace(20.)));
+         });
+        // painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
+        //     Align2::LEFT_TOP, text, FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_LEADING);
+        // let _octave_text_padding = Vec2::new(2., 2.);
+        // let _octave_text_color = egui::Color32::from_rgb(104, 159, 56);
     }
 
     if !focused {
@@ -289,4 +299,5 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
             Color32::from_black_alpha(150));
     }
     ctx.request_repaint();
+
 }
