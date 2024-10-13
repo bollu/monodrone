@@ -1,22 +1,28 @@
-// Theory of chords
-// https://github.com/cuthbertLab/music21/blob/e05fc53dfef7b2c9ac974c0cacb8b85e9c4d4605/music21/analysis/reduceChords.py
-// 5fc53dfef7b2c9ac974c0cacb8b85e9c4d4605/music21/chord/tables.py
-// https://github.com/gciruelos/musthe/blob/9064aa3ae79880e00d92e05fe92515f807a4d925/musthe/musthe.py
-//
-// Lead sheet notation: https://www.reddit.com/r/musictheory/comments/1h8tol/comment/caryq0w/
-//
-// https://musictheory.pugetsound.edu/mt21c/ListsOfSetClasses.html
-//
-// https://viva.pressbooks.pub/openmusictheory/chapter/set-class-and-prime-form/
-// https://viva.pressbooks.pub/openmusictheory/chapter/interval-class-vectors/
-//
-// Alan forte: The structure of atonal music
-// https://ianring.com/musictheory/scales/#primeform
-// Forte number: https://en.wikipedia.org/wiki/Forte_number
-// table: https://web.archive.org/web/20130118035710/http://solomonsmusic.net/pcsets.htm
-//   prime form: "most compact" way of writing down a chord.
-//   scale number: 12-bit number, of which tones are present.
-//
+// Theory of chords.
+// We wish to be as good as https://www.scales-chords.com.
+// Unfortunately, they have no docs, so we come up with an algorithm ourselves
+// with cunning, guile and some rudimentary music theory.
+
+// ### Music21
+// Great library with deep theory to identify chord tones, but names them
+//   completely nonsensically according to neo-riemannian theory.
+//   Tables: https://github.com/cuthbertLab/music21/blob/e05fc53dfef7b2c9ac974c0cacb8b85e9c4d4605/music21/chord/tables.py
+//   Algorithm: https://github.com/cuthbertLab/music21/blob/e05fc53dfef7b2c9ac974c0cacb8b85e9c4d4605/music21/analysis/reduceChords.py
+// ### Musthe
+// A python library that identifies chords, but doesn't have a lot of theory.
+//   https://github.com/gciruelos/musthe/blob/9064aa3ae79880e00d92e05fe92515f807a4d925/musthe/musthe.py
+// ### Textbook: Music theory for the 21st century
+//   https://musictheory.pugetsound.edu/mt21c/ListsOfSetClasses.html
+// ### Textbook: Open Music Theory
+// - https://viva.pressbooks.pub/openmusictheory/chapter/set-class-and-prime-form/
+// - https://viva.pressbooks.pub/openmusictheory/chapter/interval-class-vectors/
+// #### Alan forte: The structure of atonal music
+// - https://ianring.com/musictheory/scales/#primeform
+// #### Wiki links:
+// - Forte number: https://en.wikipedia.org/wiki/Forte_number
+// - table: https://web.archive.org/web/20130118035710/http://solomonsmusic.net/pcsets.htm
+//  prime form: "most compact" way of writing down a chord.
+//  scale number: 12-bit number, of which tones are present.
 //   interval vector:
 //     perfect    | 5 semitones  |  P
 //     Major 3rd  | 4 semitones  |  M
@@ -52,12 +58,12 @@ impl TriadQuality {
         match self {
             TriadQuality::Major => "M",
             TriadQuality::Minor => "m",
-            TriadQuality::Diminished => "o",
-            TriadQuality::Augmented => "+",
+            TriadQuality::Diminished => "dim",
+            TriadQuality::Augmented => "aug",
             TriadQuality::Suspended2 => "sus2",
             TriadQuality::Suspended4 => "sus4",
             TriadQuality::Dominant => "7",
-            TriadQuality::MajorFlat5 => "M♭5",
+            TriadQuality::MajorFlat5 => "M flat5",
             TriadQuality::NoCommonName => "NoName",
         }
     }
@@ -97,19 +103,19 @@ pub enum SeventhQuality {
 impl SeventhQuality {
     pub fn str(&self) -> &str {
         match self {
-            SeventhQuality::Major => "Δ7",
-            SeventhQuality::Minor => "m7",
+            SeventhQuality::Major => "Major 7",
+            SeventhQuality::Minor => "minor 7",
             SeventhQuality::Dominant => "7 / dom7",
             // ii7(flat 5) -> Vdom7 -> I
-            SeventhQuality::HalfDiminished => "ø7 / m7(♭5)",
-            SeventhQuality::Diminished => "o7",
-            SeventhQuality::MinorMajor => "m(Δ7)",
-            SeventhQuality::AugmentedMajor => "+Δ7 / dom7♯5 / 7#5",
+            SeventhQuality::HalfDiminished => "half diminished 7 / minor 7(♭5)",
+            SeventhQuality::Diminished => "diminished 7",
+            SeventhQuality::MinorMajor => "minor (major 7)",
+            SeventhQuality::AugmentedMajor => "augmented Major 7",
             // end of table 1
-            SeventhQuality::Augmented => "+7",
-            SeventhQuality::DiminshedMajor => "-Δ7♭5",
-            SeventhQuality::DominantFlat5 => "7♭5",
-            SeventhQuality::MajorFlat5 => "M♭5",
+            SeventhQuality::Augmented => "Augmented 7",
+            SeventhQuality::DiminshedMajor => "Diminished Major 7 (flat 5)",
+            SeventhQuality::DominantFlat5 => "Dominant 7 (flat 5)",
+            SeventhQuality::MajorFlat5 => "Major (flat 5)",
             SeventhQuality::NoCommonName => "NoName"
         }
     }
@@ -121,10 +127,34 @@ impl fmt::Display for SeventhQuality {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Hash, Copy, Eq)]
+pub enum TriadInversion {
+    Root,
+    First,
+    Second,
+}
+
+impl TriadInversion {
+    pub fn str(&self) -> &str {
+        match self {
+            TriadInversion::Root => "root",
+            TriadInversion::First => "1st inversion",
+            TriadInversion::Second => "2nd inversion",
+        }
+    }
+}
+
+impl fmt::Display for TriadInversion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Hash)]
 pub struct Triad {
     pitches : Vec<Pitch>,
     quality : TriadQuality,
+    inversion : TriadInversion
 }
 
 impl Triad {
@@ -140,6 +170,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Major,
+                inversion : TriadInversion::Root,
 
             }
         }
@@ -148,6 +179,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Minor,
+                inversion : TriadInversion::Root,
             }
         }
         // C E G#
@@ -155,6 +187,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Augmented,
+                inversion : TriadInversion::Root,
             }
         }
         // C E G#
@@ -162,6 +195,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Augmented,
+                inversion : TriadInversion::Root,
             }
         }
         // C Eb Gb
@@ -169,6 +203,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Diminished,
+                inversion : TriadInversion::Root,
             }
         }
 
@@ -181,6 +216,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Suspended2,
+                inversion : TriadInversion::Root,
             }
         }
         // C F G
@@ -188,6 +224,7 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::Suspended4,
+                inversion : TriadInversion::Root,
             }
         }
         // C E Gb
@@ -195,12 +232,14 @@ impl Triad {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::MajorFlat5,
+                inversion : TriadInversion::Root,
             }
         }
          else {
             Triad {
                 pitches : ps,
                 quality: TriadQuality::NoCommonName,
+                inversion : TriadInversion::Root,
             }
         }
     }
@@ -218,7 +257,11 @@ impl Triad {
                 format!("{}-{}", i12, i13).to_string()
             },
             _ => {
-                format!("{}-{}", self.base().str_no_octave(), self.quality).to_string()
+                if self.inversion == TriadInversion::Root {
+                    format!("{}{}", self.base().str_no_octave(), self.quality).to_string()
+                } else {
+                    format!("{}-{} ({})", self.base().str_no_octave(), self.quality, self.inversion).to_string()
+                }
             }
         }
     }
@@ -234,10 +277,13 @@ impl fmt::Display for Triad {
 impl Triad {
     // identify the "best" name for a given chord.
     // TODO: also use the key signature when doing so.
-    pub fn identify(ps : Vec<Pitch>, k : KeySignature) -> Triad {
-        let t1 = Triad::from_pitches(ps.clone());
-        let t2 = Triad::from_pitches(vec![ps[1], ps[2], ps[0].raise_octave()]);
-        let t3 = Triad::from_pitches(vec![ps[2], ps[0].raise_octave(), ps[1].raise_octave()]);
+    pub fn identify_with_inversions(ps : &Vec<Pitch>, k : &KeySignature) -> Triad {
+        let mut t1 = Triad::from_pitches(ps.clone());
+        let mut t2 = Triad::from_pitches(vec![ps[1], ps[2], ps[0].raise_octave()]);
+        let mut t3 = Triad::from_pitches(vec![ps[2], ps[0].raise_octave(), ps[1].raise_octave()]);
+        t1.inversion = TriadInversion::Root;
+        t2.inversion = TriadInversion::First;
+        t3.inversion = TriadInversion::Second;
 
         println!("Triad::identify {t1:?}");
         println!("Triad::identify {t2:?}");
@@ -261,17 +307,9 @@ pub struct Seventh {
 
 impl Seventh {
     pub fn from_pitches(ps_orig : Vec<Pitch>) -> Seventh {
+        println!("Seventh::from_pitches {ps_orig:?}");
         assert!(ps_orig.len() == 4);
         let mut ps = ps_orig.clone();
-        ps.sort_by(|p1, p2| {
-            p1.pitch().cmp(&p2.pitch())
-
-        });
-
-        assert!(ps[0].pitch() <= ps[1].pitch());
-        assert!(ps[1].pitch() <= ps[2].pitch());
-        assert!(ps[2].pitch() <= ps[3].pitch());
-
         // grab the triad first, now from_pitches the seventh.
         let triad = Triad::from_pitches(ps[0..3].to_vec());
         let _seventh = ps[3];
@@ -405,11 +443,93 @@ impl fmt::Display for Seventh {
     }
 }
 
+// Created to simulate https://www.scales-chords.com/chord/piano/D%237.
+#[derive(Debug, PartialEq, Clone, Hash)]
+pub struct TriadSkipForSeventh {
+    orig_pitches : Vec<Pitch>,
+    filler : Pitch, // pitch we fill in for the third.
+    filling_index : usize,
+    seventh : Seventh, // seventh chord we fake.
+}
+
+impl TriadSkipForSeventh {
+    fn from_pitches(ps_orig : Vec<Pitch>, filling_index : usize, filler_pitch : Pitch) -> TriadSkipForSeventh {
+        assert!(ps_orig.len() == 3);
+        let mut ps = Vec::new();
+        assert!(filling_index < 3);
+        ps.extend(ps_orig[0..filling_index].to_vec());
+        ps.push(filler_pitch);
+        ps.extend(ps_orig[filling_index..3].to_vec());
+        let seventh = Seventh::from_pitches(ps);
+
+        TriadSkipForSeventh {
+            orig_pitches : ps_orig,
+            filler : filler_pitch,
+            filling_index : filling_index,
+            seventh : seventh,
+        }
+    }
+
+
+    fn identify_no_inversion(ps : &Vec<Pitch>, k : &KeySignature) -> Vec<TriadSkipForSeventh> {
+        // try all possibilities where we succeed in giving the damn thing a name.
+        // TODO: use key signature.
+        println!("--> identifying {ps:?}");
+        assert!(ps.len() == 3);
+        let mut out = Vec::new();
+        for i in 0..3 {
+            let p1 = ps[i];
+            for pdelta in 0..12 {
+                let filler = Pitch::from_pitch(p1.pitch() + pdelta);
+                println!("------> filling index {i} with {filler}");
+                let seventh = TriadSkipForSeventh::from_pitches(ps.clone(), i, filler);
+                if seventh.seventh.quality != SeventhQuality::NoCommonName {
+                    out.push(seventh);
+                }
+            }
+
+        }
+        out
+    }
+
+    fn identify_with_inversions(ps : &Vec<Pitch>, k : &KeySignature) -> Vec<TriadSkipForSeventh> {
+        let mut out = Vec::new();
+        println!("@@@@@ identifying {ps:?} with no inversion");
+        out.extend(TriadSkipForSeventh::identify_no_inversion(&vec!(ps[0], ps[1], ps[2]), k));
+        println!("@@@@@ identifying {ps:?} with 1st inversion");
+        out.extend(TriadSkipForSeventh::identify_no_inversion(&vec!(ps[1], ps[2], ps[0].raise_octave()), k));
+        println!("@@@@@ identifying {ps:?} with 2nd inversion");
+        out.extend(TriadSkipForSeventh::identify_no_inversion(&vec!(ps[2], ps[0].raise_octave(), ps[1].raise_octave()), k));
+        return out
+    }
+
+    pub fn string(&self) -> String {
+        // TODO: implement the skipping printing.
+        let ix : usize = self.filling_index.into();
+        let mut out = String::new();
+
+        out += &format!("{}{}", self.seventh.base().str_no_octave(), self.seventh.quality).to_string();
+        out += "[";
+        for i in 0..ix {
+            out += &format!("{} ", self.orig_pitches[i].str_no_octave()).to_string();
+        }
+        out += &format!("(skip {}) ", self.filler.str_no_octave()).to_string();
+        for i in ix..3 {
+            out += &format!("{} ", self.orig_pitches[i].str_no_octave()).to_string();
+        }
+        out += "]";
+        out
+
+    }
+}
+
+
 #[derive(Debug, PartialEq, Clone, Hash)]
 pub enum NoteGroup {
     Single (Pitch),
     Two(Interval),
     Three(Triad),
+    ThreeFromSeventh(TriadSkipForSeventh),
     Four(Seventh),
 
     Unknown,
@@ -425,7 +545,18 @@ impl NoteGroup {
         } else if ps.len() == 2 {
             NoteGroup::Two(Interval::new(ps[0], ps[1]))
         } else if ps.len() == 3 {
-            NoteGroup::Three(Triad::identify(ps, k))
+            let real_triad = Triad::identify_with_inversions(&ps, &k);
+            if real_triad.quality != TriadQuality::NoCommonName {
+                NoteGroup::Three(real_triad)
+            } else {
+                let fake_triads = TriadSkipForSeventh::identify_with_inversions(&ps, &k);
+                if fake_triads.is_empty() {
+                    NoteGroup::Unknown
+                } else {
+                    // TODO: order these chords.
+                    NoteGroup::ThreeFromSeventh(fake_triads[0].clone())
+                }
+            }
         } else if ps.len() == 4 {
             NoteGroup::Four(Seventh::from_pitches(ps))
         } else {

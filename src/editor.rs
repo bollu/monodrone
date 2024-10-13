@@ -291,6 +291,7 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
         let text = match ng {
             NoteGroup::Unknown => "?".to_string(),
             NoteGroup::Three(c) => c.string(),
+            NoteGroup::ThreeFromSeventh(c) => c.string(),
             NoteGroup::Four(c) => c.string(),
             NoteGroup::Two(i) => i.string(),
             NoteGroup::Single(p) => p.name.str().to_string(),

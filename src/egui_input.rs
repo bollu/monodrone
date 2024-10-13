@@ -46,6 +46,18 @@ pub fn toggle_accidental(old : Accidental, new : Accidental) -> Accidental {
     }
 }
 
+pub fn consume_pitch_class_modifier_key(i : &mut egui::InputState, pitch : PitchClass) -> PitchClass {
+    let mut pitch = pitch;
+    if let Some(pitch_name) = consume_pitch_name_key_press(i) {
+        pitch.name = pitch_name;
+    }
+
+    if let Some(accidental) = consume_accidental_key_press(i) {
+        pitch.accidental = toggle_accidental(pitch.accidental, accidental);
+    }
+    pitch
+}
+
 pub fn consume_pitch_modifier_key(i : &mut egui::InputState, pitch : Pitch) -> Pitch {
     let mut pitch = pitch;
     if let Some(pitch_name) = consume_pitch_name_key_press(i) {

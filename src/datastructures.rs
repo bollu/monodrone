@@ -1,3 +1,4 @@
+use egui::Key;
 use serde::{Serialize, Deserialize};
 use core::fmt;
 use std::time::SystemTime;
@@ -120,11 +121,67 @@ impl LastModified {
     }
 }
 
+// TODO: refactor API to use pitch class.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+pub struct PitchClass {
+    pub name : PitchName,
+    pub accidental : Accidental,
+}
+
+
+impl PitchClass {
+    pub fn str(&self) -> String {
+        format!("{}{}", self.name.str(), self.accidental.str())
+    }
+
+    pub fn enumerate() -> Vec<PitchClass> {
+        let mut out = Vec::new();
+        // Currently biased towards writing notes as flats, because
+        // that's how I prefer to think of the key signatures.
+        // Can enharmonically convert to sharps, when needed, based on the key signature.
+        out.push(PitchClass { name: PitchName::C, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::D, accidental: Accidental::Flat });
+        out.push(PitchClass { name: PitchName::D, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::E, accidental: Accidental::Flat });
+        out.push(PitchClass { name: PitchName::E, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::F, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::G, accidental: Accidental::Flat });
+        out.push(PitchClass { name: PitchName::G, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::A, accidental: Accidental::Flat });
+        out.push(PitchClass { name: PitchName::A, accidental: Accidental::Natural });
+        out.push(PitchClass { name: PitchName::B, accidental: Accidental::Flat });
+        out.push(PitchClass { name: PitchName::B, accidental: Accidental::Natural });
+        out
+    }
+
+    pub fn into_pitch(&self, octave : u64) -> Pitch {
+        Pitch {
+            name: self.name,
+            accidental: self.accidental,
+            octave,
+        }
+    }
+}
+
+impl fmt::Display for PitchClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
+// a specific pitch, which has a pitch class and an octave.
 #[derive(Clone, PartialEq, Serialize, Deserialize, Copy, Hash, Eq)]
 pub struct Pitch {
    pub name : PitchName,
    pub accidental : Accidental,
    pub octave : u64,
+}
+
+// every pitch class represents a pitch.
+impl Into<PitchClass> for Pitch {
+    fn into(self) -> PitchClass {
+        PitchClass { name: self.name, accidental: self.accidental }
+    }
 }
 
 impl Pitch {
@@ -140,23 +197,20 @@ impl Pitch {
     assert!(raw_pitch >= 0);
     let octave = raw_pitch / 12 - 1;
     let pitch = raw_pitch % 12;
-    let name = match pitch {
-        0 => PitchName::C,
-        2 => PitchName::D,
-        4 => PitchName::E,
-        5 => PitchName::F,
-        7 => PitchName::G,
-        9 => PitchName::A,
-        11 => PitchName::B,
+    let (name, accidental) = match pitch {
+        0 => (PitchName::C, Accidental::Natural),
+        1 => (PitchName::D, Accidental::Flat),
+        2 => (PitchName::D, Accidental::Natural),
+        3 => (PitchName::E, Accidental::Flat),
+        4 => (PitchName::E, Accidental::Natural),
+        5 => (PitchName::F, Accidental::Natural),
+        6 => (PitchName::F, Accidental::Sharp),
+        7 => (PitchName::G, Accidental::Natural),
+        8 => (PitchName::A, Accidental::Flat),
+        9 => (PitchName::A, Accidental::Natural),
+        10 => (PitchName::B, Accidental::Flat),
+        11 => (PitchName::B, Accidental::Natural),
         _ => unreachable!("Impossible case, number is modulo 12: {}", pitch),
-    };
-    let accidental = match pitch {
-        1 => Accidental::Sharp,
-        3 => Accidental::Flat,
-        6 => Accidental::Sharp,
-        8 => Accidental::Flat,
-        10 => Accidental::Flat,
-        _ => Accidental::Natural,
     };
     Pitch { name, accidental, octave: octave as u64 }
   }
@@ -191,7 +245,7 @@ impl Pitch {
 impl fmt::Debug for Pitch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.str())
-    }    
+    }
 }
 
 impl fmt::Display for Pitch {
@@ -372,6 +426,29 @@ impl std::ops::Sub<IntervalKind> for Pitch {
         self.decrease_pitch(interval)
     }
 }
+
+
+// Subtract two pitch classes to get an interval
+impl std::ops::Sub<PitchClass> for PitchClass {
+    type Output = IntervalKind;
+
+    fn sub(self, other: PitchClass) -> IntervalKind {
+        // assume that the other pitch is higher than the current pitch.
+        IntervalKind::from_pitch_pair(self.into_pitch(0), other.into_pitch(1))
+    }
+}
+
+// add an interval to a pitch class to get a pitch class.
+impl std::ops::Add<IntervalKind> for PitchClass {
+    type Output = PitchClass;
+
+    fn add(self, interval: IntervalKind) -> PitchClass {
+        let pitch = self.into_pitch(0);
+        let new_pitch = pitch + interval;
+        new_pitch.into()
+    }
+}
+
 
 // an interval is a pair of pitches.
 #[derive(Debug, PartialEq, Clone, Hash, Eq, Copy)]
@@ -1097,7 +1174,7 @@ impl History {
 }
 
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 enum MusicMode {
     Major, // Ionian
     HarmonicMinor, // Minor
@@ -1106,17 +1183,59 @@ enum MusicMode {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 pub struct KeySignature {
-    pub key : Pitch,
+    pub key : PitchClass,
+    // TODO: add mode into the key signature.
+    // pub allowed_pitch_classes : Vec<PitchClass>,
+}
+
+impl MusicMode {
+
+    // return a sequence of intervals, as measured from the root,
+    // that generate the scale.
+    pub fn get_intervals_from_root(&self) -> Vec<IntervalKind> {
+        match self {
+            MusicMode::Major => vec![
+                IntervalKind::Unison,
+                IntervalKind::Major2nd,
+                IntervalKind::Major3rd,
+                IntervalKind::PerfectFourth,
+                IntervalKind::PerfectFifth,
+                IntervalKind::MajorSixth,
+                IntervalKind::MajorSeventh,
+            ],
+            MusicMode::HarmonicMinor => vec![
+                IntervalKind::Unison,
+                IntervalKind::Major2nd,
+                IntervalKind::Minor3rd,
+                IntervalKind::PerfectFourth,
+                IntervalKind::PerfectFifth,
+                IntervalKind::MinorSixth,
+                IntervalKind::MajorSeventh,
+            ],
+
+        }
+
+    }
+
+    // get the scale (a sequence of pitch classes) for a given key signature.
+    pub fn get_scale(&self, k : KeySignature) -> Vec<PitchClass> {
+        let mut scale = Vec::new();
+        let intervals = self.get_intervals_from_root();
+        let root = k.key;
+        for interval in intervals.iter() {
+            scale.push(root + *interval);
+        }
+        scale
+    }
 }
 
 impl Default for KeySignature {
     // C minor mode.
     fn default() -> KeySignature {
         KeySignature {
-            key : Pitch {
+            key : PitchClass {
                 name : PitchName::C,
                 accidental : Accidental::Natural,
-                octave : 4,
             },
         }
     }
