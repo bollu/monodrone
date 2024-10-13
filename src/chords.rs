@@ -185,14 +185,12 @@ impl Chord {
             self.seventh.to_interval());
         let mut base : Vec<i32> = vec!(root.into_pitch(0).pitch() as i32);
 
-        for interval in intervals {
-            if let Some(interval) = interval {
-                let pitch_class = root + interval;
-                base.push(pitch_class.into_pitch(0).pitch() as i32);
-            }
+        for interval in intervals.into_iter().flatten() {
+            let pitch_class = root + interval;
+            base.push(pitch_class.into_pitch(0).pitch() as i32);
         }
         assert!(self.permutation.len() == base.len());
-        return self.permutation.apply(base);
+        self.permutation.apply(base)
     }
 
     fn badness(&self) -> i32 {
