@@ -35,6 +35,7 @@ use std::collections::{HashMap, BTreeSet};
 use itertools::Itertools;
 use crate::datastructures::*;
 use crate::constants::*;
+use tracing::{event, Level};
 
 
 // New algorithm design
@@ -267,12 +268,14 @@ impl PartialOrd for Chord {
 
 // lookup table for chord.
 #[derive(Clone, Debug)]
-struct ChordLookupTable {
+pub struct ChordLookupTable {
     pitch2chords : HashMap<Vec<i32>, BTreeSet<Chord>>
 }
 
 impl ChordLookupTable {
     fn generate(&mut self) {
+        let mut num_chords : usize = 0;
+        event!(Level::INFO, "generating chord lookup table");
         for third_kind in ChordThirdKind::enumerate() {
             for fifth_kind in ChordFifthKind::enumerate() {
                 for seventh_kind in ChordSeventhKind::enumerate() {
@@ -292,17 +295,14 @@ impl ChordLookupTable {
                             entry
                             .and_modify(|chords| { chords.insert(c.clone()); })
                             .or_insert(BTreeSet::from([c.clone()]));
+                            num_chords += 1;
                         }
                     }
 
                 }
             }
         }
-
-        println!("generated...");
-        for (k, v) in self.pitch2chords.iter() {
-            println!("{:?} -> {:?}", k, v);
-        }
+        event!(Level::INFO, "generated table (#chords: {:?})", num_chords);
     }
 
     pub fn match_pitches(&self, pitches : Vec<Pitch>) -> Vec<Chord> {

@@ -195,7 +195,7 @@ impl IDEImage {
         }
 
         // write into the updating channel.
-        self.file_save_writer.update(Some((self.clone().into(), self.last_modified)));
+        let _ = self.file_save_writer.update(Some((self.clone().into(), self.last_modified)));
 
         self.last_modified.clean();
 
