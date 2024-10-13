@@ -39,7 +39,7 @@ fn ide_image_file_path() -> PathBuf {
     out
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct IDEImageSaveInfo {
     contexts : Vec<Project>,
     ix : i32

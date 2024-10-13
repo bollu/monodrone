@@ -289,13 +289,17 @@ pub fn egui_editor(this : &mut EditorUIState, settings : &mut IDEImage, sequence
     for y in 0u64..TRACK_LENGTH {
         let ng = settings.ctx_mut().chord_info.get(y);
         let text = match ng {
-            NoteGroup::Unknown => "?".to_string(),
-            NoteGroup::Three(c) => c.string(),
-            NoteGroup::ThreeFromSeventh(c) => c.string(),
-            NoteGroup::Four(c) => c.string(),
+            NoteGroup::Chord(cs) => {
+                if cs.len() == 0 {
+                    "?".to_string()
+                } else {
+                    let chord = cs.get(0).unwrap();
+                    chord.to_string()
+                }
+            }
             NoteGroup::Two(i) => i.string(),
             NoteGroup::Single(p) => p.name.str().to_string(),
-            NoteGroup::None => "".to_string()
+            NoteGroup::Empty => "".to_string(),
         };
         painter.text(logical_to_draw_min(pos2(NTRACKS as f32, y as f32)),
             Align2::LEFT_TOP, text, FontId::monospace(FONT_SIZE_NOTE), TEXT_COLOR_LEADING);

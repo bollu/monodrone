@@ -122,11 +122,13 @@ impl LastModified {
 }
 
 // TODO: refactor API to use pitch class.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy, Hash)]
 pub struct PitchClass {
     pub name : PitchName,
     pub accidental : Accidental,
 }
+
+
 
 
 impl PitchClass {
@@ -191,6 +193,10 @@ impl Pitch {
 
   pub fn pitch (&self) -> i64 {
     (self.octave as i64 + 1) * 12 + self.name.pitch() + self.accidental.pitch()
+  }
+
+  pub fn into_pitch_class(&self) -> PitchClass {
+      PitchClass { name: self.name, accidental: self.accidental }
   }
 
   pub fn from_pitch (raw_pitch : i64) -> Self {
@@ -1252,7 +1258,7 @@ pub struct ProjectSaveInfo {
     pub key_signature : KeySignature,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(from = "ProjectSaveInfo", into = "ProjectSaveInfo")]
 pub struct Project {
     pub last_modified : LastModified,
