@@ -32,6 +32,7 @@
 //     Tritone    | 6 semitones  |  T
 
 use std::collections::{HashMap, BTreeSet};
+use itertools::Itertools;
 use crate::datastructures::*;
 use crate::constants::*;
 
@@ -127,12 +128,52 @@ impl ChordSeventhKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+struct Permutation(Vec<usize>);
+
+impl Permutation {
+    // the symmetric group that this permutation belongs to.
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+    fn apply<T : Clone>(&self, v : Vec<T>) -> Vec<T> {
+        assert!(v.len() == self.0.len());
+        let mut out = Vec::new();
+        for i in 0..self.0.len() {
+            out.push(v[self.0[i]].clone());
+        }
+        out
+    }
+
+    fn num_cycles(&self) -> usize {
+        let mut visited = vec![false; self.0.len()];
+        let mut out = 0;
+        for i in 0..self.0.len() {
+            if visited[i] {
+                continue;
+            }
+            out += 1;
+            let mut j = i;
+            while !visited[j] {
+                visited[j] = true;
+                j = self.0[j];
+            }
+        }
+        out
+    }
+
+    fn generate(n : usize) -> Vec<Permutation> {
+        (0..n).permutations(n).map(|p| { Permutation(p) }).collect()
+    }
+}
+
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Chord {
     third : ChordThirdKind,
     fifth : ChordFifthKind,
     seventh : ChordSeventhKind,
-    inversion : usize, // 0, 1, 2, 3 for inversions, depending on whether we have third, fifth, seventh.
+    permutation : Permutation // permutation applied to chord.
 }
 
 impl Chord {
@@ -142,22 +183,20 @@ impl Chord {
         let intervals = vec!(self.third.to_interval(),
             self.fifth.to_interval(),
             self.seventh.to_interval());
-        let mut out : Vec<i32> = Vec::new();
-        out.push(root.into_pitch(0).pitch() as i32);
+        let mut base : Vec<i32> = vec!(root.into_pitch(0).pitch() as i32);
 
         for interval in intervals {
             if let Some(interval) = interval {
                 let pitch_class = root + interval;
-                out.push(pitch_class.into_pitch(0).pitch() as i32);
+                base.push(pitch_class.into_pitch(0).pitch() as i32);
             }
         }
-        assert!(self.inversion < out.len());
-        out.rotate_right(self.inversion);
-        return out;
+        assert!(self.permutation.len() == base.len());
+        return self.permutation.apply(base);
     }
 
     fn badness(&self) -> i32 {
-        let mut out = 0;
+        let mut out : i32 = 0;
 
         out = out * 10 + match self.seventh {
             ChordSeventhKind::Skip => 0,
@@ -178,16 +217,20 @@ impl Chord {
             ChordThirdKind::Skip => 2
         };
 
-        out = out * 10 + if self.inversion != 0 {
-            1
-        } else {
-            0
-        };
+        out = out * 10 + self.permutation.num_cycles() as i32;
         out
     }
 
     pub fn to_string(&self) -> String {
         let mut out = String::new();
+        // if we have neither third nor seventh..
+
+        // if we have only third, then triad.
+
+
+        // if we have only seventh, then (skip 3)
+
+        // if we have both, the determine by 3rd and 7th.
         out.push_str(match self.third {
             ChordThirdKind::Major => "M",
             ChordThirdKind::Minor => "m",
@@ -197,14 +240,14 @@ impl Chord {
         });
         out.push_str(match self.fifth {
             ChordFifthKind::Perfect => "",
-            ChordFifthKind::Diminished => "dim",
-            ChordFifthKind::Augmented => "aug",
+            ChordFifthKind::Diminished => " dim5",
+            ChordFifthKind::Augmented => " aug5",
             ChordFifthKind::Skip => "(skip 5)"
         });
         out.push_str(match self.seventh {
-            ChordSeventhKind::Major => "7",
-            ChordSeventhKind::Minor => "m7",
-            ChordSeventhKind::Sixth => "6",
+            ChordSeventhKind::Major => " M7",
+            ChordSeventhKind::Minor => " m7",
+            ChordSeventhKind::Sixth => " 6",
             ChordSeventhKind::Skip => ""
         });
         out
@@ -235,20 +278,19 @@ impl ChordLookupTable {
         for third_kind in ChordThirdKind::enumerate() {
             for fifth_kind in ChordFifthKind::enumerate() {
                 for seventh_kind in ChordSeventhKind::enumerate() {
-                    let num_notes : i32 = 1 + (third_kind != ChordThirdKind::Skip) as i32 +
-                            (fifth_kind != ChordFifthKind::Skip) as i32 +
-                            (seventh_kind != ChordSeventhKind::Skip) as i32;
-                    let num_inversions = num_notes - 1;
-                    for inv in 0..num_inversions {
+                    let num_notes : usize = 1 + (third_kind != ChordThirdKind::Skip) as usize +
+                            (fifth_kind != ChordFifthKind::Skip) as usize +
+                            (seventh_kind != ChordSeventhKind::Skip) as usize;
+                    for p in Permutation::generate(num_notes as usize) {
                         for root in PitchClass::enumerate() {
                             let c = Chord {
                                 third : third_kind,
                                 fifth : fifth_kind,
                                 seventh : seventh_kind,
-                                inversion : inv as usize
+                                permutation : p.clone(),
                             };
-                            let iv = c.materialize_at_root(root);
-                            let mut entry = self.pitch2chords.entry(iv);
+                            let iv = c.clone().materialize_at_root(root);
+                            let entry = self.pitch2chords.entry(iv);
                             entry
                             .and_modify(|chords| { chords.insert(c.clone()); })
                             .or_insert(BTreeSet::from([c.clone()]));
@@ -258,16 +300,22 @@ impl ChordLookupTable {
                 }
             }
         }
+
+        println!("generated...");
+        for (k, v) in self.pitch2chords.iter() {
+            println!("{:?} -> {:?}", k, v);
+        }
     }
 
     pub fn match_pitches(&self, pitches : Vec<Pitch>) -> Vec<Chord> {
         let mut out = Vec::new();
         for root in PitchClass::enumerate() {
-            let mut key : Vec<i32> =
+            let key : Vec<i32> =
                 pitches
                 .iter()
                 .map(|p| { (p.into_pitch_class() - root).pitch() as i32 })
                 .collect();
+            println!("looking up: {:?} / root: {:?} |  key {:?}", pitches, root, key);
             if let Some(chords) = self.pitch2chords.get(&key) {
                 out.extend(chords.iter().cloned());
             };

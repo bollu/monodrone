@@ -13,6 +13,7 @@ directories = "5.0.1"
 eframe = "0.27.2"
 egui = { version = "0.27.2",  features=["serde"] }
 env_logger = "0.11.3"
+itertools = "0.13.0"
 lean-sys = { git = "https://github.com/bollu/lean-sys/", branch = "macos-query-xcrun", features=[] }
 libc = "0.2.155"
 midi = "0.1.0"

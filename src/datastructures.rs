@@ -192,7 +192,7 @@ impl Pitch {
   }
 
   pub fn pitch (&self) -> i64 {
-    (self.octave as i64 + 1) * 12 + self.name.pitch() + self.accidental.pitch()
+    (self.octave as i64) * 12 + self.name.pitch() + self.accidental.pitch()
   }
 
   pub fn into_pitch_class(&self) -> PitchClass {
@@ -440,7 +440,7 @@ impl std::ops::Sub<PitchClass> for PitchClass {
 
     fn sub(self, other: PitchClass) -> IntervalKind {
         // assume that the other pitch is higher than the current pitch.
-        IntervalKind::from_pitch_pair(self.into_pitch(0), other.into_pitch(1))
+        IntervalKind::from_pitch_pair(other.into_pitch(0), self.into_pitch(0))
     }
 }
 
