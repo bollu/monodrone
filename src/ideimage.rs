@@ -3,21 +3,24 @@
 
 
 
+
 use serde::{Deserialize, Serialize};
  // 0.7.2
 use tracing_subscriber::fmt::MakeWriter;
 
 use std::path::PathBuf;
 
+use std::sync::mpsc::channel;
 use std::time::Duration;
 use std::{fs::File};
 
 use eframe::egui;
 use egui::*;
-
-
+use std::sync::Mutex;
 
 use tracing::{event, Level};
+use single_value_channel::channel_starting_with;
+use std::thread::{self, sleep};
 
 
 use crate::*;
@@ -31,54 +34,96 @@ fn audio_dir() -> PathBuf {
 
 fn ide_image_file_path() -> PathBuf {
     let mut out = audio_dir();
-    let filename = "monodrone-settings.json";
+    let filename = "monodrone-settings.ron";
     out.push(filename);
     out
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct IDEImageSaveInfo {
+    contexts : Vec<Project>,
+    ix : i32
+}
+
 
 // The image file, that has all the state.  #[derive(Debug, Serialize, Deserialize)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "IDEImageSaveInfo", into = "IDEImageSaveInfo")]
 pub struct IDEImage {
     contexts : Vec<Project>,
     last_modified : LastModified,
     ix : i32,
+    file_save_writer: single_value_channel::Updater<Option<(IDEImageSaveInfo, LastModified)>>
 }
 
+// spawn a thread that sleep for 500ms, polls the receiver, and if it finds
+// data in the receiver, attempts to write the IDE image.
+fn make_ide_image_saver_thread(mut receiver : single_value_channel::Receiver<Option<(IDEImageSaveInfo, LastModified)>>) {
+    thread::spawn(move || {
+        let mut last_modified = LastModified::default();
+        loop {
+            sleep(Duration::from_millis(500));
 
-fn save_project(ctx : &Project) {
-    // let midi_filepath = dir ctx.get_midi_export_file_path();
-    let mut path = audio_dir();
-    path.push(format!("{}.mid", ctx.track_name.clone()));
+            let (image, latest_last_modified) = match receiver.latest() {
+                None => continue,
+                Some(x) => x
+            };
 
-    let midi_file = match File::create(path.clone()) {
-        Ok(file) => file,
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to create MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error creating MIDI file: {:?}", e);
-            return;
-        }
-    };
-    let (header, tracks) = ctx.to_smf();
-    match midly::write_std(&header, tracks.iter(), midi_file) {
-        Ok(()) => {
-            event!(Level::INFO, "Successfully saved MIDI file '{}'", path.to_string_lossy());
-        }
-        Err(e) => {
-            rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Error)
-                .set_title("Unable to save MIDI file")
-                .set_description(e.to_string())
-                .show();
-            event!(Level::ERROR, "error writing MIDI file: {:?}", e);
+            last_modified.union(latest_last_modified);
+            if !last_modified.is_dirty() {
+                continue;
+            }
+            last_modified.clean();
+
+            // we have stuff to write, so write it.
+            let path = ide_image_file_path();
+            match File::create(path.clone()) {
+                Ok(file) => {
+                    let writer = file.make_writer();
+                    match ron::ser::to_writer(writer, image) {
+                        Ok(()) => {
+                            event!(Level::INFO, "Successfully saved settings file to path {:?}", path.to_string_lossy());
+                            last_modified.clean();
+                        },
+                        Err(e) => {
+                            event!(Level::ERROR, "Failed to serialize image file to path {:?} with error {}",
+                                path.to_string_lossy(), e);
+
+                        }
+                    }
+                }
+                Err(e) => {
+                    event!(Level::ERROR, "Error creating image file '{}': {:?}", path.to_string_lossy(), e);
+                }
+            }
+        };
+    });
+}
+
+// This is a little subtle.
+// When we load a save info from a file, we also spin up a channel
+// to save the data from here on out.
+impl From<IDEImageSaveInfo> for IDEImage {
+    fn from(val: IDEImageSaveInfo) -> Self {
+        let (mut receiver, updater) = single_value_channel::channel();
+        make_ide_image_saver_thread(receiver);
+        IDEImage {
+            contexts : val.contexts,
+            ix : val.ix,
+            last_modified : Default::default(),
+            file_save_writer: updater
         }
     }
 }
 
+impl From<IDEImage> for IDEImageSaveInfo {
+    fn from(val : IDEImage) -> Self {
+        IDEImageSaveInfo {
+            contexts : val.contexts,
+            ix : val.ix
+        }
+    }
+}
 
 impl IDEImage {
     pub fn ctx_mut(&mut self) -> &mut Project {
@@ -91,36 +136,42 @@ impl IDEImage {
     }
 
     pub fn load() -> Self {
-        let mut default =
+        let default = || {
+            let (receiver, updater) = single_value_channel::channel();
+            make_ide_image_saver_thread(receiver);
             IDEImage {
                 contexts : vec![Project::new("track-0".to_string())],
                 ix : 0,
                 last_modified : LastModified::new(),
-            };
+                file_save_writer: updater,
+            }
+        };
         let path = ide_image_file_path();
         let file =
             match File::open(path.clone()) {
                 Ok(file) => {
-                    event!(Level::INFO, "opened settings fil at '{}'", path.to_string_lossy());
+                    event!(Level::INFO, "opened image file at '{}'", path.to_string_lossy());
                     file
                 }
                 Err(err) => {
-                    event!(Level::ERROR, "error loading settings file at '{}': {:?}", path.to_string_lossy(), err);
-                    default.save();
-                    return default
+                    event!(Level::ERROR, "error loading image file at '{}': {:?}", path.to_string_lossy(), err);
+                    let mut d = default();
+                    d.save();
+                    return d
                 }
             };
 
         let reader = std::io::BufReader::new(file);
         match ron::de::from_reader(reader) {
-            Ok(settings) => {
-                event!(Level::INFO, "loaded settings from file: {:?}", path);
-                settings
+            Ok(image) => {
+                event!(Level::INFO, "loaded image from file: {:?}", path);
+                image
             }
             Err(err) => {
-                event!(Level::ERROR, "failed to load settings file: '{:?}'", err);
-                default.save();
-                default
+                event!(Level::ERROR, "failed to load image file: '{:?}'", err);
+                let mut d = default();
+                d.save();
+                return d
             }
         }
     }
@@ -132,7 +183,6 @@ impl IDEImage {
         self.ix = ix as i32;
     }
 
-    // save the settings to the settings file.
     pub fn save(&mut self) {
         for ctx in &mut self.contexts {
             // TODO: make this a trait.
@@ -143,21 +193,12 @@ impl IDEImage {
         if !self.last_modified.is_dirty_and_idle_for(Duration::from_secs(1)) {
             return;
         }
+
+        // write into the updating channel.
+        self.file_save_writer.update(Some((self.clone().into(), self.last_modified)));
+
         self.last_modified.clean();
 
-        let path = ide_image_file_path();
-        match File::create(path.clone()) {
-            Ok(file) => {
-                let writer = file.make_writer();
-                ron::ser::to_writer(writer, &self).unwrap();
-                event!(Level::INFO, "Successfully saved settings file to path {:?}", path.to_string_lossy());
-            }
-            Err(e) => {
-                event!(Level::ERROR, "Error saving settings file '{}': {:?}", path.to_string_lossy(),
-                    e);
-            }
-        }
-        save_project(self.ctx());
     }
 
     pub fn switch_to(&mut self, ix: i32) {
@@ -168,15 +209,15 @@ impl IDEImage {
 }
 
 
-pub fn egui_project_picker(_ctx : &egui::Context, ui: &mut egui::Ui, settings : &mut IDEImage) {
+pub fn egui_project_picker(_ctx : &egui::Context, ui: &mut egui::Ui, image : &mut IDEImage) {
     ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
-        let mut selected_ix : i32 = settings.ix ;
-        for (i, ctx) in settings.contexts.iter().enumerate() {
-            if ui.selectable_label(i == settings.ix as usize, ctx.track_name.clone()).clicked() {
+        let mut selected_ix : i32 = image.ix ;
+        for (i, ctx) in image.contexts.iter().enumerate() {
+            if ui.selectable_label(i == image.ix as usize, ctx.track_name.clone()).clicked() {
                 selected_ix = i as i32;
             }
         }
 
-        settings.switch_to(selected_ix);
+        image.switch_to(selected_ix);
     });
 }

@@ -128,19 +128,12 @@ pub struct Triad {
 }
 
 impl Triad {
-    pub fn identify(ps_orig : Vec<Pitch>) -> Triad {
-        assert!(ps_orig.len() == 3);
-        let mut ps = ps_orig.clone();
-        ps.sort_by(|p1, p2| {
-            p1.pitch().cmp(&p2.pitch())
-        });
-
-        assert!(ps[0].pitch() <= ps[1].pitch());
-        assert!(ps[1].pitch() <= ps[2].pitch());
+    pub fn from_pitches(ps : Vec<Pitch>) -> Triad {
 
         let i12 = Interval::new(ps[0], ps[1]);
         let i23 = Interval::new(ps[1], ps[2]);
         let i13 = Interval::new(ps[0], ps[2]);
+        println!("ps: {ps:?}, i12: {i12}, i23: {i23}");
 
         // C E G
         if i12.kind() == IntervalKind::Major3rd && i23.kind() == IntervalKind::Minor3rd {
@@ -178,6 +171,7 @@ impl Triad {
                 quality: TriadQuality::Diminished,
             }
         }
+
         // The term is borrowed from the contrapuntal technique of suspension,
         // where a note from a previous chord is carried over to the next chord,
         // and then resolved down to the third or tonic, suspending a note from
@@ -205,7 +199,7 @@ impl Triad {
         }
          else {
             Triad {
-                pitches : ps_orig,
+                pitches : ps,
                 quality: TriadQuality::NoCommonName,
             }
         }
@@ -214,6 +208,7 @@ impl Triad {
     pub fn base(&self) -> Pitch {
         self.pitches[0]
     }
+
 
     pub fn string(&self) -> String {
         match self.quality {
@@ -236,6 +231,27 @@ impl fmt::Display for Triad {
     }
 }
 
+impl Triad {
+    // identify the "best" name for a given chord.
+    // TODO: also use the key signature when doing so.
+    pub fn identify(ps : Vec<Pitch>, k : KeySignature) -> Triad {
+        let t1 = Triad::from_pitches(ps.clone());
+        let t2 = Triad::from_pitches(vec![ps[1], ps[2], ps[0].raise_octave()]);
+        let t3 = Triad::from_pitches(vec![ps[2], ps[0].raise_octave(), ps[1].raise_octave()]);
+
+        println!("Triad::identify {t1:?}");
+        println!("Triad::identify {t2:?}");
+        println!("Triad::identify {t3:?}");
+
+        if t1.quality != TriadQuality::NoCommonName {
+            return t1
+        } else if t2.quality != TriadQuality::NoCommonName {
+            return t2
+        } else {
+            return t3
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, Hash)]
 pub struct Seventh {
@@ -244,7 +260,7 @@ pub struct Seventh {
 }
 
 impl Seventh {
-    pub fn identify(ps_orig : Vec<Pitch>) -> Seventh {
+    pub fn from_pitches(ps_orig : Vec<Pitch>) -> Seventh {
         assert!(ps_orig.len() == 4);
         let mut ps = ps_orig.clone();
         ps.sort_by(|p1, p2| {
@@ -256,8 +272,8 @@ impl Seventh {
         assert!(ps[1].pitch() <= ps[2].pitch());
         assert!(ps[2].pitch() <= ps[3].pitch());
 
-        // grab the triad first, now identify the seventh.
-        let triad = Triad::identify(ps[0..3].to_vec());
+        // grab the triad first, now from_pitches the seventh.
+        let triad = Triad::from_pitches(ps[0..3].to_vec());
         let _seventh = ps[3];
         // https://en.wikipedia.org/wiki/Seventh_chord
         let p34 = Interval::new(ps[2], ps[3]);
@@ -401,7 +417,7 @@ pub enum NoteGroup {
 }
 
 impl NoteGroup {
-    pub fn mk(ps : Vec<Pitch>) -> NoteGroup {
+    pub fn identify(ps : Vec<Pitch>, k : KeySignature) -> NoteGroup {
         if ps.is_empty() {
             NoteGroup::None
         } else if ps.len() == 1 {
@@ -409,9 +425,9 @@ impl NoteGroup {
         } else if ps.len() == 2 {
             NoteGroup::Two(Interval::new(ps[0], ps[1]))
         } else if ps.len() == 3 {
-            NoteGroup::Three(Triad::identify(ps))
+            NoteGroup::Three(Triad::identify(ps, k))
         } else if ps.len() == 4 {
-            NoteGroup::Four(Seventh::identify(ps))
+            NoteGroup::Four(Seventh::from_pitches(ps))
         } else {
             NoteGroup::Unknown
         }
@@ -427,7 +443,7 @@ pub struct ChordInfo {
 }
 
 impl ChordInfo {
-    pub fn rebuild(&mut self, track : &PlayerTrack) {
+    pub fn rebuild(&mut self, track : &PlayerTrack, k : KeySignature) {
         // sync changes.
         self.last_modified.union(&track.last_modified);
 
@@ -450,7 +466,7 @@ impl ChordInfo {
                     None => continue,
                 };
             }
-            self.note_groups.insert(y, NoteGroup::mk(ps));
+            self.note_groups.insert(y, NoteGroup::identify(ps, k));
         }
     }
 

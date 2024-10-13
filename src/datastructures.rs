@@ -120,7 +120,7 @@ impl LastModified {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy, Hash, Eq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Copy, Hash, Eq)]
 pub struct Pitch {
    pub name : PitchName,
    pub accidental : Accidental,
@@ -161,9 +161,10 @@ impl Pitch {
     Pitch { name, accidental, octave: octave as u64 }
   }
 
-  pub fn lower_octave(&mut self) {
-        if self.octave > 0 {
-            self.octave -= 1;
+  pub fn lower_octave(self) -> Pitch {
+        Pitch {
+            octave: if self.octave > 0 { self.octave - 1 } else { self.octave },
+            ..self
         }
     }
 
@@ -171,8 +172,11 @@ impl Pitch {
         Pitch::from_pitch(self.pitch() + delta)
     }
 
-  pub fn raise_octave(&mut self) {
-        self.octave += 1;
+  pub fn raise_octave(self) -> Pitch {
+        Pitch {
+            octave: self.octave + 1,
+            ..self
+        }
     }
 
     pub fn str_no_octave (&self) -> String {
@@ -181,6 +185,18 @@ impl Pitch {
 
     pub fn str(&self) -> String {
         format!("{}{}{}", self.name.str(), self.accidental.str(), self.octave)
+    }
+}
+
+impl fmt::Debug for Pitch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }    
+}
+
+impl fmt::Display for Pitch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.str())
     }
 }
 
@@ -202,6 +218,28 @@ pub enum IntervalKind {
 }
 
 impl IntervalKind {
+    pub fn from_pitch_pair(pitch1 : Pitch, pitch2 : Pitch) -> IntervalKind {
+        let p = pitch1.pitch() % 12;
+        let q = pitch2.pitch() % 12;
+        assert!(q + 12 >= p);
+        let diff = ((q + 12) - p) % 12;
+        assert!(diff >= 0 && diff < 12);
+        match diff {
+            0 => IntervalKind::Unison,
+            1 => IntervalKind::Minor2nd,
+            2 => IntervalKind::Major2nd,
+            3 => IntervalKind::Minor3rd,
+            4 => IntervalKind::Major3rd,
+            5 => IntervalKind::PerfectFourth,
+            6 => IntervalKind::Tritone,
+            7 => IntervalKind::PerfectFifth,
+            8 => IntervalKind::MinorSixth,
+            9 => IntervalKind::MajorSixth,
+            10 => IntervalKind::MinorSeventh,
+            11 => IntervalKind::MajorSeventh,
+            _ => unreachable!("diff is modulo 12, so can only have values 1..11")
+        }
+    }
     pub fn pitch(&self) -> i64 {
         match self {
             IntervalKind::Unison => 0,
@@ -347,28 +385,7 @@ impl Interval {
     }
 
     pub fn kind(&self) -> IntervalKind {
-        let p = self.pitches.0;
-        let q = self.pitches.1;
-        let diff = if p.pitch() > q.pitch() {
-            p.pitch() - q.pitch()
-        } else {
-            q.pitch() - p.pitch()
-        };
-        match diff {
-            0 => IntervalKind::Unison,
-            1 => IntervalKind::Minor2nd,
-            2 => IntervalKind::Major2nd,
-            3 => IntervalKind::Minor3rd,
-            4 => IntervalKind::Major3rd,
-            5 => IntervalKind::PerfectFourth,
-            6 => IntervalKind::Tritone,
-            7 => IntervalKind::PerfectFifth,
-            8 => IntervalKind::MinorSixth,
-            9 => IntervalKind::MajorSixth,
-            10 => IntervalKind::MinorSeventh,
-            11 => IntervalKind::MajorSeventh,
-            _ => unreachable!("diff is modulo 12, so can only have values 1..11")
-        }
+        IntervalKind::from_pitch_pair(self.pitches.0, self.pitches.1)
     }
 
     pub fn string(&self) -> String {
@@ -494,11 +511,11 @@ impl PlayerNote {
     }
 
     pub fn lower_octave (&mut self) {
-        self.pitch.lower_octave();
+        self.pitch = self.pitch.lower_octave();
     }
 
     pub fn raise_octave(&mut self) {
-        self.pitch.raise_octave();
+        self.pitch = self.pitch.raise_octave();
     }
 
     pub fn insert_newline_at (&self, selection : Selection, accum : &mut Vec<PlayerNote>) {
@@ -1054,6 +1071,10 @@ impl History {
         self.actions.truncate(self.current);
         self.actions.push((action, selection, track));
         self.current += 1;
+
+        if (self.actions.len() > NUM_HISTORY_STEPS) {
+            self.actions.drain(0..(self.actions.len() - NUM_HISTORY_STEPS));
+        }
     }
 
     fn undo(&mut self) -> Option<(Action, Selection, PlayerTrack)> {
@@ -1133,7 +1154,7 @@ impl From<ProjectSaveInfo> for Project {
         let track = PlayerTrack::from_notes(info.track.notes);
         let cp = CounterpointLints::from_track(&track);
         let mut chord_info  : ChordInfo = Default::default();
-        chord_info.rebuild(&track);
+        chord_info.rebuild(&track, info.key_signature);
         Project {
             last_modified: LastModified::new(),
             track,
@@ -1204,34 +1225,34 @@ impl Project {
             });
             // self.cursor_move_down_one(); this makes it annoying when one wants to e.g. write C#
         }
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn cursor_move_left_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveLeftOne, self.selection, self.track.clone());
         self.selection = self.selection.move_left_one();
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn cursor_move_right_one (&mut self) {
         self.history.push(Action::CursorMoveRightOne, self.selection, self.track.clone());
         self.selection = self.selection.move_right_one();
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn cursor_move_down_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveDownOne, self.selection, self.track.clone());
         self.selection = self.selection.move_down_one();
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn cursor_move_up_one (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::CursorMoveUpOne, self.selection, self.track.clone());
         self.selection = self.selection.move_up_one();
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn toggle_sharp (&mut self) {
@@ -1241,7 +1262,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.pitch.accidental = note.pitch.accidental.toggle_sharp()
             });
-            self.chord_info.rebuild(&self.track);
+            self.chord_info.rebuild(&self.track, self.key_signature);
         }
     }
 
@@ -1252,7 +1273,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.pitch.accidental = note.pitch.accidental.toggle_flat()
             });
-            self.chord_info.rebuild(&self.track);
+            self.chord_info.rebuild(&self.track, self.key_signature);
         }
     }
 
@@ -1261,7 +1282,7 @@ impl Project {
         self.history.push(Action::Newline, self.selection, self.track.clone());
         self.track.insert_newline(self.selection);
         self.selection = self.selection.move_down_one();
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn delete_line (&mut self) {
@@ -1275,7 +1296,7 @@ impl Project {
             // if nothing was consumed, then we make an action by moving the cursor up.
             self.selection = self.selection.move_up_one();
         }
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn lower_octave (&mut self) {
@@ -1285,7 +1306,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.lower_octave()
             });
-            self.chord_info.rebuild(&self.track);
+            self.chord_info.rebuild(&self.track, self.key_signature);
         }
     }
 
@@ -1296,7 +1317,7 @@ impl Project {
             self.track.modify_note_at_ix_mut(ix, |note| {
                 note.raise_octave()
             });
-            self.chord_info.rebuild(&self.track);
+            self.chord_info.rebuild(&self.track, self.key_signature);
         }
     }
 
@@ -1304,20 +1325,21 @@ impl Project {
         self.last_modified.modified();
         self.history.push(Action::IncreaseNSteps, self.selection, self.track.clone());
         self.track.increase_nsteps(self.selection);
-        self.chord_info.rebuild(&self.track);
+        // TODO: call this on each frame, and cache if key signature has been modified.
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn decrease_nsteps (&mut self) {
         self.last_modified.modified();
         self.history.push(Action::DecreaseNSteps, self.selection, self.track.clone());
         self.track.decrease_nsteps(self.selection);
-        self.chord_info.rebuild(&self.track);
+        self.chord_info.rebuild(&self.track, self.key_signature);
     }
 
     pub fn undo_action (&mut self) {
         match self.history.undo() {
             Some((_action, selection, track)) => {
-                self.chord_info.rebuild(&track);
+                self.chord_info.rebuild(&track, self.key_signature);
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;
@@ -1332,7 +1354,7 @@ impl Project {
     pub fn redo_action (&mut self) {
         match self.history.redo() {
             Some((_action, selection, track)) => {
-                self.chord_info.rebuild(&track);
+                self.chord_info.rebuild(&track, self.key_signature);
                 self.last_modified.modified();
                 self.selection = selection;
                 self.track = track;

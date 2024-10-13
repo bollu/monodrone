@@ -15,4 +15,4 @@ pub const FONT_SIZE_NOTE : f32 = 10.0;
 pub const FONT_SIZE_OCTAVE : f32 = 10.0;
 pub const NTRACKS : u64 = 4;
 pub const TRACK_LENGTH : u64 = 100;
-
+pub const NUM_HISTORY_STEPS : usize = 10000;
